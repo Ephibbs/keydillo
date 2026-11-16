@@ -74,6 +74,10 @@ case "run":
   if args.first == "--" { args.removeFirst() }
   Runner.run(args)
 
+case "hook":
+  // Claude Code PreToolUse hook: stop direct calls to a stored service's host and stray placeholders.
+  Hook.run()
+
 case "help", "-h", "--help":
   print(usage)
 

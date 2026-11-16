@@ -5,6 +5,7 @@ enum ClaudeConnector {
   static let changes = [
     "Adds keydillo as a tool Claude can use (it can list your services and ask you for a key, never read one).",
     "Adds a short skill telling Claude to use keydillo instead of asking for keys in chat.",
+    "Adds a check that stops Claude calling an API directly when keydillo holds its key, and points it to the keydillo address.",
   ]
 
   static var cliPath: String {
@@ -18,6 +19,7 @@ enum ClaudeConnector {
     do {
       try registerMCP()
       try writeSkill()
+      try installHook()
       return nil
     } catch {
       return error.localizedDescription
@@ -43,11 +45,53 @@ enum ClaudeConnector {
 
   /// Keeps an installed skill current with this version of keydillo.
   static func refreshSkillIfInstalled() {
-    guard let current = try? String(contentsOf: skillURL, encoding: .utf8), current != skill else { return }
-    try? skill.write(to: skillURL, atomically: true, encoding: .utf8)
+    guard let current = try? String(contentsOf: skillURL, encoding: .utf8) else { return }
+    if current != skill { try? skill.write(to: skillURL, atomically: true, encoding: .utf8) }
+    try? installHook()   // connected users get the hook and newer settings too
+  }
+
+  static var hookCommand: String { "'\(cliPath)' hook" }
+
+  /// Adds (or updates) keydillo's PreToolUse hook in ~/.claude/settings.json, keeping everything else.
+  static func installHook() throws {
+    let url = home.appendingPathComponent(".claude/settings.json")
+    var root: [String: Any] = [:]
+    if let d = try? Data(contentsOf: url) {
+      guard let obj = try JSONSerialization.jsonObject(with: d) as? [String: Any] else {
+        throw NSError(domain: "keydillo", code: 2, userInfo: [NSLocalizedDescriptionKey: "~/.claude/settings.json isn't valid JSON, so it was left alone."])
+      }
+      root = obj
+      try? d.write(to: url.appendingPathExtension("keydillo-backup"))
+    }
+    var hooks = root["hooks"] as? [String: Any] ?? [:]
+    var pre = (hooks["PreToolUse"] as? [[String: Any]] ?? []).filter { entry in
+      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.contains("keydillo") == true && ($0["command"] as? String)?.hasSuffix(" hook") == true }
+    }
+    pre.append(["matcher": "Bash|WebFetch", "hooks": [["type": "command", "command": hookCommand, "timeout": 5]]])
+    hooks["PreToolUse"] = pre
+    root["hooks"] = hooks
+    // Undo the old blanket .env deny rules from earlier builds.
+    if var perms = root["permissions"] as? [String: Any], var deny = perms["deny"] as? [String] {
+      deny.removeAll { $0 == "Read(**/.env)" || $0 == "Read(**/.env.*)" }
+      perms["deny"] = deny; root["permissions"] = perms
+    }
+    let out = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    try out.write(to: url, options: .atomic)
+  }
+
+  static func removeHook() {
+    let url = home.appendingPathComponent(".claude/settings.json")
+    guard let d = try? Data(contentsOf: url), var root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+          var hooks = root["hooks"] as? [String: Any], let pre = hooks["PreToolUse"] as? [[String: Any]] else { return }
+    hooks["PreToolUse"] = pre.filter { entry in
+      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.hasSuffix(" hook") == true && ($0["command"] as? String)?.contains("keydillo") == true }
+    }
+    root["hooks"] = hooks
+    if let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) { try? out.write(to: url, options: .atomic) }
   }
 
   static func disconnect() {
+    removeHook()
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
     p.arguments = ["-lc", "claude mcp remove --scope user keydillo >/dev/null 2>&1"]
@@ -90,6 +134,8 @@ enum ClaudeConnector {
   # Using API keys with keydillo
 
   Never ask the user to paste an API key into the chat, and never read, print or log a key value.
+
+  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or run the command with `keydillo run -- <command>`.
 
   0. Call the keydillo `status` tool whenever something keydillo-related fails.
   1. Call the keydillo `list_services` tool to see which services are already set up.

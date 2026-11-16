@@ -19,7 +19,9 @@ targets:
       - name: Copy CLI into Resources/bin
         script: |
           mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/bin"
-          cp -f "$BUILT_PRODUCTS_DIR/keydillo" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/bin/keydillo"
+          # Copy then rename: overwriting a signed binary in place gets it SIGKILLed by the kernel's signature cache.
+          cp "$BUILT_PRODUCTS_DIR/keydillo" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/bin/keydillo.new"
+          mv -f "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/bin/keydillo.new" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/bin/keydillo"
           mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents"
           cp -f "$SRCROOT/Resources/LaunchAgents/com.studiokillswitch.keydillo.agent.plist" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/"
         basedOnDependencyAnalysis: false

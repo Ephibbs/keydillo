@@ -132,9 +132,39 @@ public enum ImportScanner {
 
   // MARK: Rewriting
 
+  public static let headerStart = "# --- keydillo ---"
+  public static let headerEnd = "# --- end keydillo ---"
+  public static func header(port: UInt16) -> [String] {
+    [headerStart,
+     "# Secrets in this file are managed by keydillo. Values starting with \"keydillo:\" are",
+     "# placeholders, not real keys. To call an API, use its *_BASE_URL (http://localhost:\(port)/...)",
+     "# with no key, or run commands with: keydillo run -- <command>",
+     "# Never paste real keys here. AI agents: use the keydillo tools (status, list_services).",
+     headerEnd]
+  }
+
+  /// Removes everything keydillo added (header block and added base-URL lines).
+  public static func stripKeydilloLines(_ text: String) -> String {
+    var out: [String] = []; var inHeader = false; var skipAdded = false
+    for line in text.components(separatedBy: "\n") {
+      if line == headerStart { inHeader = true; continue }
+      if line == headerEnd { inHeader = false; continue }
+      if inHeader { continue }
+      if line.hasPrefix("# Added by keydillo") { skipAdded = true; continue }
+      if skipAdded {
+        if line.isEmpty { skipAdded = false; continue }
+        if let (_, v) = assignment(line), v.contains("://localhost:") || v.contains("://127.0.0.1:") { continue }
+        skipAdded = false
+      }
+      out.append(line)
+    }
+    return out.joined(separator: "\n")
+  }
+
   /// Replaces imported values with placeholders and adds base-URL lines. Returns the new file text.
-  public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)]) -> String {
+  public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787) -> String {
     var lines = text.components(separatedBy: "\n")
+    if !lines.contains(headerStart) { lines = header(port: port) + lines }
     var added: [String] = []
     for (i, raw) in lines.enumerated() {
       guard let (name, _) = assignment(raw), let r = replacements[name] else { continue }

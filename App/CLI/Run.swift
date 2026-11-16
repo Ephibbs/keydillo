@@ -43,9 +43,11 @@ enum Runner {
     }
     if !fm.fileExists(atPath: bundle.path) {
       let (_, roots) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/System/Library/Keychains/SystemRootCertificates.keychain"])
+      // Roots an admin or MDM installed (corporate TLS inspection such as Zscaler) live in the System keychain.
+      let (_, admin) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/Library/Keychains/System.keychain"])
       // keydillo's CA goes first: some older TLS libraries stop reading a bundle at the first cert they can't parse.
       var data = try Data(contentsOf: caPem)
-      data.append(roots)
+      data.append(roots); data.append(admin)
       try data.write(to: bundle)
     }
   }
@@ -90,27 +92,71 @@ enum Runner {
     }
     do { try ensureCA() } catch { fail(error.localizedDescription) }
     let appPort = env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) } ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
-    let proxy = MitmProxy(services: services, appPort: appPort)
+    let upstreamProxy = UpstreamProxy.fromEnvironment(env0)
+    if let up = upstreamProxy {
+      FileHandle.standardError.write(Data("keydillo run: also sending traffic through your proxy at \(up.host):\(up.port). Requests to other sites go through it as before. Requests keydillo signs go through the keydillo app, which uses your Mac's proxy settings; a debugging proxy there (Charles, Proxyman, mitmproxy) can see the real key.\n".utf8))
+    }
+    let proxy = MitmProxy(services: services, appPort: appPort, upstreamProxy: upstreamProxy)
     let port: UInt16
     do { port = try proxy.start() } catch { fail("couldn't start the proxy: \(error.localizedDescription)") }
 
     var env = ProcessInfo.processInfo.environment
     let proxyURL = "http://127.0.0.1:\(port)"
     for k in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] { env[k] = proxyURL }
-    env["NO_PROXY"] = "localhost,127.0.0.1,::1"; env["no_proxy"] = env["NO_PROXY"]
+    let keepNoProxy = (env0["NO_PROXY"] ?? env0["no_proxy"]).map { "," + $0 } ?? ""
+    env["NO_PROXY"] = "localhost,127.0.0.1,::1" + keepNoProxy; env["no_proxy"] = env["NO_PROXY"]
+    env["ALL_PROXY"] = nil; env["all_proxy"] = nil
     env["NODE_USE_ENV_PROXY"] = "1"
-    env["NODE_EXTRA_CA_CERTS"] = caPem.path
-    for k in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "AWS_CA_BUNDLE"] { env[k] = bundle.path }
+    // Per-run CA files: keydillo's CA plus whatever the user already trusted (corporate roots, their own bundles).
+    let runBundle = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-ca-\(getpid()).pem")
+    let runExtra = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-extra-\(getpid()).pem")
+    var bundleData = (try? Data(contentsOf: bundle)) ?? Data()
+    var extraData = (try? Data(contentsOf: caPem)) ?? Data()
+    for k in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "AWS_CA_BUNDLE"] {
+      if let path = env0[k], let d = try? Data(contentsOf: URL(fileURLWithPath: path)) { bundleData.append(d); extraData.append(d) }
+    }
+    try? bundleData.write(to: runBundle); try? extraData.write(to: runExtra)
+    env["NODE_EXTRA_CA_CERTS"] = runExtra.path
+    for k in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "AWS_CA_BUNDLE"] { env[k] = runBundle.path }
     env["KEYDILLO_RUN"] = "1"
 
     let child = Process()
     child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     child.arguments = command
     child.environment = env
-    child.terminationHandler = { p in exit(p.terminationStatus) }
+    child.terminationHandler = { p in
+      try? FileManager.default.removeItem(at: runBundle); try? FileManager.default.removeItem(at: runExtra)
+      exit(p.terminationStatus)
+    }
     signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in exit(143) }
     do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
     dispatchMain()
+  }
+}
+
+/// An HTTP proxy the user already had (corporate proxy, Charles, Proxyman, mitmproxy…), from the environment.
+struct UpstreamProxy {
+  let host: String
+  let port: UInt16
+  let authorization: String?
+  let noProxy: [String]
+
+  static func fromEnvironment(_ env: [String: String]) -> UpstreamProxy? {
+    guard let raw = env["HTTPS_PROXY"] ?? env["https_proxy"] ?? env["ALL_PROXY"] ?? env["all_proxy"] ?? env["HTTP_PROXY"] ?? env["http_proxy"],
+          let u = URL(string: raw.contains("://") ? raw : "http://" + raw), let host = u.host,
+          u.scheme == "http" || u.scheme == "https" else { return nil }
+    var auth: String?
+    if let user = u.user {
+      auth = "Basic " + Data("\(user.removingPercentEncoding ?? user):\(u.password?.removingPercentEncoding ?? "")".utf8).base64EncodedString()
+    }
+    let np = (env["NO_PROXY"] ?? env["no_proxy"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+    return UpstreamProxy(host: host, port: UInt16(u.port ?? 8080), authorization: auth, noProxy: np)
+  }
+
+  func bypasses(_ host: String) -> Bool {
+    noProxy.contains { rule in
+      rule == "*" || host == rule || host.hasSuffix(rule.hasPrefix(".") ? rule : "." + rule)
+    }
   }
 }
 
@@ -123,11 +169,27 @@ final class MitmProxy: @unchecked Sendable {
   var tlsListeners: [String: UInt16] = [:]
   let lock = NSLock()
   let session: URLSession
+  /// Straight to the keydillo app on localhost, never through any proxy.
+  let appSession: URLSession = {
+    let c = URLSessionConfiguration.ephemeral
+    c.connectionProxyDictionary = [:]
+    c.timeoutIntervalForRequest = 600; c.timeoutIntervalForResource = 24 * 3600
+    return URLSession(configuration: c)
+  }()
 
-  init(services: [ServiceSummary], appPort: UInt16) {
-    self.services = services; self.appPort = appPort
+  let upstreamProxy: UpstreamProxy?
+
+  init(services: [ServiceSummary], appPort: UInt16, upstreamProxy: UpstreamProxy?) {
+    self.services = services; self.appPort = appPort; self.upstreamProxy = upstreamProxy
     let cfg = URLSessionConfiguration.ephemeral
-    cfg.connectionProxyDictionary = [:]   // never loop back through ourselves
+    // Never loop back through ourselves; do go through the user's own proxy if they had one.
+    if let up = upstreamProxy {
+      cfg.connectionProxyDictionary = [kCFNetworkProxiesHTTPSEnable as String: true, kCFNetworkProxiesHTTPSProxy as String: up.host,
+                                       kCFNetworkProxiesHTTPSPort as String: Int(up.port), kCFNetworkProxiesHTTPEnable as String: true,
+                                       kCFNetworkProxiesHTTPProxy as String: up.host, kCFNetworkProxiesHTTPPort as String: Int(up.port)]
+    } else {
+      cfg.connectionProxyDictionary = [:]
+    }
     session = URLSession(configuration: cfg)
   }
 
@@ -170,6 +232,17 @@ final class MitmProxy: @unchecked Sendable {
       let port = UInt16(target.split(separator: ":").last ?? "443") ?? 443
       do {
         if ProcessInfo.processInfo.environment["KEYDILLO_DEBUG"] != nil { FileHandle.standardError.write(Data("keydillo run: CONNECT \(host):\(port)\n".utf8)) }
+        if !self.hosts.contains(host), let up = self.upstreamProxy, !up.bypasses(host) {
+          // Not ours: hand the CONNECT to the user's own proxy and let it answer.
+          let upstream = NWConnection(host: NWEndpoint.Host(up.host), port: NWEndpoint.Port(rawValue: up.port)!, using: .tcp)
+          upstream.start(queue: self.queue)
+          var connect = "CONNECT \(host):\(port) HTTP/1.1\r\nHost: \(host):\(port)\r\n"
+          if let a = up.authorization { connect += "Proxy-Authorization: \(a)\r\n" }
+          connect += "\r\n"
+          upstream.send(content: Data(connect.utf8) + rest, completion: .idempotent)
+          self.pipe(c, upstream); self.pipe(upstream, c)
+          return
+        }
         let (h, p) = self.hosts.contains(host) ? ("127.0.0.1", try self.tlsPort(for: host)) : (host, port)
         let upstream = NWConnection(host: NWEndpoint.Host(h), port: NWEndpoint.Port(rawValue: p)!, using: .tcp)
         upstream.start(queue: self.queue)
@@ -255,7 +328,7 @@ final class MitmProxy: @unchecked Sendable {
     }
     if !req.body.isEmpty { out.httpBody = req.body }
     do {
-      let (data, resp) = try await session.data(for: out)
+      let (data, resp) = try await (named != nil ? appSession : session).data(for: out)
       guard let http = resp as? HTTPURLResponse else { return .error(502, "bad response", code: "upstream_failed") }
       let headers = http.allHeaderFields.compactMap { k, v -> (String, String)? in
         guard let k = k as? String, let v = v as? String else { return nil }

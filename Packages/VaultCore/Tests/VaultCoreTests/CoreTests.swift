@@ -262,6 +262,13 @@ final class ImportTests: XCTestCase {
     XCTAssertTrue(out.contains("ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice"))
     XCTAssertTrue(out.contains("PORT=3000"))
     XCTAssertFalse(out.contains("sk-ant-api03"))
+    XCTAssertTrue(out.hasPrefix(ImportScanner.headerStart))
+    // Idempotent, and keydillo's additions come back out cleanly.
+    let again = ImportScanner.rewrite(out, replacements: [:])
+    XCTAssertEqual(again.components(separatedBy: ImportScanner.headerStart).count, 2)
+    let stripped = ImportScanner.stripKeydilloLines(out)
+    XCTAssertFalse(stripped.contains("keydillo ---")); XCTAssertFalse(stripped.contains("ANTHROPIC_BASE_URL"))
+    XCTAssertTrue(stripped.contains("PORT=3000"))
   }
 
   func testScanSkipsExamplesAndNodeModules() throws {

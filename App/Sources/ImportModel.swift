@@ -101,7 +101,7 @@ final class ImportModel {
       for (path, reps) in replacementsByFile {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         backup.files.append(.init(path: path, text: text))
-        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps)))
+        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port)))
       }
       try model.keychain.setSecret(try JSONEncoder().encode(backup), for: Self.backupAccount(backup.date), label: "keydillo .env backup",
                                    service: Self.backupService)
@@ -168,6 +168,15 @@ final class ImportModel {
     }
   }
 
+  /// Files imported before the explanatory header existed get it once.
+  static func addHeadersToTrackedFiles(port: UInt16) {
+    for path in trackedFiles {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.contains(Placeholder.prefix),
+            !text.contains(ImportScanner.headerStart) else { continue }
+      try? (ImportScanner.header(port: port).joined(separator: "\n") + "\n" + text).write(toFile: path, atomically: true, encoding: .utf8)
+    }
+  }
+
   // MARK: Uninstall
 
   /// Writes real values back in place of keydillo placeholders in every tracked file.
@@ -186,7 +195,7 @@ final class ImportModel {
         changed = true
       }
       if changed {
-        text = lines.filter { !$0.hasPrefix("# Added by keydillo") }.joined(separator: "\n")
+        text = ImportScanner.stripKeydilloLines(lines.joined(separator: "\n"))
         if (try? text.write(toFile: path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
       }
     }

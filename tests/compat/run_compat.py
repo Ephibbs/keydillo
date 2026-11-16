@@ -390,6 +390,17 @@ def main():
             live_rows.append((label, "pass" if ok else "fail", "" if ok else (p.stdout + p.stderr)[:160].replace("\n", " ")))
             print(f"{live_rows[-1][1]:4}  live             {label}", flush=True)
 
+        # Chaining through a proxy the user already had.
+        logf = os.path.join(RUN, "connect.log")
+        start([sys.executable, "-I", os.path.join(HERE, "connect_proxy.py"), "18950", logf])
+        penv = dict(env, HTTPS_PROXY="http://127.0.0.1:18950")
+        p1 = subprocess.run([kd, "run", "--", "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://example.com/"], capture_output=True, text=True, env=penv, timeout=90)
+        p2 = subprocess.run([kd, "run", "--", "curl", "-s", "https://postman-echo.com/get", "-H", "xi-api-key: keydillo:hdr"], capture_output=True, text=True, env=penv, timeout=90)
+        seen = open(logf).read() if os.path.exists(logf) else ""
+        ok = p1.stdout == "200" and "CONNECT example.com:443" in seen and "/hdr/get" in p2.stdout and "127.0.0.1" not in seen
+        live_rows.append(("keydillo run chains through an existing HTTPS_PROXY", "pass" if ok else "fail", "" if ok else f"{p1.stdout} {seen[:120]}"))
+        print(f"{live_rows[-1][1]:4}  live             {live_rows[-1][0]}", flush=True)
+
     write_report(clients, results, once, sdks, live_rows)
     for p in procs: p.kill()
 

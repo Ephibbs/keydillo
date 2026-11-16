@@ -130,6 +130,7 @@ final class AppModel {
     startProxy()
     startControl()
     ImportModel.migrateFileBackups(model: self)
+    ImportModel.addHeadersToTrackedFiles(port: port)
     ClaudeConnector.refreshSkillIfInstalled()
     Task { @MainActor in
       while true {
