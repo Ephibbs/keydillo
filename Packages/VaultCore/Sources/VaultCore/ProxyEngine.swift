@@ -179,7 +179,12 @@ public final class ProxyEngine: @unchecked Sendable {
       for (k, v) in http.allHeaderFields {
         guard let k = k as? String, let v = v as? String else { continue }
         let lk = k.lowercased()
-        if Self.hopByHop.contains(lk) || lk == "content-encoding" || lk == "set-cookie" { continue }
+        if Self.hopByHop.contains(lk) || lk == "content-encoding" { continue }
+        if lk == "set-cookie" {
+          // URLSession joins repeated Set-Cookie headers with ", "; split them back apart.
+          for c in Self.splitSetCookie(v) { headers.append((k, Self.redact(c, secret: secret, label: svc.displayName))) }
+          continue
+        }
         headers.append((k, Self.redact(v, secret: secret, label: svc.displayName)))
       }
       // The provider refused the key itself: say so in plain words for the agent and flag it in the app.
@@ -222,6 +227,17 @@ public final class ProxyEngine: @unchecked Sendable {
       return "requests from web pages aren't allowed"
     }
     return nil
+  }
+
+  static func splitSetCookie(_ v: String) -> [String] {
+    let re = try! NSRegularExpression(pattern: ",\\s*(?=[^;,=\\s]+=)")
+    var parts: [String] = []; var last = v.startIndex
+    for m in re.matches(in: v, range: NSRange(v.startIndex..., in: v)) {
+      let r = Range(m.range, in: v)!
+      parts.append(String(v[last..<r.lowerBound])); last = r.upperBound
+    }
+    parts.append(String(v[last...]))
+    return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
   }
 
   static func parseQuery(_ q: String) -> [(String, String?)] {
@@ -348,7 +364,8 @@ public struct PlaceholderSubstitution {
 
   var regex: NSRegularExpression {
     let name = NSRegularExpression.escapedPattern(for: service)
-    return try! NSRegularExpression(pattern: "[A-Za-z0-9_\\-]*keydillo(?::|%3A|%3a)\(name)(?![A-Za-z0-9\\-])")
+    // An optional key-format prefix like "sk-" or "sk_test_" belongs to the placeholder; "bot" in "/botkeydillo:x" doesn't.
+    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?![A-Za-z0-9\\-])")
   }
 
   public func apply(_ s: String, urlEncoded: Bool) -> String {
