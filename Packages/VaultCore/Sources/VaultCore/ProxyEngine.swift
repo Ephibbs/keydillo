@@ -51,7 +51,7 @@ public final class ProxyEngine: @unchecked Sendable {
     // Split /<service>/<rest>
     let (pathOnly, query) = Self.splitQuery(req.target)
     let parts = pathOnly.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
-    guard let first = parts.first else { return .error(404, "Use http://localhost:8787/<service>/<path>") }
+    guard let first = parts.first else { return .error(404, "Use http://localhost:7787/<service>/<path>") }
     let name = String(first)
     let upstreamPath = "/" + (parts.count > 1 ? String(parts[1]) : "")
     func log(_ outcome: ActivityEvent.Outcome, _ status: Int, _ note: String? = nil) {

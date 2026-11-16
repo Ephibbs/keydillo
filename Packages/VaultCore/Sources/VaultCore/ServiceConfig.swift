@@ -26,7 +26,7 @@ public struct PathRule: Codable, Equatable, Hashable {
 /// Everything about a key except its value. Stored as JSON; the value lives only in the Keychain.
 public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var id: String { name }
-  /// URL segment: localhost:8787/<name>/...
+  /// URL segment: localhost:7787/<name>/...
   public var name: String
   public var displayName: String
   public var project: String
