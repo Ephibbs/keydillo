@@ -13,7 +13,11 @@ struct MainWindowView: View {
 
   var keys: [ServiceConfig] {
     model.services.filter { project == nil || $0.project == project }
-      .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+      .sorted {
+        let a = ($0.displayName, $0.project), b = ($1.displayName, $1.project)
+        if a.0.caseInsensitiveCompare(b.0) != .orderedSame { return a.0.localizedCaseInsensitiveCompare(b.0) == .orderedAscending }
+        return a.1.localizedCaseInsensitiveCompare(b.1) == .orderedAscending
+      }
   }
 
   var body: some View {
@@ -143,7 +147,8 @@ struct MainWindowView: View {
                 ServiceBadge(name: s.displayName)
                 VStack(alignment: .leading, spacing: 1) {
                   Text(s.displayName).font(.system(size: 14, weight: .medium))
-                  Text(lastUse(s)).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                  Text(project == nil ? "\(s.project) · \(lastUse(s))" : lastUse(s))
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
                 }
                 Spacer()
               }
