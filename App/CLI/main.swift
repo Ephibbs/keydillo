@@ -19,6 +19,7 @@ keydillo: let AI tools use your API keys without seeing them.
   keydillo add <name> --host <host> --header <header> [--prefix "Bearer "] [--env NAME] [--project P]
                                         Opens keydillo so you can paste the key
   keydillo env <name>                   Placeholder .env lines for a service
+  keydillo run -- <command>             Run a command; placeholder keys it sends to their API are swapped for the real key
   keydillo mcp                          Run as an MCP server (used by Claude Code)
 
 There is no command to print a key. Use the Readout in the app.
@@ -68,6 +69,10 @@ case "env":
     fail("no service named \(name)")
   }
   s.placeholderEnvLines.forEach { print($0) }
+
+case "run":
+  if args.first == "--" { args.removeFirst() }
+  Runner.run(args)
 
 case "help", "-h", "--help":
   print(usage)
