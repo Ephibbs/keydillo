@@ -101,25 +101,39 @@
       "y": 1023
     },
     "Setup1Welcome.dc.html": {
-      "x": 0,
-      "y": 4903,
-      "w": 460,
       "h": 320,
-      "title": "Setup 1 \u00b7 Welcome"
+      "title": "Setup 1 \u00b7 Welcome",
+      "w": 460,
+      "x": 0,
+      "y": 4903
     },
     "Setup2TouchID.dc.html": {
-      "x": 540,
-      "y": 4903,
-      "w": 460,
       "h": 420,
-      "title": "Setup 2 \u00b7 How often to ask for Touch ID"
+      "title": "Setup 2 \u00b7 How often to ask for Touch ID",
+      "w": 460,
+      "x": 540,
+      "y": 4903
     },
     "Setup3Claude.dc.html": {
+      "h": 340,
+      "title": "Setup 4 \u00b7 Connect Claude Code",
+      "w": 460,
+      "x": 2160,
+      "y": 4903
+    },
+    "Setup3Import.dc.html": {
       "x": 1080,
       "y": 4903,
       "w": 460,
-      "h": 340,
-      "title": "Setup 3 \u00b7 Connect Claude Code"
+      "h": 310,
+      "title": "Setup 3 \u00b7 Bring in existing keys from .env files"
+    },
+    "Setup3ImportOpen.dc.html": {
+      "x": 1620,
+      "y": 4903,
+      "w": 460,
+      "h": 580,
+      "title": "Setup 3 \u00b7 same, with the review list open"
     }
   },
   "createdOnFiles": {
@@ -172,11 +186,12 @@
       "y": 3723
     },
     "t6": {
-      "x": 0,
-      "y": 4643,
-      "text": "First launch setup (after install)",
       "kind": "title1",
-      "maxW": 1540
+      "maxW": 2620,
+      "text": "First launch setup (after install)",
+      "w": 240,
+      "x": 0,
+      "y": 4643
     }
   },
   "order": [
@@ -196,6 +211,8 @@
     "FirstRun3Done.dc.html",
     "Setup1Welcome.dc.html",
     "Setup2TouchID.dc.html",
+    "Setup3Import.dc.html",
+    "Setup3ImportOpen.dc.html",
     "Setup3Claude.dc.html"
   ],
   "pages": [],
