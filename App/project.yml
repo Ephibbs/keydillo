@@ -31,7 +31,8 @@ targets:
         NSHumanReadableCopyright: "Open source"
     entitlements:
       path: Sources/Keydillo.entitlements
-      properties: {}
+      properties:
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.keydillo"]
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.keydillo
       PRODUCT_NAME: keydillo
