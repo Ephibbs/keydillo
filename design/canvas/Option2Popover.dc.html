@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option 2 popover</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0058BD}a:hover{color:#00449A}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 340px; height: 460px; box-sizing: border-box; background: #F4F4F6; border: 1px solid #D9D9DE; border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; color: #1D1D1F">
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px">
+    <div style="font-size: 15px; font-weight: 600">agent-vault</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5E5E63">
+      <span style="width: 7px; height: 7px; border-radius: 4px; background: #1E8E3E"></span>
+      On · :8787
+    </div>
+  </div>
+
+  <div style="margin: 0 12px 12px; background: #FFFFFF; border: 1px solid #E8C98A; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 13px; font-weight: 600">claude wants ElevenLabs</div>
+      <div style="font-size: 12px; color: #5E5E63">Notes · POST /v1/text-to-speech/… · pid 48211</div>
+    </div>
+    <div style="display: flex; gap: 8px">
+      <button style="flex: 1; height: 30px; border-radius: 7px; border: 1px solid #D0D0D5; background: #FFFFFF; font-size: 13px">Deny</button>
+      <button style="flex: 2; height: 30px; border-radius: 7px; border: none; background: #0064D1; color: #FFFFFF; font-size: 13px; font-weight: 500">Approve with Touch ID</button>
+    </div>
+  </div>
+
+  <div style="font-size: 12px; font-weight: 600; color: #5E5E63; padding: 0 16px 6px">ACTIVE NOW</div>
+  <div style="margin: 0 12px; background: #FFFFFF; border: 1px solid #E3E3E8; border-radius: 10px; display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #EEEEF1">
+      <div style="display: flex; flex-direction: column; gap: 1px">
+        <div style="font-size: 13px; font-weight: 500">Anthropic · Notes</div>
+        <div style="font-size: 12px; color: #5E5E63">Approved for 11 more minutes</div>
+      </div>
+      <button style="height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid #D0D0D5; background: #FFFFFF; font-size: 12px">End</button>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px">
+      <div style="display: flex; flex-direction: column; gap: 1px">
+        <div style="font-size: 13px; font-weight: 500">PostHog · voiceover</div>
+        <div style="font-size: 12px; color: #5E5E63">Approved for this session</div>
+      </div>
+      <button style="height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid #D0D0D5; background: #FFFFFF; font-size: 12px">End</button>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; display: flex; flex-direction: column; border-top: 1px solid #E3E3E8; padding: 6px">
+    <a href="Option2Window.dc.html" style="padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #1D1D1F; text-decoration: none">Open agent-vault…</a>
+    <button style="text-align: left; padding: 8px 10px; border: none; background: transparent; border-radius: 6px; font-size: 13px; color: #1D1D1F">Pause proxy</button>
+    <button style="text-align: left; padding: 8px 10px; border: none; background: transparent; border-radius: 6px; font-size: 13px; color: #1D1D1F">Quit</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":340,"height":460}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

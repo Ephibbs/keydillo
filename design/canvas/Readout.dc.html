@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Project readout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0058BD}a:hover{color:#00449A}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 560px; height: 500px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D0D0D5; border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; color: #1D1D1F">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <div style="font-size: 17px; font-weight: 600">Notes keys</div>
+    <div style="font-size: 12px; color: #5E5E63">Unlocked with Touch ID. Hides again in 60 s or when you close this.</div>
+  </div>
+
+  <div style="display: flex; background: #EDEDF0; border-radius: 7px; padding: 2px; width: fit-content">
+    <button style="height: 26px; padding: 0 14px; border: none; border-radius: 6px; background: #FFFFFF; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.12)">.env</button>
+    <button style="height: 26px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; font-size: 12px; color: #3A3A3F">Vercel</button>
+    <button style="height: 26px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; font-size: 12px; color: #3A3A3F">Fly</button>
+    <button style="height: 26px; padding: 0 14px; border: none; border-radius: 6px; background: transparent; font-size: 12px; color: #3A3A3F">Shell export</button>
+  </div>
+
+  <div style="flex: 1; background: #F6F6F8; border: 1px solid #E5E5EA; border-radius: 8px; padding: 14px 16px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12.5px; line-height: 1.9; white-space: pre; overflow: hidden">ELEVENLABS_API_KEY=[value shown here]
+ANTHROPIC_API_KEY=[value shown here]
+SUPABASE_SERVICE_ROLE_KEY=[value shown here]</div>
+
+  <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #5E5E63">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>
+    Only this window can show values. The CLI, MCP server and proxy never return them.
+  </div>
+
+  <div style="display: flex; justify-content: space-between; align-items: center">
+    <div style="font-size: 12px; color: #5E5E63">Copied text clears from the clipboard after 30 s.</div>
+    <div style="display: flex; gap: 8px">
+      <button style="height: 30px; padding: 0 14px; border-radius: 7px; border: 1px solid #D0D0D5; background: #FFFFFF; font-size: 13px">Done</button>
+      <button style="height: 30px; padding: 0 14px; border-radius: 7px; border: none; background: #0064D1; color: #FFFFFF; font-size: 13px; font-weight: 500">Copy all</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":560,"height":500}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude asks for a key</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0058BD}a:hover{color:#00449A}
+button,input,select{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 460px; height: 520px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #D0D0D5; border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; color: #1D1D1F">
+  <div style="display: flex; flex-direction: column; gap: 4px">
+    <div style="font-size: 17px; font-weight: 600">Add an ElevenLabs key</div>
+    <div style="font-size: 12px; color: #5E5E63; line-height: 1.45">claude (pid 48211) asked for this key. It will never see the value, only the proxy address.</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr); row-gap: 12px; column-gap: 12px; align-items: center; font-size: 13px">
+    <label style="color: #5E5E63" for="proj">Project</label>
+    <select id="proj" style="height: 28px; border: 1px solid #D0D0D5; border-radius: 6px; padding: 0 6px; font-size: 13px; background: #FFFFFF"><option>Notes</option></select>
+    <label style="color: #5E5E63" for="host">Host</label>
+    <input id="host" value="api.elevenlabs.io" style="height: 28px; border: 1px solid #D0D0D5; border-radius: 6px; padding: 0 8px; font-size: 13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace">
+    <label style="color: #5E5E63" for="hdr">Header</label>
+    <input id="hdr" value="xi-api-key" style="height: 28px; border: 1px solid #D0D0D5; border-radius: 6px; padding: 0 8px; font-size: 13px; font-family: ui-monospace, 'SF Mono', Menlo, monospace">
+    <label style="color: #5E5E63" for="key">Key</label>
+    <input id="key" type="password" placeholder="Paste your key" style="height: 32px; border: 2px solid #0064D1; border-radius: 6px; padding: 0 8px; font-size: 13px">
+    <div style="color: #5E5E63">Approval</div>
+    <div style="display: flex; background: #EDEDF0; border-radius: 7px; padding: 2px; width: fit-content">
+      <button style="height: 26px; padding: 0 10px; border: none; border-radius: 6px; background: #FFFFFF; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.12)">Each request</button>
+      <button style="height: 26px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; font-size: 12px; color: #3A3A3F">Session</button>
+      <button style="height: 26px; padding: 0 10px; border: none; border-radius: 6px; background: transparent; font-size: 12px; color: #3A3A3F">15 min</button>
+    </div>
+  </div>
+
+  <div style="background: #F6F6F8; border: 1px solid #E5E5EA; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+    <div style="font-size: 12px; font-weight: 600; color: #5E5E63">CLAUDE GETS BACK</div>
+    <div style="font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.6">http://localhost:8787/elevenlabs<br>ELEVENLABS_BASE_URL=http://localhost:8787/elevenlabs</div>
+  </div>
+
+  <div style="margin-top: auto; display: flex; justify-content: flex-end; gap: 8px">
+    <button style="height: 30px; padding: 0 14px; border-radius: 7px; border: 1px solid #D0D0D5; background: #FFFFFF; font-size: 13px">Decline</button>
+    <button style="height: 30px; padding: 0 14px; border-radius: 7px; border: none; background: #0064D1; color: #FFFFFF; font-size: 13px; font-weight: 500">Save to Keychain</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":460,"height":520}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
