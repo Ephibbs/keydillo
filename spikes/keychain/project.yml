@@ -1,0 +1,24 @@
+name: KeychainSpike
+options:
+  bundleIdPrefix: com.studiokillswitch
+  deploymentTarget:
+    macOS: "15.0"
+targets:
+  KeychainSpike:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    info:
+      path: Sources/Info.plist
+      properties:
+        LSUIElement: true
+    entitlements:
+      path: Sources/Spike.entitlements
+      properties:
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.agentvault.spike"]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.agentvault.spike
+      DEVELOPMENT_TEAM: 2JARAJYAYY
+      CODE_SIGN_STYLE: Automatic
+      ENABLE_HARDENED_RUNTIME: YES
+      SWIFT_VERSION: "6.0"
