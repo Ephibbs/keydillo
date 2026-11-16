@@ -1,6 +1,6 @@
 # keydillo compatibility report
 
-Generated 2026-11-16 14:11 by `tests/compat/run_compat.py`.
+Generated 2026-11-16 15:17 by `tests/compat/run_compat.py`.
 Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 ## Request and auth types × clients
@@ -59,12 +59,3 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 | Python SDK: openai | ✅ |  |
 | Python SDK: anthropic | ✅ |  |
 | Python SDK: ws | ✅ |  |
-
-## `keydillo run` (live, postman-echo.com)
-
-| Case | Result | Detail |
-|---|---|---|
-| keydillo run + curl | ✅ |  |
-| keydillo run + python requests | ✅ |  |
-| keydillo run + node fetch (Node 22) | ➖ | Node < 24's built-in fetch ignores HTTPS_PROXY. Fallback: *_BASE_URL, or Node 24+ (keydillo sets NODE_USE_ENV_PROXY). |
-| keydillo run chains through an existing HTTPS_PROXY | ✅ |  |

@@ -132,6 +132,7 @@ final class AppModel {
     ImportModel.migrateFileBackups(model: self)
     ImportModel.addHeadersToTrackedFiles(port: port)
     ImportModel.migrateBaseURLs(model: self)
+    ImportModel.migratePlaceholders()
     ClaudeConnector.refreshSkillIfInstalled()
     Task { @MainActor in
       while true {

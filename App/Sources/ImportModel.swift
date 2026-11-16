@@ -216,6 +216,24 @@ final class ImportModel {
     UserDefaults.standard.set(true, forKey: "migratedBaseURLs1")
   }
 
+  /// Short placeholders from earlier imports become the self-explaining form.
+  static func migratePlaceholders() {
+    guard !UserDefaults.standard.bool(forKey: "migratedPlaceholders1") else { return }
+    let re = try! NSRegularExpression(pattern: #"^((?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*["']?)keydillo:([a-z0-9-]+)(["']?\s*)$"#)
+    for path in trackedFiles {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+      let out = text.components(separatedBy: "\n").map { line -> String in
+        let r = NSRange(line.startIndex..., in: line)
+        guard let m = re.firstMatch(in: line, range: r) else { return line }
+        let head = (line as NSString).substring(with: m.range(at: 1)), name = (line as NSString).substring(with: m.range(at: 2))
+        let tail = (line as NSString).substring(with: m.range(at: 3))
+        return head + Placeholder.value(for: name) + tail
+      }.joined(separator: "\n")
+      if out != text { try? out.write(toFile: path, atomically: true, encoding: .utf8) }
+    }
+    UserDefaults.standard.set(true, forKey: "migratedPlaceholders1")
+  }
+
   /// Files imported before the explanatory header existed get it once.
   static func addHeadersToTrackedFiles(port: UInt16) {
     for path in trackedFiles {

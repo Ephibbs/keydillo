@@ -365,7 +365,8 @@ public struct PlaceholderSubstitution {
   var regex: NSRegularExpression {
     let name = NSRegularExpression.escapedPattern(for: service)
     // An optional key-format prefix like "sk-" or "sk_test_" belongs to the placeholder; "bot" in "/botkeydillo:x" doesn't.
-    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?![A-Za-z0-9\\-])")
+    let hint = NSRegularExpression.escapedPattern(for: Placeholder.hint)
+    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?:(?::|%3A|%3a)\(hint))?(?![A-Za-z0-9\\-])")
   }
 
   public func apply(_ s: String, urlEncoded: Bool) -> String {
@@ -378,8 +379,9 @@ public struct PlaceholderSubstitution {
     guard body.range(of: Data("keydillo".utf8)) != nil, let text = String(data: body, encoding: .utf8) else {
       // Not UTF-8 (binary upload): swap exact byte runs only.
       var out = body
-      let needle = Data(Placeholder.value(for: service).utf8)
-      while let r = out.range(of: needle) { out.replaceSubrange(r, with: Data(value.utf8)) }
+      for needle in [Placeholder.value(for: service), Placeholder.prefix + service].map({ Data($0.utf8) }) {
+        while let r = out.range(of: needle) { out.replaceSubrange(r, with: Data(value.utf8)) }
+      }
       return out
     }
     return Data(apply(text, urlEncoded: false).utf8)

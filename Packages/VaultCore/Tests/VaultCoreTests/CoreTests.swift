@@ -77,6 +77,11 @@ final class RuleTests: XCTestCase {
     XCTAssertEqual(ServiceConfig(name: "eleven-labs", upstreamHost: "a", authHeader: "k").envVarName, "ELEVEN_LABS_API_KEY")
     XCTAssertEqual(Placeholder.service(in: "Bearer keydillo:openai-oda"), "openai-oda")
     XCTAssertNil(Placeholder.service(in: "sk-real"))
+    XCTAssertEqual(Placeholder.service(in: "keydillo:openai:start-with-keydillo-run"), "openai")
+    let sub = PlaceholderSubstitution(service: "openai", value: "REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai", urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("/bot" + "keydillo%3Aopenai%3Astart-with-keydillo-run/x", urlEncoded: true), "/botREAL/x")
   }
   func testRedaction() {
     let s = Data("sk_TESTSECRET123".utf8)
@@ -194,7 +199,7 @@ final class ControlTests: XCTestCase {
     let resp = try ControlSocket.send(.requestSecret(SecretRequest(service: "elevenlabs", host: "api.elevenlabs.io", header: "xi-api-key")), path: path)
     guard case .saved(let s, let lines) = resp else { return XCTFail("\(resp)") }
     XCTAssertEqual(s.baseURL, "http://localhost:7787/elevenlabs")
-    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs"])
+    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs:start-with-keydillo-run"])
   }
 }
 
@@ -277,8 +282,8 @@ final class ImportTests: XCTestCase {
       "ANTHROPIC_API_KEY": ("anthropic", "http://localhost:7787/anthropic", "ANTHROPIC_BASE_URL"),
       "GOOGLE_CLIENT_SECRET": ("google-client-secret", nil, nil),
     ])
-    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic"))
-    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret"))
+    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic:start-with-keydillo-run"))
+    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret:start-with-keydillo-run"))
     XCTAssertTrue(out.contains("ANTHROPIC_BASE_URL=http://localhost:7787/anthropic"))
     XCTAssertTrue(out.contains("ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice"))
     XCTAssertTrue(out.contains("PORT=3000"))
