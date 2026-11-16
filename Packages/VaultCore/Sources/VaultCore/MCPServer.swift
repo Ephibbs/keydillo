@@ -32,6 +32,7 @@ public final class MCPServer {
           "prefix": ["type": "string", "description": "Value prefix, e.g. 'Bearer ' for Authorization headers"],
           "env_var_name": ["type": "string", "description": "Env var name for the key, e.g. ELEVENLABS_API_KEY"],
           "project": ["type": "string", "description": "Project to file the key under (defaults to the current folder name)"],
+          "key_page_url": ["type": "string", "description": "The provider's page where the user creates or rotates this key, e.g. https://elevenlabs.io/app/settings/api-keys"],
         ],
       ],
     ],
@@ -82,7 +83,7 @@ public final class MCPServer {
         let req = SecretRequest(service: service.lowercased(), displayName: args["display_name"] as? String, host: host,
                                 header: header, prefix: args["prefix"] as? String, envVarName: args["env_var_name"] as? String,
                                 project: args["project"] as? String ?? URL(fileURLWithPath: cwd).lastPathComponent,
-                                cwd: cwd, requester: requester)
+                                cwd: cwd, requester: requester, keyPageURL: args["key_page_url"] as? String)
         switch try send(.requestSecret(req)) {
         case .saved(let s, let lines):
           return text("""

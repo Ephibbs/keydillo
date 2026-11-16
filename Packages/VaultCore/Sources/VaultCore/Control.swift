@@ -19,9 +19,11 @@ public struct SecretRequest: Codable, Equatable {
   public var project: String?
   public var cwd: String?
   public var requester: String?
+  /// Provider page where the user manages this key, for "Rotate".
+  public var keyPageURL: String?
   public init(service: String, displayName: String? = nil, host: String, header: String, prefix: String? = nil,
-              envVarName: String? = nil, project: String? = nil, cwd: String? = nil, requester: String? = nil) {
-    self.service = service; self.displayName = displayName; self.host = host; self.header = header
+              envVarName: String? = nil, project: String? = nil, cwd: String? = nil, requester: String? = nil, keyPageURL: String? = nil) {
+    self.service = service; self.displayName = displayName; self.host = host; self.header = header; self.keyPageURL = keyPageURL
     self.prefix = prefix; self.envVarName = envVarName; self.project = project; self.cwd = cwd; self.requester = requester
   }
 }

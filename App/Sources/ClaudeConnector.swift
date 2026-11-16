@@ -5,7 +5,6 @@ enum ClaudeConnector {
   static let changes = [
     "Adds keydillo as a tool Claude can use (it can list your services and ask you for a key, never read one).",
     "Adds a short skill telling Claude to use keydillo instead of asking for keys in chat.",
-    "Stops Claude's Read tool from opening .env files.",
   ]
 
   static var cliPath: String {
@@ -19,7 +18,6 @@ enum ClaudeConnector {
     do {
       try registerMCP()
       try writeSkill()
-      try addDenyRules()
       return nil
     } catch {
       return error.localizedDescription

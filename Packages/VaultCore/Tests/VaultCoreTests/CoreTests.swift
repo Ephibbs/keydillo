@@ -202,3 +202,17 @@ final class MCPTests: XCTestCase {
     XCTAssertEqual(r.service, "elevenlabs"); XCTAssertEqual(r.project, "notes-app")
   }
 }
+
+final class PortTests: XCTestCase {
+  func testFindsBusyAndFreePorts() throws {
+    let fd = socket(AF_INET, SOCK_STREAM, 0); defer { close(fd) }
+    var addr = sockaddr_in(); addr.sin_family = sa_family_t(AF_INET); addr.sin_port = 0; addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    _ = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+    Darwin.listen(fd, 1)
+    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    _ = withUnsafeMutablePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) } }
+    let p = UInt16(bigEndian: addr.sin_port)
+    XCTAssertFalse(Ports.isFree(p))
+    XCTAssertNotEqual(Ports.firstFree(from: p), p)
+  }
+}

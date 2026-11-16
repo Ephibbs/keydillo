@@ -41,6 +41,10 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// Empty means any method and path on the host.
   public var allowed: [PathRule]
   public var maxRequestsPerHour: Int?
+  /// Provider page for managing/rotating this key, usually filled in by the agent.
+  public var keyPageURL: String?
+  /// Folder this key's project came from (import), for "Show in Finder".
+  public var folder: String?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
