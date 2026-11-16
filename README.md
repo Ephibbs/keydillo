@@ -17,3 +17,7 @@ Tested: curl, Python `requests`, Node (proxy env support needed: Node 24+, or co
 Known gaps: Apple's bundled Python 3.9 `urllib` ignores `SSL_CERT_FILE` (use `requests` or a Homebrew Python);
 Node 22's built-in `fetch` ignores proxy settings; tools that pin certificates won't work. Use the base-URL
 approach (`<NAME>_BASE_URL`) for those.
+
+## Credits
+
+Service logos are from [Simple Icons](https://simpleicons.org) (CC0-1.0). Logos are trademarks of their owners and are used only to identify each service.

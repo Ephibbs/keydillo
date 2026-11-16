@@ -121,14 +121,27 @@ struct StatusDot: View {
   var body: some View { Circle().fill(on ? Theme.success : Theme.danger).frame(width: 8, height: 8) }
 }
 
-/// Round initials badge for a service.
+/// Round badge for a service: its logo (Simple Icons, CC0) when we have one, else initials.
 struct ServiceBadge: View {
+  var service: String = ""
   let name: String
   var size: CGFloat = 34
   var body: some View {
-    Text(Self.initials(name)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
-      .frame(width: size, height: size)
-      .background(Circle().fill(Theme.fill))
+    Group {
+      if let img = Self.logo(service) {
+        Image(nsImage: img).renderingMode(.template).resizable().scaledToFit().frame(width: size * 0.46, height: size * 0.46)
+      } else {
+        Text(Self.initials(name)).font(.system(size: 12, weight: .semibold))
+      }
+    }
+    .foregroundStyle(Theme.text)
+    .frame(width: size, height: size)
+    .background(Circle().fill(Theme.fill))
+    .accessibilityHidden(true)
+  }
+  static func logo(_ service: String) -> NSImage? {
+    let base = service.split(separator: "-").first.map(String.init) ?? service
+    return NSImage(named: "logo-" + base)
   }
   static func initials(_ s: String) -> String {
     let words = s.split(whereSeparator: { $0 == " " || $0 == "-" })

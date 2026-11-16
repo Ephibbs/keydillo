@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VaultCore
 
 struct MainWindowView: View {
@@ -8,17 +9,24 @@ struct MainWindowView: View {
   @State private var showActivity = false
   @State private var newProject = ""
   @State private var addingProject = false
+  @State private var search = ""
   @AppStorage("listWidth") private var listWidth: Double = 330
   @State private var dragStart: Double?
 
   var keys: [ServiceConfig] {
-    model.services.filter { project == nil || $0.project == project }
+    let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+    return model.services
+      .filter { project == nil || $0.project == project }
+      .filter { q.isEmpty || [$0.displayName, $0.name, $0.project, $0.upstreamHost, $0.envVarName].contains { $0.lowercased().contains(q) } }
       .sorted {
-        let a = ($0.displayName, $0.project), b = ($1.displayName, $1.project)
-        if a.0.caseInsensitiveCompare(b.0) != .orderedSame { return a.0.localizedCaseInsensitiveCompare(b.0) == .orderedAscending }
-        return a.1.localizedCaseInsensitiveCompare(b.1) == .orderedAscending
+        if $0.displayName.caseInsensitiveCompare($1.displayName) != .orderedSame {
+          return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        return $0.project.localizedCaseInsensitiveCompare($1.project) == .orderedAscending
       }
   }
+
+  var selectedName: String? { selected.flatMap { n in keys.contains { $0.name == n } ? n : nil } ?? keys.first?.name }
 
   var body: some View {
     HStack(spacing: 0) {
@@ -42,12 +50,12 @@ struct MainWindowView: View {
   var sidebar: some View {
     VStack(alignment: .leading, spacing: 18) {
       Text("keydillo").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 8).padding(.top, 34)
+      sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity) { project = nil; showActivity = false }
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
-        sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity) { project = nil; showActivity = false; selected = nil }
         ForEach(model.projects, id: \.self) { p in
           sideRow(p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
-            project = p; showActivity = false; selected = nil
+            project = p; showActivity = false
           }
         }
         if addingProject {
@@ -69,7 +77,7 @@ struct MainWindowView: View {
       HStack(spacing: 7) {
         StatusDot(on: model.proxyRunning)
         Text(model.proxyRunning ? "localhost:\(String(model.port))" : "Proxy \(model.proxyState)")
-          .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
+          .font(.system(size: 13)).foregroundStyle(Theme.tertiary).lineLimit(1)
       }
       .padding(.horizontal, 8).padding(.bottom, 14)
     }
@@ -87,7 +95,7 @@ struct MainWindowView: View {
 
   func sideRow(_ title: String, count: String, isOn: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-      HStack { Text(title); Spacer(); Text(count).foregroundStyle(Theme.secondary) }
+      HStack { Text(title).lineLimit(1); Spacer(); Text(count).foregroundStyle(Theme.secondary) }
         .font(.system(size: 14)).padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(isOn ? Theme.selected : .clear))
         .contentShape(Rectangle())
@@ -112,48 +120,62 @@ struct MainWindowView: View {
 
   var keyList: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack {
+      HStack(spacing: 6) {
         Text(project ?? "All keys").font(.system(size: 22, weight: .semibold))
           .lineLimit(1).truncationMode(.tail).layoutPriority(1)
-        Spacer()
+        Spacer(minLength: 4)
         if let project {
           if let folder = model.folder(for: project) {
             Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)]) } label: {
-              Image(systemName: "folder").font(.system(size: 13)).frame(width: 32, height: 32)
-                .overlay(Circle().strokeBorder(Theme.border))
+              Image(systemName: "folder").font(.system(size: 13)).frame(width: 30, height: 30).overlay(Circle().strokeBorder(Theme.border))
             }
             .buttonStyle(.plain).help("Show \(project) in Finder").accessibilityLabel("Show \(project) in Finder")
             .disabled(!FileManager.default.fileExists(atPath: folder))
           }
           Button("Readout") { Task { await openReadout(project) } }.buttonStyle(SmallButtonStyle())
         }
-        Button("Add key") { WindowManager.shared.showAddKey(project: project) }
-          .buttonStyle(SmallPrimaryStyle())
+        Button("Add key") { WindowManager.shared.showAddKey(project: project) }.buttonStyle(SmallPrimaryStyle())
       }
-      .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 12)
+      .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 10)
+
+      HStack(spacing: 6) {
+        Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        TextField("Search keys", text: $search).textFieldStyle(.plain).font(.system(size: 13))
+        if !search.isEmpty {
+          Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondary) }
+            .buttonStyle(.plain).accessibilityLabel("Clear search")
+        }
+      }
+      .padding(.horizontal, 10).frame(height: 30)
+      .background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
+      .padding(.horizontal, 16).padding(.bottom, 10)
 
       if keys.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
-          Text("No keys yet").font(.system(size: 14, weight: .medium))
-          Text("Add one here, or let Claude ask for one when it needs it.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+          Text(search.isEmpty ? "No keys yet" : "No matches").font(.system(size: 14, weight: .medium))
+          if search.isEmpty {
+            Text("Add one here, or let Claude ask for one when it needs it.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+          }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
       }
       ScrollView {
-        VStack(spacing: 2) {
+        LazyVStack(spacing: 2) {
           ForEach(keys) { s in
+            let isSel = selectedName == s.name
             Button { selected = s.name } label: {
               HStack(spacing: 12) {
-                ServiceBadge(name: s.displayName)
+                ServiceBadge(service: s.name, name: s.displayName, size: 32)
                 VStack(alignment: .leading, spacing: 1) {
-                  Text(s.displayName).font(.system(size: 14, weight: .medium))
-                  Text(project == nil ? "\(s.project) · \(lastUse(s))" : lastUse(s))
-                    .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
+                  Text(s.displayName).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                  if let sub = subtitle(s) {
+                    Text(sub).font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
+                  }
                 }
-                Spacer()
+                Spacer(minLength: 0)
               }
-              .padding(10)
-              .background(RoundedRectangle(cornerRadius: 12).fill(selected == s.name ? Theme.fill : .clear))
+              .padding(.horizontal, 10).padding(.vertical, 7)
+              .background(RoundedRectangle(cornerRadius: 12).fill(isSel ? Theme.selected : .clear))
               .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -164,9 +186,15 @@ struct MainWindowView: View {
     }
   }
 
-  func lastUse(_ s: ServiceConfig) -> String {
-    guard let e = model.events.first(where: { $0.service == s.name && $0.outcome == .sent }) else { return "Never used" }
-    return "Used \(e.date.formatted(.relative(presentation: .named))) by \(e.process)"
+  /// "notes-app · used 2 min ago by claude"; nothing for unused keys inside a project.
+  func subtitle(_ s: ServiceConfig) -> String? {
+    var parts: [String] = []
+    if project == nil { parts.append(s.project) }
+    if !s.isProxyReady { parts.append("needs setup") }
+    if let e = model.events.first(where: { $0.service == s.name && $0.outcome == .sent }) {
+      parts.append("used \(e.date.formatted(.relative(presentation: .named)))")
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
   func openReadout(_ project: String) async {
@@ -177,7 +205,7 @@ struct MainWindowView: View {
   // MARK: Detail
 
   @ViewBuilder var detail: some View {
-    if let name = selected ?? keys.first?.name, let s = model.service(named: name) {
+    if let name = selectedName, let s = model.service(named: name) {
       ScrollView { KeyDetailView(config: s).id(s.name) }
         .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
     } else {
@@ -205,10 +233,12 @@ struct KeyDetailView: View {
   @State private var revealed: String?
   @State private var advancedOpen = false
   @State private var copied = false
+  @State private var copiedNote: String?
+  @State private var editing = false
 
   init(config: ServiceConfig) {
     _config = State(initialValue: config)
-    _pathsText = State(initialValue: config.allowed.map { "\($0.method) \($0.pattern)" }.joined(separator: "   "))
+    _pathsText = State(initialValue: Self.pathsString(config))
     _rateText = State(initialValue: config.maxRequestsPerHour.map(String.init) ?? "")
   }
 
@@ -226,104 +256,16 @@ struct KeyDetailView: View {
     Binding(get: { config.approval.asDefault }, set: { config.approval = $0.mode })
   }
 
+  var summary: ServiceSummary { model.summary(config) }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(config.displayName).font(.system(size: 19, weight: .semibold))
-          Text(model.summary(config).baseURL).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.secondary)
-            .textSelection(.enabled)
-        }
-        Spacer()
-        Label("In Keychain", systemImage: "lock").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
-          .padding(.horizontal, 11).frame(height: 26).background(Capsule().fill(Theme.fill))
-      }
-
-      HStack(spacing: 8) {
-        Text(revealed ?? String(repeating: "•", count: 24))
-          .font(.system(size: 12.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-          .textSelection(.enabled)
-          .foregroundStyle(revealed == nil ? Theme.secondary : Theme.text)
-          .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-          .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
-        if let revealed {
-          Button(copied ? "Copied" : "Copy") { model.copyConcealed(revealed); copied = true }.buttonStyle(SmallButtonStyle())
-            .help("Clears from the clipboard after 30 s")
-          Button { hide() } label: { Image(systemName: "eye.slash") }.buttonStyle(SmallButtonStyle()).accessibilityLabel("Hide key")
-        } else {
-          Button { Task { await reveal() } } label: { Label("Show", systemImage: "eye") }.buttonStyle(SmallButtonStyle())
-            .help("Shows the key after Touch ID. Hides again after 30 s.")
-        }
-      }
-      .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hide() }
-
-      Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-        field("Auth header") { FilledField(placeholder: "Authorization", text: $config.authHeader, monospaced: true) }
-        field("Allowed host") { FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true) }
-        field("Approval") {
-          ViewThatFits(in: .horizontal) {
-            PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: approvalBinding)
-            Picker("", selection: approvalBinding) { ForEach(DefaultApproval.allCases, id: \.self) { Text($0.label).tag($0) } }
-              .labelsHidden().fixedSize()
-          }
-        }
-        field("Project") { FilledField(placeholder: "Personal", text: $config.project) }
-        field("Env var name") { FilledField(placeholder: "EXAMPLE_API_KEY", text: $config.envVarName, monospaced: true) }
-        field("Key page") { FilledField(placeholder: "Where you manage this key (for Rotate)", text: Binding(get: { config.keyPageURL ?? "" }, set: { config.keyPageURL = $0.isEmpty ? nil : $0 })) }
-      }
-      .font(.system(size: 14))
-
-      Collapsible(title: "Advanced", isOpen: $advancedOpen) {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-          field("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
-          field("Rate limit") {
-            HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
-          }
-        }
-        .font(.system(size: 14))
-      }
-
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Recent use").font(.system(size: 12)).foregroundStyle(Theme.secondary)
-        let recent = model.events.filter { $0.service == config.name }.prefix(6)
-        if recent.isEmpty {
-          Text("Nothing yet.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
-        } else {
-          VStack(spacing: 0) {
-            ForEach(Array(recent)) { e in
-              HStack {
-                Text(e.date, format: .dateTime.hour().minute()).foregroundStyle(Theme.secondary).frame(width: 56, alignment: .leading)
-                Text(e.process).frame(width: 130, alignment: .leading).lineLimit(1)
-                Text("\(e.method) \(e.path)").font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Text(e.outcome == .sent ? "\(e.status)" : e.outcome.rawValue.capitalized)
-                  .foregroundStyle(e.outcome == .sent ? Theme.text : Theme.danger)
-              }
-              .font(.system(size: 13)).padding(.horizontal, 14).frame(height: 38)
-              if e.id != recent.last?.id { Divider().overlay(Theme.hairline) }
-            }
-          }
-          .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
-        }
-      }
-
+      header
+      keyRow
+      fields
+      Collapsible(title: "Advanced", isOpen: $advancedOpen) { advanced }
+      recentUse
       if let error { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
-      Spacer()
-      HStack {
-        Button("Delete key") { confirmDelete = true }.buttonStyle(SmallButtonStyle(destructive: true))
-        Button("Rotate") {
-          if let page = config.keyPageURL, let url = URL(string: page) { NSWorkspace.shared.open(url) }
-          WindowManager.shared.showReplaceKey(config)
-        }
-        .buttonStyle(SmallButtonStyle())
-        .help(config.keyPageURL == nil ? "Paste a new key" : "Opens the provider's key page, then paste the new key")
-        Spacer()
-        if dirty {
-          Button("Discard") { if let o = original { config = o; pathsText = o.allowed.map { "\($0.method) \($0.pattern)" }.joined(separator: "   ") } }
-            .buttonStyle(SmallButtonStyle())
-          Button("Save changes") { Task { await saveChanges() } }.buttonStyle(SmallPrimaryStyle())
-        }
-      }
     }
     .padding(.horizontal, 26).padding(.top, 34).padding(.bottom, 22)
     .alert("Delete the \(config.displayName) key?", isPresented: $confirmDelete) {
@@ -332,8 +274,158 @@ struct KeyDetailView: View {
     } message: { Text("It's removed from your Keychain. Anything using it will stop working.") }
   }
 
-  func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-    GridRow { Text(label).foregroundStyle(Theme.secondary).lineLimit(1).frame(width: 100, alignment: .leading); content().frame(maxWidth: .infinity, alignment: .leading) }
+  var header: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .center, spacing: 12) {
+        ServiceBadge(service: config.name, name: config.displayName, size: 40)
+        Text(config.displayName).font(.system(size: 19, weight: .semibold)).lineLimit(1)
+        Spacer(minLength: 8)
+        Menu {
+          Button("Rotate…") { rotate() }
+          Divider()
+          Button("Delete key…", role: .destructive) { confirmDelete = true }
+        } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
+          .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("More")
+      }
+      HStack(spacing: 8) {
+        Text(summary.baseURL).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.secondary)
+          .lineLimit(1).truncationMode(.middle).textSelection(.enabled).layoutPriority(1)
+        Button { copy(summary.baseURL, "Address copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: 11)) }
+          .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Copy address").accessibilityLabel("Copy address")
+        Spacer(minLength: 8)
+        if let copiedNote { Text(copiedNote).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1) }
+        Button("Copy .env lines") { copy(summary.placeholderEnvLines.joined(separator: "\n"), "Copied, no secret in them") }
+          .buttonStyle(SmallButtonStyle()).help(summary.placeholderEnvLines.joined(separator: "\n")).fixedSize()
+      }
+    }
+  }
+
+  var keyRow: some View {
+    HStack(spacing: 8) {
+      Text(revealed ?? String(repeating: "•", count: 24))
+        .font(.system(size: 12.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+        .textSelection(.enabled)
+        .foregroundStyle(revealed == nil ? Theme.secondary : Theme.text)
+        .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+      if let revealed {
+        Button(copied ? "Copied" : "Copy") { model.copyConcealed(revealed); copied = true }.buttonStyle(SmallButtonStyle())
+          .help("Clears from the clipboard after 30 s")
+        Button { hide() } label: { Image(systemName: "eye.slash") }.buttonStyle(SmallButtonStyle()).accessibilityLabel("Hide key")
+      } else {
+        Button { Task { await reveal() } } label: { Label("Show", systemImage: "eye") }.buttonStyle(SmallButtonStyle())
+          .help("Shows the key after Touch ID. Hides again after 30 s.")
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hide() }
+  }
+
+  var fields: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+        row("Sent only to") {
+          if editing {
+            FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true)
+          } else {
+            HStack(spacing: 6) {
+              Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.secondary)
+              Text(config.upstreamHost.isEmpty ? "Not set" : config.upstreamHost).font(.system(size: 13, design: .monospaced))
+            }
+          }
+        }
+        row("Auth header") {
+          if editing { FilledField(placeholder: "Authorization", text: $config.authHeader, monospaced: true) }
+          else { Text(config.authHeader.isEmpty ? "Not set" : config.authPrefix + config.authHeader).font(.system(size: 13, design: .monospaced)) }
+        }
+        row("Touch ID") {
+          ViewThatFits(in: .horizontal) {
+            PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: approvalBinding)
+            Picker("", selection: approvalBinding) { ForEach(DefaultApproval.allCases, id: \.self) { Text($0.label).tag($0) } }
+              .labelsHidden().fixedSize()
+          }
+        }
+        row("Project") {
+          if editing { FilledField(placeholder: "Personal", text: $config.project) } else { Text(config.project).font(.system(size: 13)) }
+        }
+        row("Env name") {
+          if editing { FilledField(placeholder: "EXAMPLE_API_KEY", text: $config.envVarName, monospaced: true) }
+          else { Text(config.envVarName).font(.system(size: 13, design: .monospaced)).textSelection(.enabled) }
+        }
+        row("Key page") {
+          if editing {
+            FilledField(placeholder: "Where you manage this key (for Rotate)", text: Binding(get: { config.keyPageURL ?? "" }, set: { config.keyPageURL = $0.isEmpty ? nil : $0 }))
+          } else if let page = config.keyPageURL, let url = URL(string: page) {
+            Link(url.host ?? page, destination: url).font(.system(size: 13))
+          } else {
+            Text("Not set").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+          }
+        }
+      }
+      .font(.system(size: 14))
+      HStack(spacing: 8) {
+        if editing {
+          Button("Cancel") { discard() }.buttonStyle(SmallButtonStyle())
+          Button("Save") { Task { await saveChanges() } }.buttonStyle(SmallPrimaryStyle()).disabled(!dirty)
+          Text("Changing where the key is sent needs Touch ID.").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+        } else {
+          Button("Edit") { editing = true }.buttonStyle(SmallButtonStyle())
+          if dirty { Button("Save") { Task { await saveChanges() } }.buttonStyle(SmallPrimaryStyle()) }
+        }
+      }
+    }
+  }
+
+  var advanced: some View {
+    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+      row("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
+      row("Rate limit") {
+        HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
+      }
+    }
+    .font(.system(size: 14))
+  }
+
+  @ViewBuilder var recentUse: some View {
+    let recent = model.events.filter { $0.service == config.name }.prefix(6)
+    if !recent.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Recent use").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        VStack(spacing: 0) {
+          ForEach(Array(recent)) { e in
+            HStack {
+              Text(e.date, format: .dateTime.hour().minute()).foregroundStyle(Theme.secondary).frame(width: 64, alignment: .leading)
+              Text(e.process).frame(width: 120, alignment: .leading).lineLimit(1)
+              Text(e.note ?? "\(e.method) \(e.path)").font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+              Spacer()
+              Text(e.outcome == .sent ? (e.status == 0 ? "" : "\(e.status)") : e.outcome.rawValue.capitalized)
+                .foregroundStyle(e.outcome == .sent ? Theme.text : Theme.danger)
+            }
+            .font(.system(size: 13)).padding(.horizontal, 14).frame(height: 38)
+            if e.id != recent.last?.id { Divider().overlay(Theme.hairline) }
+          }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.hairline))
+      }
+    }
+  }
+
+  func row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+    GridRow {
+      Text(label).foregroundStyle(Theme.secondary).lineLimit(1).frame(width: 100, alignment: .leading)
+      content().frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  func copy(_ text: String, _ note: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
+    copiedNote = note
+    Task { try? await Task.sleep(for: .seconds(2)); copiedNote = nil }
+  }
+
+  func rotate() {
+    if let page = config.keyPageURL, let url = URL(string: page) { NSWorkspace.shared.open(url) }
+    WindowManager.shared.showReplaceKey(config)
   }
 
   func reveal() async {
@@ -345,10 +437,17 @@ struct KeyDetailView: View {
 
   func hide() { revealed = nil; copied = false }
 
+  func discard() {
+    if let o = original { config = o; pathsText = Self.pathsString(o); rateText = o.maxRequestsPerHour.map(String.init) ?? "" }
+    editing = false; error = nil
+  }
+
   func saveChanges() async {
-    do { if try await model.update(edited) { error = nil } }
+    do { if try await model.update(edited) { error = nil; editing = false } }
     catch { self.error = error.localizedDescription }
   }
+
+  static func pathsString(_ c: ServiceConfig) -> String { c.allowed.map { "\($0.method) \($0.pattern)" }.joined(separator: "   ") }
 
   /// "POST /v1/tts/*   GET /v1/voices" → rules. A bare path means any method.
   static func parsePaths(_ s: String) -> [PathRule] {
