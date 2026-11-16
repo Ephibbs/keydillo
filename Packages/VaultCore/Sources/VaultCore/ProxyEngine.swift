@@ -60,7 +60,7 @@ public final class ProxyEngine: @unchecked Sendable {
     }
     guard let svc = services().first(where: { $0.name == name }) else {
       log(.blocked, 404, "unknown service")
-      return .error(404, "No service named '\(name)'. Ask the user to add it in agent-vault.")
+      return .error(404, "No service named '\(name)'. Ask the user to add it in keydillo.")
     }
     guard !pathOnly.contains("/../"), !pathOnly.hasSuffix("/.."), !pathOnly.contains("%2e%2e"), !pathOnly.contains("%2E%2E") else {
       log(.blocked, 400, "path traversal"); return .error(400, "Path not allowed")
@@ -136,7 +136,7 @@ public final class ProxyEngine: @unchecked Sendable {
     return (String(target[..<q]), String(target[target.index(after: q)...]))
   }
 
-  static let redaction = Data("[redacted by agent-vault]".utf8)
+  static let redaction = Data("[redacted by keydillo]".utf8)
 
   /// Replaces any occurrence of the secret in upstream output, in case an API echoes it back.
   public static func redact(_ data: Data, secret: Data) -> Data {

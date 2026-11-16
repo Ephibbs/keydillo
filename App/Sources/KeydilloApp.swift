@@ -2,7 +2,7 @@ import SwiftUI
 import VaultCore
 
 @main
-struct AgentVaultApp: App {
+struct KeydilloApp: App {
   @State private var model = AppModel()
 
   var body: some Scene {
@@ -28,7 +28,7 @@ struct MenuContent: View {
     VStack(alignment: .leading, spacing: 12) {
       HStack {
         VStack(alignment: .leading, spacing: 2) {
-          Text("agent-vault").font(.headline)
+          Text("keydillo").font(.headline)
           HStack(spacing: 6) {
             Circle().fill(model.proxyState == "ready" ? Color.green : Color.orange).frame(width: 7, height: 7)
             Text(model.proxyState == "ready" ? "Proxy running on localhost:\(String(model.port))" : "Proxy \(model.proxyState)")

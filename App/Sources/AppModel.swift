@@ -5,7 +5,7 @@ import VaultCore
 @MainActor
 @Observable
 final class AppModel {
-  static let accessGroup = "2JARAJYAYY.com.studiokillswitch.agentvault"
+  static let accessGroup = "2JARAJYAYY.com.studiokillswitch.keydillo"
   let keychain = KeychainBackend.detect(accessGroup: AppModel.accessGroup)
   var services: [ServiceConfig] = []
   var events: [ActivityEvent] = []

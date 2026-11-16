@@ -9,7 +9,7 @@ public struct ApprovalRequest: Sendable {
   public var path: String
   public var client: ClientProcess
 
-  /// Shown in the Touch ID dialog. macOS prefixes it with "agent-vault is trying to".
+  /// Shown in the Touch ID dialog. macOS prefixes it with "keydillo is trying to".
   public var reason: String {
     let shortPath = path.count > 48 ? String(path.prefix(47)) + "…" : path
     return "let \(client.displayName) use your \(displayName) key: \(method) \(host)\(shortPath)"

@@ -75,7 +75,7 @@ final class RuleTests: XCTestCase {
   }
   func testRedaction() {
     let s = Data("sk_TESTSECRET123".utf8)
-    XCTAssertEqual(String(decoding: ProxyEngine.redact(Data("a sk_TESTSECRET123 b".utf8), secret: s), as: UTF8.self), "a [redacted by agent-vault] b")
+    XCTAssertEqual(String(decoding: ProxyEngine.redact(Data("a sk_TESTSECRET123 b".utf8), secret: s), as: UTF8.self), "a [redacted by keydillo] b")
   }
 }
 
@@ -146,10 +146,10 @@ final class EndToEndTests: XCTestCase {
     let (status, body, headers) = try await fetch("http://127.0.0.1:18787/echo/v1/voices?x=1", headers: ["xi-api-key": "agent-supplied"])
     XCTAssertEqual(status, 200)
     XCTAssertTrue(body.contains("GET /v1/voices?x=1"), body)
-    XCTAssertTrue(body.contains("[redacted by agent-vault]"), "upstream saw the injected key, echo was redacted")
+    XCTAssertTrue(body.contains("[redacted by keydillo]"), "upstream saw the injected key, echo was redacted")
     XCTAssertFalse(body.contains("sk_TESTSECRET123"))
     XCTAssertFalse(body.contains("agent-supplied"))
-    XCTAssertEqual(headers["X-Echo-Key"] as? String, "[redacted by agent-vault]")
+    XCTAssertEqual(headers["X-Echo-Key"] as? String, "[redacted by keydillo]")
     XCTAssertEqual(approver.calls, 1)
 
     // Path outside the rules is blocked before approval.

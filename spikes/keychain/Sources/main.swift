@@ -2,11 +2,11 @@ import Foundation
 import Security
 import LocalAuthentication
 
-let group = "2JARAJYAYY.com.studiokillswitch.agentvault.spike"
+let group = "2JARAJYAYY.com.studiokillswitch.keydillo.spike"
 let args = CommandLine.arguments
 func baseQuery(_ name: String) -> [String: Any] {
   [kSecClass as String: kSecClassGenericPassword,
-   kSecAttrService as String: "agentvault-spike",
+   kSecAttrService as String: "keydillo-spike",
    kSecAttrAccount as String: name,
    kSecUseDataProtectionKeychain as String: true,
    kSecAttrAccessGroup as String: group]

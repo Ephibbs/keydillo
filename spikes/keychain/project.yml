@@ -15,9 +15,9 @@ targets:
     entitlements:
       path: Sources/Spike.entitlements
       properties:
-        keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.agentvault.spike"]
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.keydillo.spike"]
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.agentvault.spike
+      PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.keydillo.spike
       DEVELOPMENT_TEAM: 2JARAJYAYY
       CODE_SIGN_STYLE: Automatic
       ENABLE_HARDENED_RUNTIME: YES

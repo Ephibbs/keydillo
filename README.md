@@ -1,4 +1,4 @@
-# agent-vault (codename)
+# keydillo
 
 A macOS menu-bar app that lets AI coding agents use API keys without seeing them.
 Keys live in the Keychain; agents call a localhost proxy that injects auth headers

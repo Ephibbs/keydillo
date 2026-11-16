@@ -5,7 +5,7 @@ import Network
 public final class ProxyServer: @unchecked Sendable {
   public let port: UInt16
   let engine: ProxyEngine
-  let queue = DispatchQueue(label: "agent-vault.proxy")
+  let queue = DispatchQueue(label: "keydillo.proxy")
   var listener: NWListener?
   public var onStateChange: (String) -> Void = { _ in }
   /// Override for tests (process lookup needs real sockets from other processes).

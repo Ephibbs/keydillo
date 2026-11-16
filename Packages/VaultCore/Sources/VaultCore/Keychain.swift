@@ -17,8 +17,8 @@ public enum KeychainMode: Equatable {
 
 public final class KeychainBackend: ConfigPersistence {
   public let mode: KeychainMode
-  static let secretService = "agent-vault.secret"
-  static let configService = "agent-vault.config"
+  static let secretService = "keydillo.secret"
+  static let configService = "keydillo.config"
   static let configAccount = "services"
 
   public init(mode: KeychainMode) { self.mode = mode }
@@ -26,7 +26,7 @@ public final class KeychainBackend: ConfigPersistence {
   /// Picks data protection when the binary carries the access group entitlement, else legacy.
   public static func detect(accessGroup: String) -> KeychainBackend {
     let probe = KeychainBackend(mode: .dataProtection(accessGroup: accessGroup))
-    var q = probe.base(service: "agent-vault.probe", account: "probe")
+    var q = probe.base(service: "keydillo.probe", account: "probe")
     q[kSecReturnAttributes as String] = true
     let status = SecItemCopyMatching(q as CFDictionary, nil)
     if status == errSecMissingEntitlement { return KeychainBackend(mode: .legacy) }
@@ -52,7 +52,7 @@ public final class KeychainBackend: ConfigPersistence {
     SecItemDelete(base(service: Self.secretService, account: name) as CFDictionary)
     var q = base(service: Self.secretService, account: name)
     q[kSecValueData as String] = value
-    q[kSecAttrLabel as String] = "agent-vault: \(label)"
+    q[kSecAttrLabel as String] = "keydillo: \(label)"
     if case .dataProtection = mode {
       var err: Unmanaged<CFError>?
       guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &err) else {
@@ -111,7 +111,7 @@ public final class KeychainBackend: ConfigPersistence {
     if s == errSecItemNotFound {
       var add = q
       add[kSecValueData as String] = data
-      add[kSecAttrLabel as String] = "agent-vault: service rules"
+      add[kSecAttrLabel as String] = "keydillo: service rules"
       let a = SecItemAdd(add as CFDictionary, nil)
       guard a == errSecSuccess else { throw VaultError.keychain(a) }
     } else if s != errSecSuccess {

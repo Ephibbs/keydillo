@@ -81,7 +81,7 @@ public struct HTTPResponse {
   }
 
   public static func error(_ status: Int, _ message: String) -> HTTPResponse {
-    let json = try! JSONSerialization.data(withJSONObject: ["error": message, "source": "agent-vault"])
+    let json = try! JSONSerialization.data(withJSONObject: ["error": message, "source": "keydillo"])
     return HTTPResponse(status: status, headers: [("Content-Type", "application/json")], body: json)
   }
 

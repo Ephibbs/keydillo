@@ -1,4 +1,4 @@
-name: AgentVault
+name: Keydillo
 options:
   bundleIdPrefix: com.studiokillswitch
   deploymentTarget:
@@ -7,7 +7,7 @@ packages:
   VaultCore:
     path: ../Packages/VaultCore
 targets:
-  AgentVault:
+  Keydillo:
     type: application
     platform: macOS
     sources: [Sources]
@@ -16,15 +16,15 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: agent-vault
+        CFBundleDisplayName: keydillo
         LSUIElement: true
         NSHumanReadableCopyright: "Open source"
     entitlements:
-      path: Sources/AgentVault.entitlements
+      path: Sources/Keydillo.entitlements
       properties: {}
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.agentvault
-      PRODUCT_NAME: agent-vault
+      PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.keydillo
+      PRODUCT_NAME: keydillo
       DEVELOPMENT_TEAM: 2JARAJYAYY
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_IDENTITY: "Apple Development"
