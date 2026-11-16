@@ -13,6 +13,102 @@ enum Runner {
   static var caKey: URL { support.appendingPathComponent("ca.key") }
   static var caPem: URL { support.appendingPathComponent("ca.pem") }
   static var bundle: URL { support.appendingPathComponent("bundle.pem") }
+  static var shims: URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/run", isDirectory: true)
+  }
+
+  /// Node: route fetch and https.request calls that carry a keydillo placeholder straight to the keydillo app.
+  /// Works on every Node version, and for SDKs that ignore HTTPS_PROXY (Stripe, Resend…).
+  static let nodePreload = #"""
+  'use strict';
+  (function () {
+    let map = {}; try { map = JSON.parse(process.env.KEYDILLO_RUN_MAP || '{}'); } catch (e) {}
+    const port = process.env.KEYDILLO_RUN_PORT;
+    if (!port) return;
+    function route(urlStr, headerText) {
+      let u; try { u = new URL(urlStr); } catch (e) { return null; }
+      const list = map[u.hostname.toLowerCase()]; if (!list) return null;
+      const text = headerText + ' ' + urlStr;
+      if (!text.includes('keydillo:') && !text.includes('keydillo%3A')) return null;
+      const svc = list.find((s) => text.includes('keydillo:' + s) || text.includes('keydillo%3A' + s)) || list[0];
+      return 'http://127.0.0.1:' + port + '/' + svc + u.pathname + u.search;
+    }
+    function headerString(h) {
+      if (!h) return '';
+      try { if (typeof h.forEach === 'function' && !Array.isArray(h)) { let s = ''; h.forEach((v, k) => { s += k + ':' + v + '\n'; }); return s; } } catch (e) {}
+      return JSON.stringify(h);
+    }
+    if (typeof globalThis.fetch === 'function') {
+      const orig = globalThis.fetch;
+      globalThis.fetch = function (input, init) {
+        try {
+          const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : input && input.url);
+          const hdrs = headerString((init && init.headers) || (input && input.headers));
+          const to = url && route(url, hdrs);
+          if (to) {
+            if (typeof input === 'object' && !(input instanceof URL) && input.url) return orig(new Request(to, input), init);
+            return orig(to, init);
+          }
+        } catch (e) {}
+        return orig(input, init);
+      };
+    }
+    const http = require('http'), https = require('https');
+    function wrap(fnName) {
+      const orig = https[fnName];
+      https[fnName] = function (a, b, c) {
+        try {
+          let url = null, opts = {}, cb = c;
+          if (typeof a === 'string' || a instanceof URL) { url = new URL(a.toString()); if (typeof b === 'function') { cb = b; } else if (b) { opts = b; } }
+          else { opts = a || {}; cb = b; url = new URL('https://' + (opts.hostname || opts.host || 'localhost') + (opts.port && opts.port != 443 ? ':' + opts.port : '') + (opts.path || '/')); }
+          const to = route(url.href, headerString(opts.headers));
+          if (to) {
+            const t = new URL(to);
+            const o = Object.assign({}, opts, { protocol: 'http:', hostname: t.hostname, host: t.hostname, port: t.port, path: t.pathname + t.search, agent: undefined });
+            delete o.servername; delete o.ca; delete o.cert; delete o.key;
+            return fnName === 'get' ? http.get(o, cb) : http.request(o, cb);
+          }
+        } catch (e) {}
+        return orig.apply(this, arguments);
+      };
+    }
+    wrap('request'); wrap('get');
+  })();
+  """#
+
+  /// Python: make Apple's Python (LibreSSL, which ignores SSL_CERT_FILE) trust keydillo's per-run certificate.
+  static let pythonSitecustomize = #"""
+  import os, ssl
+  _kd_ca = os.environ.get("KEYDILLO_CA")
+  if _kd_ca:
+      _kd_orig = ssl.create_default_context
+      def _kd_ctx(*a, **k):
+          c = _kd_orig(*a, **k)
+          try:
+              c.load_verify_locations(_kd_ca)
+          except Exception:
+              pass
+          return c
+      ssl.create_default_context = _kd_ctx
+      ssl._create_default_https_context = _kd_ctx
+  # Keep any other sitecustomize the user had.
+  import importlib.util, sys
+  _kd_here = os.path.dirname(os.path.abspath(__file__))
+  for _p in sys.path:
+      if _p and os.path.abspath(_p) != _kd_here and os.path.exists(os.path.join(_p, "sitecustomize.py")):
+          _spec = importlib.util.spec_from_file_location("_user_sitecustomize", os.path.join(_p, "sitecustomize.py"))
+          try:
+              _spec.loader.exec_module(importlib.util.module_from_spec(_spec))
+          except Exception:
+              pass
+          break
+  """#
+
+  static func writeShims() throws {
+    try FileManager.default.createDirectory(at: shims, withIntermediateDirectories: true)
+    try nodePreload.write(to: shims.appendingPathComponent("keydillo-preload.cjs"), atomically: true, encoding: .utf8)
+    try pythonSitecustomize.write(to: shims.appendingPathComponent("sitecustomize.py"), atomically: true, encoding: .utf8)
+  }
 
   @discardableResult
   static func sh(_ args: [String], input: Data? = nil) -> (Int32, Data) {
@@ -119,6 +215,15 @@ enum Runner {
     env["NODE_EXTRA_CA_CERTS"] = runExtra.path
     for k in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "AWS_CA_BUNDLE"] { env[k] = runBundle.path }
     env["KEYDILLO_RUN"] = "1"
+    // Shims for runtimes that ignore proxy or CA settings.
+    try? writeShims()
+    var hostMap: [String: [String]] = [:]
+    for svc in services { hostMap[svc.host.lowercased().split(separator: ":").first.map(String.init) ?? svc.host, default: []].append(svc.name) }
+    env["KEYDILLO_RUN_MAP"] = String(decoding: (try? JSONSerialization.data(withJSONObject: hostMap)) ?? Data("{}".utf8), as: UTF8.self)
+    env["KEYDILLO_RUN_PORT"] = String(appPort)
+    env["NODE_OPTIONS"] = ((env0["NODE_OPTIONS"].map { $0 + " " }) ?? "") + "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
+    env["KEYDILLO_CA"] = runExtra.path
+    env["PYTHONPATH"] = shims.path + (env0["PYTHONPATH"].map { ":" + $0 } ?? "")
 
     let child = Process()
     child.executableURL = URL(fileURLWithPath: "/usr/bin/env")

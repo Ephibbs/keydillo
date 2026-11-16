@@ -9,6 +9,21 @@ public enum ImportScanner {
     public let header: String
     public let prefix: String
     public let keyPage: String?
+    /// What the provider's SDK appends after the host, and the env var it reads a base URL from.
+    public var sdkBasePath: String? = nil
+    public var baseURLEnv: String? = nil
+  }
+
+  /// SDK conventions for base URLs, by service.
+  public static let sdkConventions: [String: (path: String, env: String?)] = [
+    "openai": ("/v1", "OPENAI_BASE_URL"), "anthropic": ("", "ANTHROPIC_BASE_URL"), "elevenlabs": ("", "ELEVENLABS_BASE_URL"),
+    "groq": ("/openai/v1", "GROQ_BASE_URL"), "mistral": ("/v1", "MISTRAL_BASE_URL"), "replicate": ("/v1", "REPLICATE_API_BASE_URL"),
+    "perplexity": ("", "PERPLEXITY_BASE_URL"), "deepgram": ("", "DEEPGRAM_BASE_URL"), "gemini": ("", "GOOGLE_GEMINI_BASE_URL"),
+    "resend": ("", "RESEND_BASE_URL"), "stripe": ("", nil), "revenuecat": ("", nil), "posthog": ("", "POSTHOG_HOST"), "cohere": ("", "CO_API_URL"),
+  ]
+  public static func convention(for service: String) -> (path: String, env: String?)? {
+    let base = service.split(separator: "-").first.map(String.init) ?? service
+    return sdkConventions[base]
   }
 
   /// Services we can set up without asking: matched by env var name.

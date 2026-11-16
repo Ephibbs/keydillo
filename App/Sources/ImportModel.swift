@@ -84,14 +84,20 @@ final class ImportModel {
                                 authPrefix: key.service?.prefix ?? "", envVarName: key.name, approval: model.defaultApproval.mode)
         cfg.keyPageURL = key.service?.keyPage
         cfg.folder = file.folder
+        if let conv = key.service.flatMap({ ImportScanner.convention(for: $0.service) }) {
+          cfg.sdkBasePath = conv.path.isEmpty ? nil : conv.path
+          cfg.baseURLEnvName = conv.env
+        }
         do { try model.keychain.setSecret(Data(key.value.utf8), for: name, label: cfg.displayName) }
         catch { self.error = "Couldn't store \(key.name): \(error.localizedDescription)"; return false }
         newServices.append(cfg)
       }
       let cfg = newServices.first { $0.name == name } ?? model.service(named: name)
       let summary = cfg.map(model.summary)
+      // Only add a base-URL line when the service's SDK actually reads one; otherwise it's noise.
+      let readsEnv = cfg.map { $0.baseURLEnvName != nil || ImportScanner.convention(for: $0.name)?.env != nil } ?? false
       replacementsByFile[key.file, default: [:]][key.name] =
-        (name, summary?.baseURL, (cfg?.isProxyReady == true) ? summary?.baseURLEnvName : nil)
+        (name, summary?.baseURL, (cfg?.isProxyReady == true && readsEnv) ? summary?.baseURLEnvName : nil)
     }
     do { try model.addImported(newServices) } catch { self.error = error.localizedDescription; return false }
 
@@ -168,6 +174,46 @@ final class ImportModel {
       guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
       return ImportScanner.parse(text, file: path).contains { !$0.isPublic }
     }
+  }
+
+  /// Earlier imports used the wrong base URLs for some SDKs (OpenAI needs /v1) and odd env names.
+  /// Fix the stored settings, then the keydillo-added lines in imported files.
+  static func migrateBaseURLs(model: AppModel) {
+    guard !UserDefaults.standard.bool(forKey: "migratedBaseURLs1") else { return }
+    var changed: [ServiceConfig] = []
+    for var s in model.services {
+      guard let conv = ImportScanner.convention(for: s.name) else { continue }
+      let before = (s.sdkBasePath, s.baseURLEnvName)
+      s.sdkBasePath = conv.path.isEmpty ? nil : conv.path
+      s.baseURLEnvName = conv.env
+      if before != (s.sdkBasePath, s.baseURLEnvName) { changed.append(s) }
+    }
+    if !changed.isEmpty { try? model.addImported(changed) }
+    let byName = Dictionary(uniqueKeysWithValues: model.services.map { ($0.name, $0) })
+    for path in trackedFiles {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+      var out: [String] = []
+      for line in text.components(separatedBy: "\n") {
+        // A keydillo-added line looks like NAME=http://localhost:<port>/<service>...
+        if let eq = line.firstIndex(of: "="), !line.hasPrefix("#") {
+          let value = line[line.index(after: eq)...]
+          if let r = value.range(of: #"^http://(localhost|127\.0\.0\.1):\d+/([a-z0-9-]+)"#, options: .regularExpression) {
+            let svcName = String(value[r].split(separator: "/").last ?? "")
+            if let svc = byName[svcName] {
+              let sum = model.summary(svc)
+              if svc.baseURLEnvName != nil || ImportScanner.convention(for: svc.name)?.env != nil {
+                if !out.contains(where: { $0.hasPrefix(sum.baseURLEnvName + "=") }) { out.append("\(sum.baseURLEnvName)=\(sum.baseURL)") }
+              }
+              continue   // drop the old line (its replacement, if any, was added above)
+            }
+          }
+        }
+        out.append(line)
+      }
+      let newText = out.joined(separator: "\n")
+      if newText != text { try? newText.write(toFile: path, atomically: true, encoding: .utf8) }
+    }
+    UserDefaults.standard.set(true, forKey: "migratedBaseURLs1")
   }
 
   /// Files imported before the explanatory header existed get it once.

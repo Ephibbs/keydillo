@@ -156,6 +156,10 @@ struct KeyWindowView: View {
                             authHeader: request.header.trimmingCharacters(in: .whitespaces), authPrefix: request.prefix,
                             envVarName: request.envVarName.isEmpty ? nil : request.envVarName, approval: approval.mode)
     cfg.keyPageURL = request.keyPageURL.isEmpty ? nil : request.keyPageURL
+    if let conv = ImportScanner.convention(for: name) {
+      cfg.sdkBasePath = conv.path.isEmpty ? nil : conv.path
+      cfg.baseURLEnvName = conv.env
+    }
     cfg.folder = request.cwd ?? model.service(named: name)?.folder
     do {
       if try await model.save(cfg, secret: secret) {

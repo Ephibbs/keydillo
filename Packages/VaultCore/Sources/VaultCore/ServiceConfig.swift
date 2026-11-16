@@ -51,6 +51,10 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var basicAuth: Bool?
   /// More headers that carry the key, e.g. ["Authorization": "Bearer {key}"] for Supabase.
   public var extraHeaders: [String: String]?
+  /// Path the provider's SDK expects at the end of its base URL (OpenAI: "/v1").
+  public var sdkBasePath: String?
+  /// Env var the provider's SDK reads its base URL from (OpenAI: OPENAI_BASE_URL).
+  public var baseURLEnvName: String?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",

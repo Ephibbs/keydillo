@@ -63,10 +63,18 @@ public enum ControlResponse: Codable, Equatable {
 
 public extension ServiceConfig {
   func summary(port: UInt16) -> ServiceSummary {
-    let base = envVarName.hasSuffix("_API_KEY") ? String(envVarName.dropLast(8)) : envVarName
-    return ServiceSummary(name: name, displayName: displayName, project: project, host: upstreamHost,
-                          baseURL: "http://localhost:\(port)/\(name)", envVarName: envVarName,
-                          baseURLEnvName: base + "_BASE_URL")
+    ServiceSummary(name: name, displayName: displayName, project: project, host: upstreamHost,
+                   baseURL: "http://localhost:\(port)/\(name)\(sdkBasePath ?? "")", envVarName: envVarName,
+                   baseURLEnvName: baseURLEnvName ?? Self.derivedBaseEnv(envVarName))
+  }
+
+  /// OPENAI_API_KEY / OPENAI_KEY / RESEND_SECRET_KEY → OPENAI_BASE_URL / OPENAI_BASE_URL / RESEND_BASE_URL
+  static func derivedBaseEnv(_ env: String) -> String {
+    var base = env
+    for suffix in ["_SECRET_KEY", "_API_KEY", "_API_TOKEN", "_ACCESS_TOKEN", "_KEY", "_TOKEN", "_SECRET"] where base.hasSuffix(suffix) && base.count > suffix.count {
+      base = String(base.dropLast(suffix.count)); break
+    }
+    return base + "_BASE_URL"
   }
 }
 
