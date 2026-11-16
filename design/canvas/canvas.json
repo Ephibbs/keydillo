@@ -134,6 +134,48 @@
       "w": 460,
       "h": 680,
       "title": "Setup 3 \u00b7 same, with the review list open"
+    },
+    "Every1Approve.dc.html": {
+      "x": 0,
+      "y": 5843,
+      "w": 340,
+      "h": 330,
+      "title": "Every day 1 \u00b7 Claude uses a key: popover + Touch ID"
+    },
+    "Every2TouchID.dc.html": {
+      "x": 420,
+      "y": 5843,
+      "w": 420,
+      "h": 300,
+      "title": "Every day 2 \u00b7 the macOS Touch ID prompt (system UI)"
+    },
+    "Every3Popover.dc.html": {
+      "x": 920,
+      "y": 5843,
+      "w": 340,
+      "h": 400,
+      "title": "Every day 3 \u00b7 popover in normal use"
+    },
+    "Every4Port.dc.html": {
+      "x": 1340,
+      "y": 5843,
+      "w": 340,
+      "h": 300,
+      "title": "Every day 4 \u00b7 port in use"
+    },
+    "Every5Away.dc.html": {
+      "x": 1760,
+      "y": 5843,
+      "w": 340,
+      "h": 330,
+      "title": "Every day 5 \u00b7 requests while the Mac was locked"
+    },
+    "Every6Claude.dc.html": {
+      "x": 2180,
+      "y": 5843,
+      "w": 560,
+      "h": 330,
+      "title": "Every day 6 \u00b7 what Claude sees when you deny"
     }
   },
   "createdOnFiles": {
@@ -192,6 +234,13 @@
       "w": 240,
       "x": 0,
       "y": 4643
+    },
+    "t7": {
+      "x": 0,
+      "y": 5583,
+      "text": "Every day, after setup",
+      "kind": "title1",
+      "maxW": 2740
     }
   },
   "order": [
@@ -213,7 +262,13 @@
     "Setup2TouchID.dc.html",
     "Setup3Import.dc.html",
     "Setup3ImportOpen.dc.html",
-    "Setup3Claude.dc.html"
+    "Setup3Claude.dc.html",
+    "Every1Approve.dc.html",
+    "Every2TouchID.dc.html",
+    "Every3Popover.dc.html",
+    "Every4Port.dc.html",
+    "Every5Away.dc.html",
+    "Every6Claude.dc.html"
   ],
   "pages": [],
   "title": "keydillo menu-bar UI"

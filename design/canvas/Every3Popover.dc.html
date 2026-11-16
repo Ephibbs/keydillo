@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Popover in normal use</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0D0D0D}a:hover{color:#444444}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 340px; height: 400px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #DEDEDE; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; color: #0D0D0D">
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px">
+    <div style="font-size: 16px; font-weight: 600">keydillo</div>
+    <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #676767"><span style="width: 7px; height: 7px; border-radius: 4px; background: #1E8E3E"></span>On · :7787</div>
+  </div>
+  <div style="font-size: 12px; color: #676767; padding: 0 16px 6px">Open right now</div>
+  <div style="margin: 0 6px; display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px">
+      <div style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 13px; font-weight: 500">Anthropic · notes-app</span><span style="font-size: 12px; color: #676767">11 more minutes</span></div>
+      <button style="height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid #DCDCDC; background: #FFFFFF; font-size: 12px">End</button>
+    </div>
+  </div>
+  <div style="font-size: 12px; color: #676767; padding: 10px 16px 6px">Recent</div>
+  <div style="padding: 0 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+    <div style="display: flex; justify-content: space-between"><span>claude → ElevenLabs</span><span style="color: #676767">2 min ago</span></div>
+    <div style="display: flex; justify-content: space-between"><span>node → Anthropic</span><span style="color: #676767">9 min ago</span></div>
+    <div style="display: flex; justify-content: space-between"><span>claude → Stripe</span><span style="color: #C2410C">Denied</span></div>
+  </div>
+  <div style="margin-top: auto; border-top: 1px solid #EDEDED; padding: 6px; display: flex; flex-direction: column">
+    <span style="padding: 8px 10px; font-size: 13px">Open keydillo…</span>
+    <span style="padding: 8px 10px; font-size: 13px">Pause proxy</span>
+    <span style="padding: 8px 10px; font-size: 13px">Quit</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":340,"height":400}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

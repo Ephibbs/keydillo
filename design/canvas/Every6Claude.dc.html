@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What Claude sees</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#9CC08A}a:hover{color:#B8D6A8}
+</style>
+</helmet>
+<div style="width: 560px; height: 330px; box-sizing: border-box; background: #1E1D1B; border: 1px solid #3A3833; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; color: #E8E4DA">
+  <div style="height: 34px; display: flex; align-items: center; padding: 0 12px; gap: 7px; background: #2A2926; border-bottom: 1px solid #3A3833">
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #FF5F57"></span>
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #FEBC2E"></span>
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #28C840"></span>
+    <span style="flex: 1; text-align: center; font-size: 12px; color: #A8A397">~/Desktop/notes-app</span>
+  </div>
+  <div style="flex: 1; padding: 18px 20px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.75; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; flex-direction: column; padding-left: 14px; border-left: 2px solid #4A4740">
+      <div style="color: #C9C3B5">curl -X POST localhost:7787/elevenlabs/v1/text-to-speech/…</div>
+      <div style="color: #E3B866">403 {"error": "The user did not approve this request", "source": "keydillo"}</div>
+    </div>
+    <div style="color: #E8E4DA">You declined the ElevenLabs request, so I've stopped there and won't retry. Approve it in keydillo and tell me to try again, or let me know if you'd rather skip narration.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":560,"height":330}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
