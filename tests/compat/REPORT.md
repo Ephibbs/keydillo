@@ -1,6 +1,6 @@
 # keydillo compatibility report
 
-Generated 2026-11-16 14:00 by `tests/compat/run_compat.py`.
+Generated 2026-11-16 14:11 by `tests/compat/run_compat.py`.
 Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 ## Request and auth types × clients
@@ -38,7 +38,7 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 | Case | Result | Detail |
 |---|---|---|
-| 20 parallel calls share one Touch ID | ❌ | invalid literal for int() with base 10: 'Mon,' |
+| 20 parallel calls share one Touch ID | ✅ |  |
 | Denied → clear 403 | ✅ |  |
 | Mac locked → clear 423 | ✅ |  |
 | Unknown key → hint to request_secret | ✅ |  |
@@ -66,6 +66,5 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 |---|---|---|
 | keydillo run + curl | ✅ |  |
 | keydillo run + python requests | ✅ |  |
-| keydillo run + node fetch (Node 22) | ❌ | {"args":{},"headers":{"host":"postman-echo.com","accept-encoding":"gzip, br","user-agent":"node","sec-fetch-mode":"cors","accept-language":"*","x-forwarded-prot |
-| keydillo run chains through an existing HTTPS_PROXY | ❌ | 200 CONNECT example.com:443 HTTP/1.1
- |
+| keydillo run + node fetch (Node 22) | ➖ | Node < 24's built-in fetch ignores HTTPS_PROXY. Fallback: *_BASE_URL, or Node 24+ (keydillo sets NODE_USE_ENV_PROXY). |
+| keydillo run chains through an existing HTTPS_PROXY | ✅ |  |

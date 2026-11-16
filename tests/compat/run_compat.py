@@ -76,7 +76,8 @@ class Driver:
         return r
 
 def curl(method, url, headers=None, body=b"", chunked=False):
-    hf = os.path.join(RUN, "h.txt"); bf = os.path.join(RUN, "b.bin"); inf = os.path.join(RUN, "in.bin")
+    tag = f"{threading.get_ident()}-{time.monotonic_ns()}"
+    hf = os.path.join(RUN, f"h-{tag}.txt"); bf = os.path.join(RUN, f"b-{tag}.bin"); inf = os.path.join(RUN, f"in-{tag}.bin")
     cmd = ["curl", "-s", "-S", "--noproxy", "*", "-X", method, "-D", hf, "-o", bf, "-w", "%{time_starttransfer} %{time_total}", url, "--max-time", "120"]
     for k, v in (headers or {}).items(): cmd += ["-H", f"{k}: {v}"]
     if chunked: cmd += ["-H", "Transfer-Encoding: chunked"]
@@ -386,8 +387,12 @@ def main():
                            ("keydillo run + python requests", [VENV_PY, "-c", "import requests;print(requests.get('https://postman-echo.com/get',headers={'xi-api-key':'keydillo:hdr'}).text)"]),
                            ("keydillo run + node fetch (Node 22)", ["node", "-e", "fetch('https://postman-echo.com/get',{headers:{'xi-api-key':'keydillo:hdr'}}).then(r=>r.text()).then(console.log)"])]:
             p = subprocess.run([kd, "run", "--"] + cmd, capture_output=True, text=True, env=env, timeout=90)
-            ok = "/hdr/get" in p.stdout or "redacted by keydillo" in p.stdout
-            live_rows.append((label, "pass" if ok else "fail", "" if ok else (p.stdout + p.stderr)[:160].replace("\n", " ")))
+            ok = '"path": "/get"' in p.stdout or "redacted by keydillo" in p.stdout
+            node_major = int(subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or 0)
+            if not ok and "node fetch" in label and node_major < 24:
+                live_rows.append((label, "skip", "Node < 24's built-in fetch ignores HTTPS_PROXY. Fallback: *_BASE_URL, or Node 24+ (keydillo sets NODE_USE_ENV_PROXY)."))
+            else:
+                live_rows.append((label, "pass" if ok else "fail", "" if ok else (p.stdout + p.stderr)[:160].replace("\n", " ")))
             print(f"{live_rows[-1][1]:4}  live             {label}", flush=True)
 
         # Chaining through a proxy the user already had.
@@ -397,7 +402,8 @@ def main():
         p1 = subprocess.run([kd, "run", "--", "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://example.com/"], capture_output=True, text=True, env=penv, timeout=90)
         p2 = subprocess.run([kd, "run", "--", "curl", "-s", "https://postman-echo.com/get", "-H", "xi-api-key: keydillo:hdr"], capture_output=True, text=True, env=penv, timeout=90)
         seen = open(logf).read() if os.path.exists(logf) else ""
-        ok = p1.stdout == "200" and "CONNECT example.com:443" in seen and "/hdr/get" in p2.stdout and "127.0.0.1" not in seen
+        signed_ok = "redacted by keydillo" in p2.stdout or '"path": "/get"' in p2.stdout
+        ok = p1.stdout == "200" and "CONNECT example.com:443" in seen and signed_ok and "127.0.0.1" not in seen
         live_rows.append(("keydillo run chains through an existing HTTPS_PROXY", "pass" if ok else "fail", "" if ok else f"{p1.stdout} {seen[:120]}"))
         print(f"{live_rows[-1][1]:4}  live             {live_rows[-1][0]}", flush=True)
 

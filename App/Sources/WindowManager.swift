@@ -36,6 +36,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
   }
 
   func close(_ id: String) { windows[id]?.close() }
+  func bringToFront(_ id: String) { windows[id]?.makeKeyAndOrderFront(nil) }
 
   func windowWillClose(_ notification: Notification) {
     guard let w = notification.object as? NSWindow, let id = w.identifier?.rawValue else { return }

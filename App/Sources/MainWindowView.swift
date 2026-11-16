@@ -236,6 +236,7 @@ struct KeyDetailView: View {
   @State private var copied = false
   @State private var copiedNote: String?
   @State private var editing = false
+  @State private var authenticating = false
 
   init(config: ServiceConfig) {
     _config = State(initialValue: config)
@@ -328,7 +329,8 @@ struct KeyDetailView: View {
           .help("Shows the key after Touch ID. Hides again after 30 s.")
       }
     }
-    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hide() }
+    // Hide when the user leaves the window, but not because the Touch ID sheet took focus.
+    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in if !authenticating { hide() } }
   }
 
   var fields: some View {
@@ -444,7 +446,14 @@ struct KeyDetailView: View {
   }
 
   func reveal() async {
-    guard let v = await model.reveal(config) else { return }
+    authenticating = true
+    let v = await model.reveal(config)
+    // Touch ID hands focus to another app; bring keydillo back to the front so the key is actually visible.
+    NSApp.activate()
+    WindowManager.shared.bringToFront("main")
+    try? await Task.sleep(nanoseconds: 300_000_000)
+    authenticating = false
+    guard let v else { return }
     revealed = v; copied = false
     try? await Task.sleep(for: .seconds(30))
     if revealed == v { hide() }

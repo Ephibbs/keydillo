@@ -266,6 +266,7 @@ final class AppModel {
   /// Values for a project's keys, after Touch ID. Never reachable from the CLI, MCP or proxy.
   func readout(project: String) async -> [(ServiceConfig, String)]? {
     guard let ctx = await authenticate("show the keys for \(project)") else { return nil }
+    NSApp.activate()
     return services.filter { $0.project == project }.compactMap { s in
       guard let d = try? keychain.secret(for: s.name, context: ctx) else { return nil }
       return (s, String(decoding: d, as: UTF8.self))
