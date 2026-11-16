@@ -1,0 +1,92 @@
+import SwiftUI
+import VaultCore
+
+struct PopoverView: View {
+  @Environment(AppModel.self) private var model
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("keydillo").font(.system(size: 16, weight: .semibold))
+        Spacer()
+        HStack(spacing: 6) {
+          StatusDot(on: model.proxyRunning)
+          Text(model.proxyRunning ? "On · :\(String(model.port))" : (model.paused ? "Paused" : "Off"))
+        }
+        .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      }
+      .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+
+      ForEach(model.pending) { p in pendingCard(p) }
+
+      if !model.activeGrants.isEmpty {
+        Text("Open right now").font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 6)
+        VStack(spacing: 0) {
+          ForEach(model.activeGrants, id: \.service) { g in
+            HStack {
+              VStack(alignment: .leading, spacing: 1) {
+                let s = model.service(named: g.service)
+                Text("\(s?.displayName ?? g.service)\(s.map { " · " + $0.project } ?? "")").font(.system(size: 13, weight: .medium))
+                Text(grantText(g)).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+              }
+              Spacer()
+              Button("End") { model.endGrant(g.service) }.buttonStyle(SmallButtonStyle())
+            }
+            .padding(10)
+          }
+        }
+        .padding(.horizontal, 6)
+      } else if model.pending.isEmpty {
+        Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") locked. Nothing open right now.")
+          .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
+      }
+
+      Divider().overlay(Theme.hairline).padding(.top, 8)
+      VStack(alignment: .leading, spacing: 0) {
+        menuRow("Open keydillo…") { StatusItem.shared?.close(); WindowManager.shared.showMain() }
+        menuRow(model.paused ? "Resume proxy" : "Pause proxy") { model.togglePause() }
+        menuRow("Quit") { NSApp.terminate(nil) }
+      }
+      .padding(6)
+    }
+    .frame(width: 340)
+    .background(Theme.background)
+    .foregroundStyle(Theme.text)
+    .task { await model.refreshGrants() }
+  }
+
+  func pendingCard(_ p: PendingApproval) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text("\(p.request.client.displayName) wants \(p.request.displayName)").font(.system(size: 14, weight: .semibold))
+        Text("\(p.project.isEmpty ? "" : p.project + " · ")\(p.request.method) \(p.request.path) · pid \(String(p.request.client.pid))")
+          .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
+      }
+      HStack(spacing: 6) {
+        Button("Deny") { model.deny(p) }.buttonStyle(SmallButtonStyle())
+        Button(model.windowUpgrades.contains(p.id) ? "15 min ✓" : "15 min") { model.allowWindow(p) }.buttonStyle(SmallButtonStyle())
+        Spacer()
+        Text("Touch ID to allow").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      }
+    }
+    .padding(14)
+    .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
+    .padding(.horizontal, 12).padding(.bottom, 14)
+  }
+
+  func grantText(_ g: (service: String, expires: Date?, client: ClientProcess?)) -> String {
+    if let e = g.expires {
+      let mins = max(1, Int(e.timeIntervalSinceNow / 60))
+      return "\(mins) more minute\(mins == 1 ? "" : "s")"
+    }
+    return "Until \(g.client?.agent ?? g.client?.name ?? "the program") exits"
+  }
+
+  func menuRow(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Text(title).font(.system(size: 13)).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+  }
+}

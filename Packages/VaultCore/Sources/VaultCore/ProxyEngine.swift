@@ -18,6 +18,12 @@ public struct ActivityEvent: Codable, Identifiable, Equatable, Sendable {
   public var outcome: Outcome
   public var status: Int
   public var note: String?
+
+  public init(date: Date, service: String, method: String, path: String, process: String, pid: Int32,
+              outcome: Outcome, status: Int, note: String? = nil) {
+    self.date = date; self.service = service; self.method = method; self.path = path
+    self.process = process; self.pid = pid; self.outcome = outcome; self.status = status; self.note = note
+  }
 }
 
 /// Turns one local request into one upstream request, enforcing rules and approval.

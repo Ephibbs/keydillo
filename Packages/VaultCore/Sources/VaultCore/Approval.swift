@@ -63,6 +63,13 @@ public actor ApprovalGate {
     }
   }
 
+  /// A user-chosen window applies regardless of the service's own mode.
+  func windowOverride(_ service: ServiceConfig) -> Grant? {
+    guard let g = grants[service.name], let e = g.expires else { return nil }
+    if e <= now() { grants[service.name] = nil; return nil }
+    return g
+  }
+
   func validGrant(_ service: ServiceConfig, _ client: ClientProcess) -> Grant? {
     if case .eachRequest = service.approval { return nil }
     guard let g = grants[key(service, client)] else { return nil }
@@ -71,11 +78,11 @@ public actor ApprovalGate {
   }
 
   public func authorize(_ service: ServiceConfig, _ request: ApprovalRequest) async -> ApprovalResult {
-    if let g = validGrant(service, request.client) { return .approved(g.context) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
     await lock()
     defer { unlock() }
     // Another request may have been approved while we waited.
-    if let g = validGrant(service, request.client) { return .approved(g.context) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
     let result = await approver.approve(request)
     if case .approved(let ctx) = result {
       switch service.approval {
@@ -85,6 +92,11 @@ public actor ApprovalGate {
       }
     }
     return result
+  }
+
+  /// Extends an approval to a time window, e.g. when the user picks "15 min" in the popover.
+  public func grantWindow(service: String, minutes: Int, context: LAContext?) {
+    grants[service] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: nil)
   }
 
   public func revokeAll(service: String? = nil) {
