@@ -10,7 +10,7 @@ final class AppModel {
   var services: [ServiceConfig] = []
   var events: [ActivityEvent] = []
   var proxyState = "starting"
-  var port: UInt16 = UInt16(UserDefaults.standard.integer(forKey: "port")).nonZero ?? 8787
+  var port: UInt16 = UInt16(UserDefaults.standard.integer(forKey: "port")).nonZero ?? 7787
   @ObservationIgnored private var engine: ProxyEngine!
   @ObservationIgnored private var server: ProxyServer!
 

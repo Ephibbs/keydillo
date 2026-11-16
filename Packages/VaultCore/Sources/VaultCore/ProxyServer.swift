@@ -11,7 +11,7 @@ public final class ProxyServer: @unchecked Sendable {
   /// Override for tests (process lookup needs real sockets from other processes).
   public var identify: (UInt16, UInt16) -> ClientProcess = { ProcessLookup.process(connectedFrom: $0, to: $1) }
 
-  public init(port: UInt16 = 8787, engine: ProxyEngine) {
+  public init(port: UInt16 = 7787, engine: ProxyEngine) {
     self.port = port
     self.engine = engine
   }

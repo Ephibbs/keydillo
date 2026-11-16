@@ -1,7 +1,7 @@
 #!/bin/bash
 # Calls ElevenLabs through keydillo. No key anywhere in this script or its environment.
 # Usage: scripts/tts-test.sh [port] [voice_id]
-PORT=${1:-$(defaults read com.studiokillswitch.keydillo port 2>/dev/null || echo 8787)}
+PORT=${1:-$(defaults read com.studiokillswitch.keydillo port 2>/dev/null || echo 7787)}
 VOICE=${2:-21m00Tcm4TlvDq8ikWAM}
 OUT=/tmp/keydillo-test.mp3
 echo "POST localhost:$PORT/elevenlabs/v1/text-to-speech/$VOICE (approve with Touch ID)"

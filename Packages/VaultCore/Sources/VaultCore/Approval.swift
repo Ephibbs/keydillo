@@ -58,7 +58,7 @@ public actor ApprovalGate {
   func key(_ service: ServiceConfig, _ client: ClientProcess) -> String {
     switch service.approval {
     case .eachRequest: return ""
-    case .perProcess: return "\(service.name)|\(client.pid)|\(client.startTime)"
+    case .perProcess: return "\(service.name)|\(client.sessionKey)"
     case .window: return service.name
     }
   }

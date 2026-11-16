@@ -167,3 +167,38 @@ final class EndToEndTests: XCTestCase {
     XCTAssertEqual(events.map(\.outcome), [.sent, .blocked, .blocked, .denied])
   }
 }
+
+final class ControlTests: XCTestCase {
+  func testRoundTripOverSocket() throws {
+    let path = NSTemporaryDirectory() + "kd-\(UUID().uuidString.prefix(6)).sock"
+    try ControlSocket.serve(path: path) { req in
+      if case .requestSecret(let r) = req {
+        let svc = ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).summary(port: 7787)
+        return .saved(svc, envLines: svc.placeholderEnvLines)
+      }
+      return .services([])
+    }
+    Thread.sleep(forTimeInterval: 0.1)
+    let resp = try ControlSocket.send(.requestSecret(SecretRequest(service: "elevenlabs", host: "api.elevenlabs.io", header: "xi-api-key")), path: path)
+    guard case .saved(let s, let lines) = resp else { return XCTFail("\(resp)") }
+    XCTAssertEqual(s.baseURL, "http://localhost:7787/elevenlabs")
+    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo-placeholder"])
+  }
+}
+
+final class MCPTests: XCTestCase {
+  func testToolsAndRequestSecret() throws {
+    var sent: ControlRequest?
+    let mcp = MCPServer(cwd: "/Users/x/Desktop/notes-app", send: { req in
+      sent = req
+      let s = ServiceConfig(name: "elevenlabs", upstreamHost: "api.elevenlabs.io", authHeader: "xi-api-key").summary(port: 7787)
+      return .saved(s, envLines: s.placeholderEnvLines)
+    })
+    XCTAssertNil(mcp.handle(line: #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#))
+    XCTAssertTrue(mcp.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)!.contains("request_secret"))
+    let out = mcp.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_secret","arguments":{"service":"ElevenLabs","host":"api.elevenlabs.io","header":"xi-api-key"}}}"#)!
+    XCTAssertTrue(out.contains("http://localhost:7787/elevenlabs"), out)
+    guard case .requestSecret(let r) = sent else { return XCTFail() }
+    XCTAssertEqual(r.service, "elevenlabs"); XCTAssertEqual(r.project, "notes-app")
+  }
+}

@@ -6,11 +6,19 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var name: String
   /// Nearest ancestor that looks like an agent (claude, codex, cursor...), if any.
   public var agent: String?
+  /// pid of that agent ancestor, used to scope "once per session" approvals.
+  public var agentPid: Int32?
   /// Process start time, so a recycled pid is not mistaken for the same process.
   public var startTime: UInt64
 
-  public init(pid: Int32, name: String, agent: String? = nil, startTime: UInt64 = 0) {
-    self.pid = pid; self.name = name; self.agent = agent; self.startTime = startTime
+  public init(pid: Int32, name: String, agent: String? = nil, agentPid: Int32? = nil, startTime: UInt64 = 0) {
+    self.pid = pid; self.name = name; self.agent = agent; self.agentPid = agentPid; self.startTime = startTime
+  }
+
+  /// The process a "session" approval belongs to: the agent if we found one, else the caller itself.
+  public var sessionKey: String {
+    if let agentPid { return "\(agentPid)|\(ProcessLookup.startTime(of: agentPid))" }
+    return "\(pid)|\(startTime)"
   }
 
   public var displayName: String {
@@ -62,7 +70,7 @@ public enum ProcessLookup {
     var cur = pid
     for _ in 0..<8 {
       let n = name(of: cur).lowercased()
-      if agentNames.contains(where: { n.contains($0) }) { p.agent = name(of: cur); break }
+      if agentNames.contains(where: { n.contains($0) }) { p.agent = name(of: cur); p.agentPid = cur; break }
       let parent = parentPid(of: cur)
       if parent <= 1 || parent == cur { break }
       cur = parent
