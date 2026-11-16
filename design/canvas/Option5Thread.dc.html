@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option 5 warm thread</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&amp;display=swap">
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#3F5A2D}a:hover{color:#2E4420}
+button,input{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; box-sizing: border-box; border: 1px solid #D9D2C3; border-radius: 12px; overflow: hidden; display: flex; color: #24211C; background: #F6F3EC">
+
+  <div style="width: 248px; flex-shrink: 0; background: #EEE9DD; display: flex; flex-direction: column; padding: 14px 12px; gap: 18px">
+    <div style="display: flex; gap: 7px; padding: 0 4px">
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #FF5F57"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #FEBC2E"></span>
+      <span style="width: 12px; height: 12px; border-radius: 6px; background: #28C840"></span>
+    </div>
+    <div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 22px; font-weight: 600; padding: 2px 8px 0">keydillo</div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #6A6358; padding: 0 8px 6px">Projects</div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; font-size: 14px; background: #E2DBCB"><span>Notes</span><span style="color: #6A6358">3</span></div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; font-size: 14px"><span>voiceover</span><span style="color: #6A6358">2</span></div>
+      <div style="display: flex; justify-content: space-between; padding: 8px; border-radius: 8px; font-size: 14px"><span>Personal</span><span style="color: #6A6358">2</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #6A6358; padding: 0 8px 6px">Keys in Notes</div>
+      <div style="padding: 7px 8px; font-size: 13px">ElevenLabs</div>
+      <div style="padding: 7px 8px; font-size: 13px">Anthropic</div>
+      <div style="padding: 7px 8px; font-size: 13px">Supabase service role</div>
+      <a href="Readout.dc.html" style="padding: 7px 8px; font-size: 13px; text-decoration: none">Copy as .env…</a>
+    </div>
+
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px; font-size: 13px; color: #4A453C">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: #4A7A36"></span>
+      Guarding localhost:7787
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0">
+    <div style="width: 680px; flex: 1; display: flex; flex-direction: column; gap: 22px; padding-top: 40px; overflow: hidden">
+      <div style="font-family: 'Source Serif 4', Georgia, serif; font-size: 30px; font-weight: 500; letter-spacing: -0.01em">Today in Notes</div>
+
+      <div style="display: flex; gap: 14px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #E2DBCB; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0">cl</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; color: #6A6358">claude · pid 48211 · just now</div>
+          <div style="background: #FFFFFF; border: 1px solid #E3DCCB; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+            <div style="font-size: 15px; line-height: 1.5">Wants to use your <strong>ElevenLabs</strong> key to turn text into speech.</div>
+            <div style="font-size: 13px; color: #4A453C; font-family: ui-monospace, 'SF Mono', Menlo, monospace">POST api.elevenlabs.io/v1/text-to-speech/21m00…</div>
+            <div style="display: flex; gap: 8px">
+              <button style="height: 36px; padding: 0 18px; border-radius: 10px; border: none; background: #3F5A2D; color: #FFFFFF; font-size: 14px; font-weight: 500">Allow once</button>
+              <button style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #D6CDB8; background: #FFFFFF; font-size: 14px">Allow for 15 min</button>
+              <button style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #D6CDB8; background: #FFFFFF; font-size: 14px">Deny</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 14px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #E2DBCB; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0">cl</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; color: #6A6358">claude · 18:40</div>
+          <div style="font-size: 15px; line-height: 1.5">Listed voices with <strong>ElevenLabs</strong>. Sent, 200 in 0.4 s.</div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 14px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #EBD9D2; color: #7A2E1F; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0">py</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; color: #6A6358">python3 · 18:39</div>
+          <div style="font-size: 15px; line-height: 1.5">Tried to delete a voice. <span style="color: #8A2F1E">Blocked:</span> ElevenLabs only allows text-to-speech and listing voices. <a href="#">Change rules</a></div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 14px">
+        <div style="width: 32px; height: 32px; border-radius: 8px; background: #E2DBCB; font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0">nd</div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; color: #6A6358">node · 17:52</div>
+          <div style="font-size: 15px; line-height: 1.5">Sent 6 messages to <strong>Anthropic</strong> inside your 15-minute window.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 680px; padding: 0 0 22px">
+      <div style="background: #FFFFFF; border: 1px solid #DCD4C2; border-radius: 20px; padding: 12px 12px 12px 18px; display: flex; align-items: center; gap: 12px; box-shadow: 0 2px 10px rgba(60,45,20,0.06)">
+        <label for="add" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Add a key</label>
+        <input id="add" placeholder="Paste a key or name an API to add it to Notes" style="flex: 1; border: none; outline: none; font-size: 15px; background: transparent; color: #24211C">
+        <button style="height: 36px; padding: 0 16px; border-radius: 12px; border: none; background: #24211C; color: #F6F3EC; font-size: 14px">Add key</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
