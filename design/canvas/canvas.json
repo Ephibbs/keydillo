@@ -1,1 +1,172 @@
-{"v": 3, "createdOnFiles": {"v": 1, "at": "2026-11-16T18:55:00Z"}, "title": "keydillo menu-bar UI", "launch": {"view": "canvas"}, "pages": [], "boards": {"Main.dc.html": {"x": 0, "y": 0, "w": 380, "h": 620, "title": "1 \u00b7 Everything in the menu-bar popover"}, "Option2Window.dc.html": {"x": 460, "y": 0, "w": 1080, "h": 680, "title": "2 \u00b7 Small popover + full window (window)"}, "Option2Popover.dc.html": {"x": 1620, "y": 0, "w": 340, "h": 460, "title": "2 \u00b7 Small popover + full window (popover)"}, "Option3Activity.dc.html": {"x": 0, "y": 1023, "w": 380, "h": 620, "title": "3 \u00b7 Activity-first popover"}, "Readout.dc.html": {"x": 460, "y": 1023, "w": 560, "h": 500, "title": "Shared \u00b7 Project readout after Touch ID"}, "RequestSheet.dc.html": {"x": 1100, "y": 1023, "w": 460, "h": 520, "title": "Shared \u00b7 Claude asks for a key"}, "Option4Warm.dc.html": {"x": 0, "y": 2023, "w": 1080, "h": 680, "title": "4 \u00b7 Option 2 in a warm style (window)"}, "Option4WarmPopover.dc.html": {"x": 1160, "y": 2023, "w": 340, "h": 460, "title": "4 \u00b7 Warm style (popover)"}, "Option5Mono.dc.html": {"x": 0, "y": 3043, "w": 1080, "h": 680, "title": "5 \u00b7 Option 2 in a clean monochrome style (window)"}, "Option5MonoPopover.dc.html": {"x": 1160, "y": 3043, "w": 340, "h": 460, "title": "5 \u00b7 Monochrome style (popover)"}, "FirstRun1Terminal.dc.html": {"x": 0, "y": 3983, "w": 640, "h": 440, "title": "First run 1 \u00b7 Claude asks keydillo for a key"}, "FirstRun2Sheet.dc.html": {"x": 720, "y": 3983, "w": 520, "h": 660, "title": "First run 2 \u00b7 keydillo opens, you paste the key"}, "FirstRun3Done.dc.html": {"x": 1320, "y": 3983, "w": 520, "h": 660, "title": "First run 3 \u00b7 Saved; what Claude got back"}}, "order": ["Main.dc.html", "Option2Window.dc.html", "Option2Popover.dc.html", "Option3Activity.dc.html", "Readout.dc.html", "RequestSheet.dc.html", "Option4Warm.dc.html", "Option4WarmPopover.dc.html", "Option5Mono.dc.html", "Option5MonoPopover.dc.html", "FirstRun1Terminal.dc.html", "FirstRun2Sheet.dc.html", "FirstRun3Done.dc.html"], "notes": {"t1": {"x": 0, "y": -260, "text": "keydillo UI options", "kind": "title1", "maxW": 1960}, "t2": {"x": 0, "y": 780, "text": "Option 3 and the shared readout", "kind": "title1", "maxW": 1960}, "t3": {"x": 0, "y": 1763, "text": "4 \u00b7 Warm style", "kind": "title1", "maxW": 1500}, "t4": {"x": 0, "y": 2783, "text": "5 \u00b7 Monochrome style", "kind": "title1", "maxW": 1500}, "t5": {"x": 0, "y": 3723, "text": "First run, started by Claude", "kind": "title1", "maxW": 1840}}, "designSystems": []}
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "FirstRun1Terminal.dc.html": {
+      "h": 440,
+      "title": "First run 1 \u00b7 Claude asks keydillo for a key",
+      "w": 640,
+      "x": 0,
+      "y": 3983
+    },
+    "FirstRun2Sheet.dc.html": {
+      "h": 300,
+      "title": "First run 2 \u00b7 keydillo opens, you paste the key",
+      "w": 460,
+      "x": 720,
+      "y": 3983
+    },
+    "FirstRun2SheetOpen.dc.html": {
+      "h": 520,
+      "title": "First run 2 \u00b7 same sheet with Options open",
+      "w": 460,
+      "x": 1260,
+      "y": 3983
+    },
+    "FirstRun3Done.dc.html": {
+      "h": 300,
+      "title": "First run 3 \u00b7 Saved",
+      "w": 460,
+      "x": 1800,
+      "y": 3983
+    },
+    "Main.dc.html": {
+      "h": 620,
+      "title": "1 \u00b7 Everything in the menu-bar popover",
+      "w": 380,
+      "x": 0,
+      "y": 0
+    },
+    "Option2Popover.dc.html": {
+      "h": 460,
+      "title": "2 \u00b7 Small popover + full window (popover)",
+      "w": 340,
+      "x": 1620,
+      "y": 0
+    },
+    "Option2Window.dc.html": {
+      "h": 680,
+      "title": "2 \u00b7 Small popover + full window (window)",
+      "w": 1080,
+      "x": 460,
+      "y": 0
+    },
+    "Option3Activity.dc.html": {
+      "h": 620,
+      "title": "3 \u00b7 Activity-first popover",
+      "w": 380,
+      "x": 0,
+      "y": 1023
+    },
+    "Option4Warm.dc.html": {
+      "h": 680,
+      "title": "4 \u00b7 Option 2 in a warm style (window)",
+      "w": 1080,
+      "x": 0,
+      "y": 2023
+    },
+    "Option4WarmPopover.dc.html": {
+      "h": 460,
+      "title": "4 \u00b7 Warm style (popover)",
+      "w": 340,
+      "x": 1160,
+      "y": 2023
+    },
+    "Option5Mono.dc.html": {
+      "h": 680,
+      "title": "5 \u00b7 Option 2 in a clean monochrome style (window)",
+      "w": 1080,
+      "x": 0,
+      "y": 3043
+    },
+    "Option5MonoPopover.dc.html": {
+      "h": 460,
+      "title": "5 \u00b7 Monochrome style (popover)",
+      "w": 340,
+      "x": 1160,
+      "y": 3043
+    },
+    "Readout.dc.html": {
+      "h": 500,
+      "title": "Shared \u00b7 Project readout after Touch ID",
+      "w": 560,
+      "x": 460,
+      "y": 1023
+    },
+    "RequestSheet.dc.html": {
+      "h": 520,
+      "title": "Shared \u00b7 Claude asks for a key",
+      "w": 460,
+      "x": 1100,
+      "y": 1023
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-16T18:55:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "t1": {
+      "kind": "title1",
+      "maxW": 1960,
+      "text": "keydillo UI options",
+      "w": 240,
+      "x": 0,
+      "y": -260
+    },
+    "t2": {
+      "kind": "title1",
+      "maxW": 1960,
+      "text": "Option 3 and the shared readout",
+      "w": 240,
+      "x": 0,
+      "y": 780
+    },
+    "t3": {
+      "kind": "title1",
+      "maxW": 1500,
+      "text": "4 \u00b7 Warm style",
+      "w": 240,
+      "x": 0,
+      "y": 1763
+    },
+    "t4": {
+      "kind": "title1",
+      "maxW": 1500,
+      "text": "5 \u00b7 Monochrome style",
+      "w": 240,
+      "x": 0,
+      "y": 2783
+    },
+    "t5": {
+      "kind": "title1",
+      "maxW": 2260,
+      "text": "First run, started by Claude",
+      "w": 240,
+      "x": 0,
+      "y": 3723
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Option2Window.dc.html",
+    "Option2Popover.dc.html",
+    "Option3Activity.dc.html",
+    "Readout.dc.html",
+    "RequestSheet.dc.html",
+    "Option4Warm.dc.html",
+    "Option4WarmPopover.dc.html",
+    "Option5Mono.dc.html",
+    "Option5MonoPopover.dc.html",
+    "FirstRun1Terminal.dc.html",
+    "FirstRun2Sheet.dc.html",
+    "FirstRun2SheetOpen.dc.html",
+    "FirstRun3Done.dc.html"
+  ],
+  "pages": [],
+  "title": "keydillo menu-bar UI"
+}
