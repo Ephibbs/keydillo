@@ -113,6 +113,9 @@ struct SetupView: View {
     model.setupDone = true
     model.openAtLogin = true   // start at login and restart after a crash; can be turned off in Settings
     WindowManager.shared.close("setup")
+    if !Handover.underLaunchd && AppModel.agent.status == .enabled {
+      model.noteCleanExit(); Handover.toLaunchd(); exit(0)
+    }
     StatusItem.shared?.open()
   }
 }

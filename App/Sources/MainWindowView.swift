@@ -8,6 +8,8 @@ struct MainWindowView: View {
   @State private var showActivity = false
   @State private var newProject = ""
   @State private var addingProject = false
+  @AppStorage("listWidth") private var listWidth: Double = 330
+  @State private var dragStart: Double?
 
   var keys: [ServiceConfig] {
     model.services.filter { project == nil || $0.project == project }
@@ -21,12 +23,12 @@ struct MainWindowView: View {
       if showActivity {
         ActivityView().frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        keyList
-        Divider().overlay(Theme.hairline)
+        keyList.frame(width: listWidth)
+        divider
         detail
       }
     }
-    .frame(minWidth: 980, minHeight: 600)
+    .frame(minWidth: 860, minHeight: 560)
     .background(Theme.background)
     .foregroundStyle(Theme.text)
   }
@@ -89,12 +91,26 @@ struct MainWindowView: View {
     .buttonStyle(.plain)
   }
 
+  /// Drag to resize the key list; the width is remembered.
+  var divider: some View {
+    Rectangle().fill(Theme.hairline).frame(width: 1)
+      .overlay(Rectangle().fill(Color.clear).frame(width: 9).contentShape(Rectangle())
+        .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+        .gesture(DragGesture(minimumDistance: 1)
+          .onChanged { v in
+            if dragStart == nil { dragStart = listWidth }
+            listWidth = min(520, max(240, (dragStart ?? listWidth) + v.translation.width))
+          }
+          .onEnded { _ in dragStart = nil }))
+  }
+
   // MARK: Key list
 
   var keyList: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text(project ?? "All keys").font(.system(size: 22, weight: .semibold))
+          .lineLimit(1).truncationMode(.tail).layoutPriority(1)
         Spacer()
         if let project {
           if let folder = model.folder(for: project) {
@@ -141,7 +157,6 @@ struct MainWindowView: View {
         .padding(.horizontal, 8)
       }
     }
-    .frame(width: 330)
   }
 
   func lastUse(_ s: ServiceConfig) -> String {
@@ -158,7 +173,8 @@ struct MainWindowView: View {
 
   @ViewBuilder var detail: some View {
     if let name = selected ?? keys.first?.name, let s = model.service(named: name) {
-      KeyDetailView(config: s).id(s.name).frame(maxWidth: .infinity, maxHeight: .infinity)
+      ScrollView { KeyDetailView(config: s).id(s.name) }
+        .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
     } else {
       Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -182,6 +198,7 @@ struct KeyDetailView: View {
   @State private var error: String?
   @State private var confirmDelete = false
   @State private var revealed: String?
+  @State private var advancedOpen = false
   @State private var copied = false
 
   init(config: ServiceConfig) {
@@ -238,16 +255,28 @@ struct KeyDetailView: View {
       Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
         field("Auth header") { FilledField(placeholder: "Authorization", text: $config.authHeader, monospaced: true) }
         field("Allowed host") { FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true) }
-        field("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
-        field("Approval") { PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: approvalBinding) }
-        field("Rate limit") {
-          HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 120); Text("requests / hour").foregroundStyle(Theme.secondary) }
+        field("Approval") {
+          ViewThatFits(in: .horizontal) {
+            PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: approvalBinding)
+            Picker("", selection: approvalBinding) { ForEach(DefaultApproval.allCases, id: \.self) { Text($0.label).tag($0) } }
+              .labelsHidden().fixedSize()
+          }
         }
         field("Project") { FilledField(placeholder: "Personal", text: $config.project) }
         field("Env var name") { FilledField(placeholder: "EXAMPLE_API_KEY", text: $config.envVarName, monospaced: true) }
         field("Key page") { FilledField(placeholder: "Where you manage this key (for Rotate)", text: Binding(get: { config.keyPageURL ?? "" }, set: { config.keyPageURL = $0.isEmpty ? nil : $0 })) }
       }
       .font(.system(size: 14))
+
+      Collapsible(title: "Advanced", isOpen: $advancedOpen) {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+          field("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
+          field("Rate limit") {
+            HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
+          }
+        }
+        .font(.system(size: 14))
+      }
 
       VStack(alignment: .leading, spacing: 8) {
         Text("Recent use").font(.system(size: 12)).foregroundStyle(Theme.secondary)
@@ -299,7 +328,7 @@ struct KeyDetailView: View {
   }
 
   func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
-    GridRow { Text(label).foregroundStyle(Theme.secondary).frame(width: 110, alignment: .leading); content() }
+    GridRow { Text(label).foregroundStyle(Theme.secondary).lineLimit(1).frame(width: 100, alignment: .leading); content().frame(maxWidth: .infinity, alignment: .leading) }
   }
 
   func reveal() async {
