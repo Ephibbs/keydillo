@@ -73,7 +73,7 @@ public extension ServiceConfig {
 public extension ServiceSummary {
   /// Lines for a local .env: the proxy address plus a placeholder in place of the key.
   var placeholderEnvLines: [String] {
-    ["\(baseURLEnvName)=\(baseURL)", "\(envVarName)=keydillo-placeholder"]
+    ["\(baseURLEnvName)=\(baseURL)", "\(envVarName)=\(Placeholder.value(for: name))"]
   }
 }
 
@@ -150,5 +150,17 @@ public enum ControlSocket {
         }
       }
     }
+  }
+}
+
+/// Placeholder values written into .env files instead of real keys. `keydillo run` recognises them.
+public enum Placeholder {
+  public static let prefix = "keydillo:"
+  public static func value(for service: String) -> String { prefix + service }
+  /// The service a placeholder stands for, if `s` is (or contains, e.g. "Bearer keydillo:x") one.
+  public static func service(in s: String) -> String? {
+    guard let r = s.range(of: prefix) else { return nil }
+    let name = s[r.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "-" }
+    return name.isEmpty ? nil : String(name)
   }
 }

@@ -68,6 +68,10 @@ public final class ProxyEngine: @unchecked Sendable {
       log(.blocked, 404, "unknown service")
       return .error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat.")
     }
+    guard svc.isProxyReady else {
+      log(.blocked, 409, "not set up")
+      return .error(409, "\(name) is stored but has no host or header yet", code: "needs_setup", hint: "Ask the user to finish setting up \(name) in keydillo, or call request_secret with the API's host and header.")
+    }
     guard !pathOnly.contains("/../"), !pathOnly.hasSuffix("/.."), !pathOnly.contains("%2e%2e"), !pathOnly.contains("%2E%2E") else {
       log(.blocked, 400, "path traversal"); return .error(400, "path not allowed", code: "bad_path")
     }

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import VaultCore
 
 /// Owns the app's windows. keydillo is a menu-bar app, so windows are created on demand.
 @MainActor
@@ -64,7 +65,21 @@ final class WindowManager: NSObject, NSWindowDelegate {
     let defaults = AppModel.shared
     let kr = KeyRequest(service: "", displayName: "", host: "", header: "", prefix: "", envVarName: "",
                         project: project ?? defaults.projects.first ?? "Personal", requester: nil, cwd: nil)
-    let id = "key-\(kr.id)"
+    showKeyWindow(kr, id: "key-\(kr.id)")
+  }
+
+  /// Replace an existing key (Rotate): same settings, new value.
+  func showReplaceKey(_ s: ServiceConfig) {
+    let kr = KeyRequest(service: s.name, displayName: s.displayName, host: s.upstreamHost, header: s.authHeader, prefix: s.authPrefix,
+                        envVarName: s.envVarName, project: s.project, requester: nil, cwd: s.folder, keyPageURL: s.keyPageURL ?? "")
+    showKeyWindow(kr, id: "key-\(kr.id)")
+  }
+
+  func showImport() {
+    show("import", title: "Import keys") { ImportView(inSetup: false) { WindowManager.shared.close("import") }.sheetCard() }
+  }
+
+  private func showKeyWindow(_ kr: KeyRequest, id: String) {
     show(id, title: "Add a key") { KeyWindowView(request: kr, windowID: id) }
   }
 

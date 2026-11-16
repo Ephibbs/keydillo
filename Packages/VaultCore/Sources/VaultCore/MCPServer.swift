@@ -86,7 +86,7 @@ public final class MCPServer {
       case "list_services":
         guard case .services(let list) = try send(.listServices) else { return text("Unexpected reply", error: true) }
         if list.isEmpty { return text("No services yet. Use request_secret to ask the user for a key.") }
-        let lines = list.map { "\($0.name) (\($0.displayName), project \($0.project)): \($0.baseURL)  env: \($0.baseURLEnvName), \($0.envVarName)=keydillo-placeholder" }
+        let lines = list.map { "\($0.name) (\($0.displayName), project \($0.project)): \($0.baseURL)  env: \($0.placeholderEnvLines.joined(separator: ", "))" }
         return text(lines.joined(separator: "\n"))
       case "request_secret":
         guard let service = args["service"] as? String, let host = args["host"] as? String, let header = args["header"] as? String else {

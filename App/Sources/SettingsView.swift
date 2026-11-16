@@ -5,6 +5,7 @@ struct SettingsView: View {
   @State private var approval: DefaultApproval = AppModel.shared.defaultApproval
   @State private var loginItem = AppModel.shared.openAtLogin
   @State private var connectStatus: String?
+  @State private var undoStatus: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -16,6 +17,14 @@ struct SettingsView: View {
       }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }
+      VStack(alignment: .leading, spacing: 8) {
+        Text(".env files").font(.system(size: 13, weight: .medium))
+        HStack {
+          Button("Import keys…") { WindowManager.shared.showImport() }.buttonStyle(SmallButtonStyle())
+          Button("Undo last import") { undoStatus = ImportModel.undoLast() }.buttonStyle(SmallButtonStyle())
+          if let undoStatus { Text(undoStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
+        }
+      }
       VStack(alignment: .leading, spacing: 8) {
         Text("Claude Code").font(.system(size: 13, weight: .medium))
         HStack {

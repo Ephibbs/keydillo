@@ -8,13 +8,14 @@ struct SetupView: View {
   @State private var connecting = false
   @State private var connectError: String?
 
-  let steps = 3
+  let steps = 4
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       switch step {
       case 0: welcome
       case 1: touchID
+      case 2: ImportView(inSetup: true) { step = 3 }
       default: claude
       }
     }
@@ -63,7 +64,7 @@ struct SetupView: View {
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
       if let connectError { Text(connectError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
-      footer(2) {
+      footer(3) {
         HStack(spacing: 8) {
           Button("Skip") { finish() }.buttonStyle(SecondaryButtonStyle())
           Button(connecting ? "Connecting…" : "Connect") {

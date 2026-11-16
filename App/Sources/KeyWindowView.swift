@@ -99,6 +99,7 @@ struct KeyWindowView: View {
       row("Header") { FilledField(placeholder: "Authorization", text: $request.header, monospaced: true, height: 32) }
       row("Prefix") { FilledField(placeholder: "Bearer (optional)", text: $request.prefix, monospaced: true, height: 32) }
       row("Env name") { FilledField(placeholder: "EXAMPLE_API_KEY", text: $request.envVarName, monospaced: true, height: 32) }
+      row("Key page") { FilledField(placeholder: "https://… where you manage this key", text: $request.keyPageURL, height: 32) }
       if let r = request.requester {
         row("Asked by") {
           Text("\(r)\(request.cwd.map { " in " + ($0 as NSString).abbreviatingWithTildeInPath } ?? "")")
@@ -121,10 +122,12 @@ struct KeyWindowView: View {
     let name = request.service.isEmpty
       ? request.displayName.lowercased().replacingOccurrences(of: " ", with: "-").filter { $0.isLetter || $0.isNumber || $0 == "-" }
       : request.service
-    let cfg = ServiceConfig(name: name, displayName: request.displayName.isEmpty ? name.capitalized : request.displayName,
+    var cfg = ServiceConfig(name: name, displayName: request.displayName.isEmpty ? name.capitalized : request.displayName,
                             project: request.project, upstreamHost: request.host.trimmingCharacters(in: .whitespaces),
                             authHeader: request.header.trimmingCharacters(in: .whitespaces), authPrefix: request.prefix,
                             envVarName: request.envVarName.isEmpty ? nil : request.envVarName, approval: approval.mode)
+    cfg.keyPageURL = request.keyPageURL.isEmpty ? nil : request.keyPageURL
+    cfg.folder = request.cwd ?? model.service(named: name)?.folder
     do {
       if try await model.save(cfg, secret: secret) {
         secret = ""

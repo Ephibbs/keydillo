@@ -52,6 +52,7 @@ struct KeyRequest: Identifiable {
   var project: String
   var requester: String?
   var cwd: String?
+  var keyPageURL: String = ""
   var fromAgent: Bool { requester != nil }
   static let cliRequester = "keydillo CLI"
 }
@@ -210,6 +211,17 @@ final class AppModel {
     Task { await engine.gate.revokeAll(service: name); await refreshGrants() }
   }
 
+  func addImported(_ new: [ServiceConfig]) throws {
+    guard !new.isEmpty else { return }
+    let names = Set(new.map(\.name))
+    try persist(services.filter { !names.contains($0.name) } + new)
+  }
+
+  /// Folder a project's keys came from, if known.
+  func folder(for project: String) -> String? {
+    services.first { $0.project == project && $0.folder != nil }?.folder
+  }
+
   func addProject(_ name: String) {
     let n = name.trimmingCharacters(in: .whitespaces)
     guard !n.isEmpty, !projects.contains(n) else { return }
@@ -267,7 +279,8 @@ final class AppModel {
       let kr = KeyRequest(service: r.service, displayName: r.displayName ?? HostCheck.displayName(r.service), host: r.host,
                           header: r.header, prefix: r.prefix ?? "",
                           envVarName: r.envVarName ?? ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).envVarName,
-                          project: r.project ?? "Personal", requester: r.requester == KeyRequest.cliRequester ? nil : (r.requester ?? "an agent"), cwd: r.cwd)
+                          project: r.project ?? "Personal", requester: r.requester == KeyRequest.cliRequester ? nil : (r.requester ?? "an agent"), cwd: r.cwd,
+                          keyPageURL: r.keyPageURL ?? "")
       return await withCheckedContinuation { cont in
         keyRequestWaiters[kr.id] = cont
         WindowManager.shared.showKeyWindow(kr)

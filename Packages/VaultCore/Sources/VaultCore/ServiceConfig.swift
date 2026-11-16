@@ -69,15 +69,18 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
 
   public func validate() throws {
     guard Self.isValidName(name) else { throw VaultError.invalidConfig("Name must be lowercase letters, digits and dashes") }
-    guard !upstreamHost.isEmpty, !upstreamHost.contains("/") else { throw VaultError.invalidConfig("Host must be a bare hostname") }
+    guard !upstreamHost.contains("/"), !upstreamHost.contains(" ") else { throw VaultError.invalidConfig("Host must be a bare hostname, like api.example.com") }
     let loopback = upstreamHost.hasPrefix("127.0.0.1") || upstreamHost.hasPrefix("localhost")
     guard upstreamScheme == "https" || (upstreamScheme == "http" && loopback) else {
       throw VaultError.invalidConfig("Upstreams must use https")
     }
-    guard !authHeader.isEmpty, !authHeader.contains(":"), !authHeader.contains(" ") else {
+    // An empty host/header means "stored, not set up for the proxy yet" (e.g. imported, unknown service).
+    guard !authHeader.contains(":"), !authHeader.contains(" ") else {
       throw VaultError.invalidConfig("Bad header name")
     }
   }
+
+  public var isProxyReady: Bool { !upstreamHost.isEmpty && !authHeader.isEmpty }
 
   public func permits(method: String, path: String) -> Bool {
     allowed.isEmpty || allowed.contains { $0.matches(method: method, path: path) }

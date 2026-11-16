@@ -97,6 +97,14 @@ struct MainWindowView: View {
         Text(project ?? "All keys").font(.system(size: 22, weight: .semibold))
         Spacer()
         if let project {
+          if let folder = model.folder(for: project) {
+            Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)]) } label: {
+              Image(systemName: "folder").font(.system(size: 13)).frame(width: 32, height: 32)
+                .overlay(Circle().strokeBorder(Theme.border))
+            }
+            .buttonStyle(.plain).help("Show \(project) in Finder").accessibilityLabel("Show \(project) in Finder")
+            .disabled(!FileManager.default.fileExists(atPath: folder))
+          }
           Button("Readout") { Task { await openReadout(project) } }.buttonStyle(SmallButtonStyle())
         }
         Button("Add key") { WindowManager.shared.showAddKey(project: project) }
@@ -217,6 +225,7 @@ struct KeyDetailView: View {
         }
         field("Project") { FilledField(placeholder: "Personal", text: $config.project) }
         field("Env var name") { FilledField(placeholder: "EXAMPLE_API_KEY", text: $config.envVarName, monospaced: true) }
+        field("Key page") { FilledField(placeholder: "Where you manage this key (for Rotate)", text: Binding(get: { config.keyPageURL ?? "" }, set: { config.keyPageURL = $0.isEmpty ? nil : $0 })) }
       }
       .font(.system(size: 14))
 
@@ -248,6 +257,12 @@ struct KeyDetailView: View {
       Spacer()
       HStack {
         Button("Delete key") { confirmDelete = true }.buttonStyle(SmallButtonStyle(destructive: true))
+        Button("Rotate") {
+          if let page = config.keyPageURL, let url = URL(string: page) { NSWorkspace.shared.open(url) }
+          WindowManager.shared.showReplaceKey(config)
+        }
+        .buttonStyle(SmallButtonStyle())
+        .help(config.keyPageURL == nil ? "Paste a new key" : "Opens the provider's key page, then paste the new key")
         Spacer()
         if dirty {
           Button("Discard") { if let o = original { config = o; pathsText = o.allowed.map { "\($0.method) \($0.pattern)" }.joined(separator: "   ") } }

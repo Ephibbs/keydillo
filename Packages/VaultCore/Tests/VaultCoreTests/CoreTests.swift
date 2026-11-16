@@ -72,6 +72,8 @@ final class RuleTests: XCTestCase {
     XCTAssertNoThrow(try ServiceConfig(name: "x", upstreamHost: "127.0.0.1:9", upstreamScheme: "http", authHeader: "k").validate())
     XCTAssertThrowsError(try ServiceConfig(name: "Bad Name", upstreamHost: "a.com", authHeader: "k").validate())
     XCTAssertEqual(ServiceConfig(name: "eleven-labs", upstreamHost: "a", authHeader: "k").envVarName, "ELEVEN_LABS_API_KEY")
+    XCTAssertEqual(Placeholder.service(in: "Bearer keydillo:openai-oda"), "openai-oda")
+    XCTAssertNil(Placeholder.service(in: "sk-real"))
   }
   func testRedaction() {
     let s = Data("sk_TESTSECRET123".utf8)
@@ -182,7 +184,7 @@ final class ControlTests: XCTestCase {
     let resp = try ControlSocket.send(.requestSecret(SecretRequest(service: "elevenlabs", host: "api.elevenlabs.io", header: "xi-api-key")), path: path)
     guard case .saved(let s, let lines) = resp else { return XCTFail("\(resp)") }
     XCTAssertEqual(s.baseURL, "http://localhost:7787/elevenlabs")
-    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo-placeholder"])
+    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs"])
   }
 }
 
@@ -214,5 +216,54 @@ final class PortTests: XCTestCase {
     let p = UInt16(bigEndian: addr.sin_port)
     XCTAssertFalse(Ports.isFree(p))
     XCTAssertNotEqual(Ports.firstFree(from: p), p)
+  }
+}
+
+final class ImportTests: XCTestCase {
+  let env = """
+  # app
+  PORT=3000
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiJ9.public
+  SUPABASE_URL=https://xyz.supabase.co
+  export ANTHROPIC_API_KEY="sk-ant-api03-abcdefghijklmnop"
+  ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice
+  GOOGLE_CLIENT_SECRET=GOCSPX-abcdefghijklmnop
+  SHORT_TOKEN=abc
+  DONE_KEY=keydillo:done
+  """
+
+  func testParseFindsOnlySecrets() {
+    let found = ImportScanner.parse(env, file: "/x/.env")
+    XCTAssertEqual(found.map(\.name), ["ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY", "GOOGLE_CLIENT_SECRET"])
+    XCTAssertEqual(found[0].value, "sk-ant-api03-abcdefghijklmnop")
+    XCTAssertEqual(found[1].value, "abcdef0123456789abcdef")
+    XCTAssertEqual(found[0].service?.host, "api.anthropic.com")
+    XCTAssertNil(found[2].service)
+  }
+
+  func testRewriteKeepsEverythingElse() {
+    let out = ImportScanner.rewrite(env, replacements: [
+      "ANTHROPIC_API_KEY": ("anthropic", "http://localhost:7787/anthropic", "ANTHROPIC_BASE_URL"),
+      "GOOGLE_CLIENT_SECRET": ("google-client-secret", nil, nil),
+    ])
+    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic"))
+    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret"))
+    XCTAssertTrue(out.contains("ANTHROPIC_BASE_URL=http://localhost:7787/anthropic"))
+    XCTAssertTrue(out.contains("ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice"))
+    XCTAssertTrue(out.contains("PORT=3000"))
+    XCTAssertFalse(out.contains("sk-ant-api03"))
+  }
+
+  func testScanSkipsExamplesAndNodeModules() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("kdscan-\(UUID().uuidString)")
+    let proj = root.appendingPathComponent("myapp")
+    try FileManager.default.createDirectory(at: proj.appendingPathComponent("node_modules/x"), withIntermediateDirectories: true)
+    try "OPENAI_API_KEY=sk-proj-0123456789abcdef".write(to: proj.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+    try "OPENAI_API_KEY=sk-proj-0123456789abcdef".write(to: proj.appendingPathComponent(".env.example"), atomically: true, encoding: .utf8)
+    try "OPENAI_API_KEY=sk-proj-0123456789abcdef".write(to: proj.appendingPathComponent("node_modules/x/.env"), atomically: true, encoding: .utf8)
+    let r = ImportScanner.scan(roots: [root])
+    XCTAssertEqual(r.count, 1)
+    XCTAssertEqual(r[0].project, "myapp")
+    XCTAssertEqual(r[0].keys.first?.service?.service, "openai")
   }
 }
