@@ -141,9 +141,16 @@ struct KeyWindowView: View {
 
   func save() async {
     busy = true; defer { busy = false }
-    let name = request.service.isEmpty
+    var name = request.service.isEmpty
       ? request.displayName.lowercased().replacingOccurrences(of: " ", with: "-").filter { $0.isLetter || $0.isNumber || $0 == "-" }
       : request.service
+    // Another project already has a key under this name: give this one its own address instead of replacing it.
+    if let existing = model.service(named: name), existing.project != request.project {
+      let base = name + "-" + request.project.lowercased().filter { $0.isLetter || $0.isNumber }
+      var candidate = base; var i = 2
+      while let other = model.service(named: candidate), other.project != request.project { candidate = "\(base)-\(i)"; i += 1 }
+      name = candidate
+    }
     var cfg = ServiceConfig(name: name, displayName: request.displayName.isEmpty ? name.capitalized : request.displayName,
                             project: request.project, upstreamHost: request.host.trimmingCharacters(in: .whitespaces),
                             authHeader: request.header.trimmingCharacters(in: .whitespaces), authPrefix: request.prefix,

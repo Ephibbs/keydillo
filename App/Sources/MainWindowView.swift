@@ -191,6 +191,7 @@ struct MainWindowView: View {
     var parts: [String] = []
     if project == nil { parts.append(s.project) }
     if !s.isProxyReady { parts.append("needs setup") }
+    if model.rejected.contains(s.name) { parts.append("rejected by \(s.displayName)") }
     if let e = model.events.first(where: { $0.service == s.name && $0.outcome == .sent }) {
       parts.append("used \(e.date.formatted(.relative(presentation: .named)))")
     }
@@ -261,6 +262,16 @@ struct KeyDetailView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       header
+      if model.rejected.contains(config.name) {
+        HStack(spacing: 10) {
+          Image(systemName: "exclamationmark.triangle").foregroundStyle(Theme.danger)
+          Text("\(config.displayName) rejected this key the last time it was used. It may have been revoked.")
+            .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: 8)
+          Button("Rotate") { rotate() }.buttonStyle(SmallPrimaryStyle())
+        }
+        .padding(12).background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+      }
       keyRow
       fields
       Collapsible(title: "Advanced", isOpen: $advancedOpen) { advanced }
@@ -380,6 +391,10 @@ struct KeyDetailView: View {
       row("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
       row("Rate limit") {
         HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
+      }
+      row("Key in URL") {
+        FilledField(placeholder: "Query parameter, e.g. key (leave empty to use the header)",
+                    text: Binding(get: { config.authQueryParam ?? "" }, set: { config.authQueryParam = $0.isEmpty ? nil : $0 }), monospaced: true)
       }
     }
     .font(.system(size: 14))

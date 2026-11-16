@@ -45,6 +45,8 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var keyPageURL: String?
   /// Folder this key's project came from (import), for "Show in Finder".
   public var folder: String?
+  /// Send the key as this query parameter (e.g. "key") instead of a header.
+  public var authQueryParam: String?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
@@ -80,7 +82,7 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
     }
   }
 
-  public var isProxyReady: Bool { !upstreamHost.isEmpty && !authHeader.isEmpty }
+  public var isProxyReady: Bool { !upstreamHost.isEmpty && (!authHeader.isEmpty || !(authQueryParam ?? "").isEmpty) }
 
   public func permits(method: String, path: String) -> Bool {
     allowed.isEmpty || allowed.contains { $0.matches(method: method, path: path) }

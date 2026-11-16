@@ -17,7 +17,7 @@ public enum KeychainMode: Equatable {
 
 public final class KeychainBackend: ConfigPersistence {
   public let mode: KeychainMode
-  static let secretService = "keydillo.secret"
+  public static let secretService = "keydillo.secret"
   static let configService = "keydillo.config"
   static let configAccount = "services"
 
@@ -48,9 +48,9 @@ public final class KeychainBackend: ConfigPersistence {
 
   // MARK: Secrets
 
-  public func setSecret(_ value: Data, for name: String, label: String) throws {
-    SecItemDelete(base(service: Self.secretService, account: name) as CFDictionary)
-    var q = base(service: Self.secretService, account: name)
+  public func setSecret(_ value: Data, for name: String, label: String, service: String = KeychainBackend.secretService) throws {
+    SecItemDelete(base(service: service, account: name) as CFDictionary)
+    var q = base(service: service, account: name)
     q[kSecValueData as String] = value
     q[kSecAttrLabel as String] = "keydillo: \(label)"
     if case .dataProtection = mode {
@@ -69,7 +69,11 @@ public final class KeychainBackend: ConfigPersistence {
   /// Reads a secret. Pass an `LAContext` already evaluated by `Approver` so data-protection items
   /// don't prompt a second time.
   public func secret(for name: String, context: LAContext?) throws -> Data {
-    var q = base(service: Self.secretService, account: name)
+    try secret(for: name, context: context, service: Self.secretService)
+  }
+
+  public func secret(for name: String, context: LAContext?, service: String) throws -> Data {
+    var q = base(service: service, account: name)
     q[kSecReturnData as String] = true
     q[kSecMatchLimit as String] = kSecMatchLimitOne
     if let context { q[kSecUseAuthenticationContext as String] = context }
@@ -90,8 +94,21 @@ public final class KeychainBackend: ConfigPersistence {
     return s == errSecSuccess || s == errSecInteractionNotAllowed
   }
 
-  public func deleteSecret(_ name: String) {
-    SecItemDelete(base(service: Self.secretService, account: name) as CFDictionary)
+  public func deleteSecret(_ name: String, service: String = KeychainBackend.secretService) {
+    SecItemDelete(base(service: service, account: name) as CFDictionary)
+  }
+
+  /// Account names stored under a service (no values, no prompt).
+  public func accounts(service: String) -> [String] {
+    var q = base(service: service, account: "")
+    q.removeValue(forKey: kSecAttrAccount as String)
+    q[kSecReturnAttributes as String] = true
+    q[kSecMatchLimit as String] = kSecMatchLimitAll
+    let ctx = LAContext(); ctx.interactionNotAllowed = true
+    q[kSecUseAuthenticationContext as String] = ctx
+    var out: CFTypeRef?
+    guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+    return items.compactMap { $0[kSecAttrAccount as String] as? String }
   }
 
   // MARK: Configs (ConfigPersistence)

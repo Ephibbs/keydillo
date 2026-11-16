@@ -18,6 +18,7 @@ struct PopoverView: View {
       .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
       if let c = model.portConflict { portCard(c) }
+      if !model.realKeyFiles.isEmpty { realKeysCard }
       ForEach(model.pending) { p in pendingCard(p) }
 
       if !model.activeGrants.isEmpty {
@@ -54,6 +55,22 @@ struct PopoverView: View {
     .background(Theme.background)
     .foregroundStyle(Theme.text)
     .task { await model.refreshGrants() }
+  }
+
+  var realKeysCard: some View {
+    let names = model.realKeyFiles.map { (($0 as NSString).deletingLastPathComponent as NSString).lastPathComponent }
+    return VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Real keys are back in \(names.count == 1 ? names[0] + "'s .env" : "\(names.count) .env files")").font(.system(size: 14, weight: .semibold))
+        Text("Something wrote real values over the placeholders (for example `vercel env pull`). Lock them away again?")
+          .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+      Button("Review and re-import") { StatusItem.shared?.close(); WindowManager.shared.showImport(only: model.realKeyFiles) }
+        .buttonStyle(SmallPrimaryStyle())
+    }
+    .padding(14)
+    .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
+    .padding(.horizontal, 12).padding(.bottom, 14)
   }
 
   func pendingCard(_ p: PendingApproval) -> some View {

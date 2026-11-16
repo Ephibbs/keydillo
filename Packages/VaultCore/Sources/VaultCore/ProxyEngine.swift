@@ -49,39 +49,49 @@ public final class ProxyEngine: @unchecked Sendable {
     cfg.httpCookieStorage = nil
     cfg.httpShouldSetCookies = false
     cfg.urlCache = nil
-    cfg.timeoutIntervalForRequest = 120
+    cfg.timeoutIntervalForRequest = 600        // idle time between bytes (long generations, streams)
+    cfg.timeoutIntervalForResource = 24 * 3600
     self.session = URLSession(configuration: cfg, delegate: NoRedirects(), delegateQueue: nil)
   }
 
+  /// Buffered convenience (tests, simple callers).
   public func handle(_ req: HTTPRequest, client: ClientProcess) async -> HTTPResponse {
+    let sink = BufferSink()
+    await serve(req, client: client, sink: sink)
+    return sink.response
+  }
+
+  /// Handles one request, streaming the upstream response into `sink` as it arrives.
+  public func serve(_ req: HTTPRequest, client: ClientProcess, sink: ResponseSink) async {
     // Split /<service>/<rest>
     let (pathOnly, query) = Self.splitQuery(req.target)
     let parts = pathOnly.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
-    guard let first = parts.first else { return .error(404, "use http://localhost:<port>/<service>/<path>", code: "bad_path", hint: "Call the keydillo list_services tool for base URLs.") }
+    guard let first = parts.first else { return await sink.respond(.error(404, "use http://localhost:<port>/<service>/<path>", code: "bad_path", hint: "Call the keydillo list_services tool for base URLs.")) }
     let name = String(first)
     let upstreamPath = "/" + (parts.count > 1 ? String(parts[1]) : "")
     func log(_ outcome: ActivityEvent.Outcome, _ status: Int, _ note: String? = nil) {
+      // Paths only, never query strings: some APIs take the key as a query parameter.
       onEvent(ActivityEvent(date: Date(), service: name, method: req.method, path: upstreamPath, process: client.displayName,
                             pid: client.pid, outcome: outcome, status: status, note: note))
     }
     guard let svc = services().first(where: { $0.name == name }) else {
       log(.blocked, 404, "unknown service")
-      return .error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat.")
+      return await sink.respond(.error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat."))
     }
     guard svc.isProxyReady else {
       log(.blocked, 409, "not set up")
-      return .error(409, "\(name) is stored but has no host or header yet", code: "needs_setup", hint: "Ask the user to finish setting up \(name) in keydillo, or call request_secret with the API's host and header.")
+      return await sink.respond(.error(409, "\(name) is stored but has no host or header yet", code: "needs_setup", hint: "Ask the user to finish setting up \(name) in keydillo, or call request_secret with the API's host and header."))
     }
     guard !pathOnly.contains("/../"), !pathOnly.hasSuffix("/.."), !pathOnly.contains("%2e%2e"), !pathOnly.contains("%2E%2E") else {
-      log(.blocked, 400, "path traversal"); return .error(400, "path not allowed", code: "bad_path")
+      log(.blocked, 400, "path traversal"); return await sink.respond(.error(400, "path not allowed", code: "bad_path"))
     }
     guard svc.permits(method: req.method, path: upstreamPath) else {
       log(.blocked, 403, "path not allowed")
-      return .error(403, "\(req.method) \(upstreamPath) isn't allowed for \(name)", code: "path_not_allowed", hint: "Tell the user which path you need; they can allow it in keydillo. Don't try another route.")
+      return await sink.respond(.error(403, "\(req.method) \(upstreamPath) isn't allowed for \(name)", code: "path_not_allowed", hint: "Tell the user which path you need; they can allow it in keydillo. Don't try another route."))
     }
     if let cap = svc.maxRequestsPerHour, !takeRateSlot(name, cap: cap) {
       log(.blocked, 429, "rate limit")
-      return .error(429, "rate limit for \(name) reached (\(cap)/hour)", code: "rate_limited", hint: "Wait, or ask the user to raise the limit.")
+      return await sink.respond(.error(429, "rate limit for \(name) reached (\(cap)/hour)", code: "rate_limited", hint: "Wait, or ask the user to raise the limit."))
     }
 
     let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: svc.upstreamHost,
@@ -91,37 +101,67 @@ public final class ProxyEngine: @unchecked Sendable {
     case .approved(let c): ctx = c
     case .denied:
       log(.denied, 403, nil)
-      return .error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user. Don't retry unless they ask you to.")
+      return await sink.respond(.error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user. Don't retry unless they ask you to."))
     case .unavailable(let why):
       log(.denied, 423, why)
-      return .error(423, "can't ask for approval right now (\(why))", code: "approval_unavailable", hint: "Tell the user the request is waiting for them; retry once they're back.")
+      return await sink.respond(.error(423, "can't ask for approval right now (\(why))", code: "approval_unavailable", hint: "Tell the user the request is waiting for them; retry once they're back."))
     }
 
     var secret: Data
     do { secret = try secrets.secret(for: name, context: ctx) }
-    catch VaultError.denied { log(.denied, 403); return .error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user.") }
-    catch { log(.failed, 500, "key unavailable"); return .error(500, "the key for \(name) couldn't be read", code: "key_unavailable", hint: "Ask the user to check \(name) in keydillo.") }
+    catch VaultError.denied { log(.denied, 403); return await sink.respond(.error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user.")) }
+    catch { log(.failed, 500, "key unavailable"); return await sink.respond(.error(500, "the key for \(name) couldn't be read", code: "key_unavailable", hint: "Ask the user to check \(name) in keydillo.")) }
     defer { secret.resetBytes(in: 0..<secret.count) }
+    let keyValue = svc.authPrefix + String(decoding: secret, as: UTF8.self)
 
-    guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(upstreamPath)\(query.map { "?\($0)" } ?? "")"),
-          url.host == svc.upstreamHost.split(separator: ":").first.map(String.init) else {
-      log(.blocked, 400, "bad url"); return .error(400, "bad path", code: "bad_path")
+    // Query string: drop any value the client sent for the key's parameter, then add the real one.
+    var queryItems = query.map { Self.parseQuery($0) } ?? []
+    if let qp = svc.authQueryParam, !qp.isEmpty {
+      queryItems.removeAll { $0.0 == qp }
+      queryItems.append((qp, keyValue))
+    }
+    let queryString = queryItems.isEmpty ? "" : "?" + queryItems.map { "\($0.0)\($0.1.map { "=" + Self.encode($0) } ?? "")" }.joined(separator: "&")
+    let host = svc.upstreamHost.split(separator: ":").first.map(String.init) ?? svc.upstreamHost
+    let usesHeader = (svc.authQueryParam ?? "").isEmpty
+
+    func forwardedHeaders(keepUpgrade: Bool) -> [(String, String)] {
+      var out: [(String, String)] = []
+      for (k, v) in req.headers {
+        let lk = k.lowercased()
+        if keepUpgrade && (lk == "upgrade" || lk == "connection") { out.append((k, v)); continue }
+        if Self.hopByHop.contains(lk) { continue }
+        if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization") { continue }
+        out.append((k, v))
+      }
+      if usesHeader { out.append((svc.authHeader, keyValue)) }
+      return out
+    }
+
+    // Websockets: hand the connection over as a raw tunnel after sending the upgrade request with the key.
+    if (req.header("Upgrade") ?? "").lowercased() == "websocket" {
+      let tls = svc.upstreamScheme == "https"
+      let port = svc.upstreamHost.split(separator: ":").dropFirst().first.flatMap { UInt16($0) } ?? (tls ? 443 : 80)
+      var head = "\(req.method) \(upstreamPath)\(queryString) HTTP/1.1\r\nHost: \(svc.upstreamHost)\r\n"
+      for (k, v) in forwardedHeaders(keepUpgrade: true) { head += "\(k): \(v)\r\n" }
+      head += "\r\n"
+      log(.sent, 101, "websocket")
+      return await sink.tunnel(host: host, port: port, tls: tls, head: Data(head.utf8))
+    }
+
+    guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(upstreamPath)\(queryString)"), url.host == host else {
+      log(.blocked, 400, "bad url"); return await sink.respond(.error(400, "bad path", code: "bad_path"))
     }
     var out = URLRequest(url: url)
     out.httpMethod = req.method
-    for (k, v) in req.headers {
-      let lk = k.lowercased()
-      if Self.hopByHop.contains(lk) || lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization" {
-        continue
-      }
-      out.addValue(v, forHTTPHeaderField: k)
-    }
-    out.setValue(svc.authPrefix + String(decoding: secret, as: UTF8.self), forHTTPHeaderField: svc.authHeader)
+    for (k, v) in forwardedHeaders(keepUpgrade: false) { out.addValue(v, forHTTPHeaderField: k) }
     if !req.body.isEmpty { out.httpBody = req.body }
 
+    let fetch = StreamFetch()
+    let task = session.dataTask(with: out)
+    task.delegate = fetch
+    task.resume()
     do {
-      let (data, resp) = try await session.data(for: out)
-      guard let http = resp as? HTTPURLResponse else { log(.failed, 502); return .error(502, "bad response from \(svc.upstreamHost)", code: "upstream_failed") }
+      let http = try await fetch.response()
       var headers: [(String, String)] = []
       for (k, v) in http.allHeaderFields {
         guard let k = k as? String, let v = v as? String else { continue }
@@ -129,13 +169,42 @@ public final class ProxyEngine: @unchecked Sendable {
         if Self.hopByHop.contains(lk) || lk == "content-encoding" || lk == "set-cookie" { continue }
         headers.append((k, Self.redact(v, secret: secret, label: svc.displayName)))
       }
-      let body = Self.redact(data, secret: secret, label: svc.displayName)
-      log(.sent, http.statusCode)
-      return HTTPResponse(status: http.statusCode, headers: headers, body: body)
+      // The provider refused the key itself: say so in plain words for the agent and flag it in the app.
+      let rejected = http.statusCode == 401
+      if rejected {
+        headers.append(("X-Keydillo-Note", "\(svc.displayName) rejected this key (401). Ask the user to rotate \(name) in keydillo; don't look for another key."))
+      }
+      await sink.start(status: http.statusCode, headers: headers)
+      // Stream chunks through, holding back a tail so a key split across chunks is still redacted.
+      let hold = max(0, secret.count - 1)
+      var carry = Data()
+      for try await chunk in fetch.chunks {
+        carry.append(chunk)
+        let redacted = Self.redact(carry, secret: secret, label: svc.displayName)
+        if redacted.count > hold {
+          await sink.write(redacted.prefix(redacted.count - hold))
+          carry = Data(redacted.suffix(hold))
+        } else { carry = redacted }
+      }
+      if !carry.isEmpty { await sink.write(Self.redact(carry, secret: secret, label: svc.displayName)) }
+      await sink.finish()
+      log(.sent, http.statusCode, rejected ? "key rejected by \(svc.displayName)" : nil)
     } catch {
+      task.cancel()
       log(.failed, 502, "upstream unreachable")
-      return .error(502, "couldn't reach \(svc.upstreamHost): \((error as NSError).localizedDescription)", code: "upstream_failed", hint: "Check the network, then retry.")
+      await sink.respond(.error(502, "couldn't reach \(svc.upstreamHost): \((error as NSError).localizedDescription)", code: "upstream_failed", hint: "Check the network, then retry."))
     }
+  }
+
+  static func parseQuery(_ q: String) -> [(String, String?)] {
+    q.split(separator: "&", omittingEmptySubsequences: true).map { pair in
+      let kv = pair.split(separator: "=", maxSplits: 1)
+      return (String(kv[0]), kv.count > 1 ? String(kv[1]) : nil)
+    }
+  }
+  static func encode(_ s: String) -> String {
+    var allowed = CharacterSet.urlQueryAllowed; allowed.remove(charactersIn: "&=+?#")
+    return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
   }
 
   func takeRateSlot(_ name: String, cap: Int) -> Bool {
@@ -167,6 +236,77 @@ public final class ProxyEngine: @unchecked Sendable {
 
 /// Redirects are returned to the client instead of followed, so the auth header never goes to another host.
 final class NoRedirects: NSObject, URLSessionTaskDelegate {
+  func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest) async -> URLRequest? { nil }
+}
+
+
+/// Where the proxy writes a response. The server implements it over the socket; `BufferSink` collects it.
+public protocol ResponseSink: AnyObject {
+  func start(status: Int, headers: [(String, String)]) async
+  func write(_ data: Data) async
+  func finish() async
+  /// Turns the client connection into a raw tunnel to host:port after sending `head` (websockets).
+  func tunnel(host: String, port: UInt16, tls: Bool, head: Data) async
+}
+
+public extension ResponseSink {
+  func respond(_ r: HTTPResponse) async {
+    await start(status: r.status, headers: r.headers)
+    await write(r.body)
+    await finish()
+  }
+}
+
+public final class BufferSink: ResponseSink {
+  public var response = HTTPResponse(status: 502)
+  public init() {}
+  public func start(status: Int, headers: [(String, String)]) async { response = HTTPResponse(status: status, headers: headers) }
+  public func write(_ data: Data) async { response.body.append(data) }
+  public func finish() async {}
+  public func tunnel(host: String, port: UInt16, tls: Bool, head: Data) async {
+    response = .error(501, "websockets need a live connection", code: "unsupported")
+  }
+}
+
+/// Per-task URLSession delegate that exposes the response and body chunks as async values.
+final class StreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+  private var responseCont: CheckedContinuation<HTTPURLResponse, Error>?
+  private var gotResponse: Result<HTTPURLResponse, Error>?
+  private let lock = NSLock()
+  let chunks: AsyncThrowingStream<Data, Error>
+  private let chunkCont: AsyncThrowingStream<Data, Error>.Continuation
+
+  override init() {
+    var c: AsyncThrowingStream<Data, Error>.Continuation!
+    chunks = AsyncThrowingStream { c = $0 }
+    chunkCont = c
+  }
+
+  func response() async throws -> HTTPURLResponse {
+    try await withCheckedThrowingContinuation { cont in
+      lock.lock()
+      if let r = gotResponse { lock.unlock(); cont.resume(with: r) } else { responseCont = cont; lock.unlock() }
+    }
+  }
+
+  private func deliver(_ r: Result<HTTPURLResponse, Error>) {
+    lock.lock()
+    if gotResponse != nil { lock.unlock(); return }
+    gotResponse = r
+    let c = responseCont; responseCont = nil
+    lock.unlock()
+    c?.resume(with: r)
+  }
+
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse) async -> URLSession.ResponseDisposition {
+    if let http = response as? HTTPURLResponse { deliver(.success(http)) } else { deliver(.failure(URLError(.badServerResponse))) }
+    return .allow
+  }
+  func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) { chunkCont.yield(data) }
+  func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    if let error { deliver(.failure(error)); chunkCont.finish(throwing: error) } else { chunkCont.finish() }
+  }
   func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                   newRequest request: URLRequest) async -> URLRequest? { nil }
 }

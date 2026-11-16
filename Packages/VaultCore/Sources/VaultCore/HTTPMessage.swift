@@ -73,6 +73,8 @@ public struct HTTPResponse {
   public var headers: [(String, String)]
   public var body: Data
 
+  public static func reason(_ status: Int) -> String { HTTPURLResponse.localizedString(forStatusCode: status).capitalized }
+
   public init(status: Int, reason: String? = nil, headers: [(String, String)] = [], body: Data = Data()) {
     self.status = status
     self.reason = reason ?? HTTPURLResponse.localizedString(forStatusCode: status).capitalized

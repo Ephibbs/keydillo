@@ -78,6 +78,10 @@ final class AppModel {
   var proxyState = "starting"
   var paused = false
   var extraProjects: [String] = UserDefaults.standard.stringArray(forKey: "projects") ?? []
+  /// Keys the provider answered 401 for; cleared when the key is replaced.
+  var rejected: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "rejectedKeys") ?? [])
+  /// Imported .env files that have real key values in them again (e.g. after `vercel env pull`).
+  var realKeyFiles: [String] = []
 
   /// Chosen once (7787, or the next free port on first launch), then never changed silently.
   var port: UInt16 {
@@ -119,11 +123,31 @@ final class AppModel {
         guard let self else { return }
         self.events.insert(e, at: 0)
         if self.events.count > 1000 { self.events.removeLast() }
+        if e.note?.hasPrefix("key rejected") == true { self.rejected.insert(e.service); self.saveRejected() }
         await self.refreshGrants()
       }
     }
     startProxy()
     startControl()
+    ImportModel.migrateFileBackups(model: self)
+    ClaudeConnector.refreshSkillIfInstalled()
+    Task { @MainActor in
+      while true {
+        let paths = ImportModel.trackedFiles
+        let found = await Task.detached { ImportModel.filesWithRealKeys(paths) }.value
+        if found != self.realKeyFiles { self.realKeyFiles = found }
+        try? await Task.sleep(for: .seconds(60))
+      }
+    }
+  }
+
+  func saveRejected() { UserDefaults.standard.set(Array(rejected), forKey: "rejectedKeys") }
+  func clearRejected(_ name: String) { if rejected.remove(name) != nil { saveRejected() } }
+
+  /// The stored key an .env entry corresponds to: same env var name, same folder.
+  func existing(for key: ImportScanner.Found) -> ServiceConfig? {
+    let folder = (key.file as NSString).deletingLastPathComponent
+    return services.first { $0.envVarName == key.name && $0.folder == folder }
   }
 
   // MARK: Proxy
@@ -191,6 +215,7 @@ final class AppModel {
     guard await authenticate("save your \(config.displayName) key") != nil else { return false }
     try keychain.setSecret(Data(trimmed.utf8), for: config.name, label: config.displayName)
     try persist(services.filter { $0.name != config.name } + [config])
+    clearRejected(config.name)
     return true
   }
 
@@ -289,7 +314,8 @@ final class AppModel {
     case .listServices:
       return .services(services.map(summary))
     case .status:
-      let blocks = events.filter { $0.outcome != .sent }.prefix(10).map { e in
+      let rejectedLines = rejected.sorted().map { "\($0): the provider rejected this key. Ask the user to rotate it in keydillo." }
+      let blocks = rejectedLines + events.filter { $0.outcome != .sent }.prefix(10).map { e in
         "\(e.date.formatted(date: .omitted, time: .shortened)) \(e.process) → \(e.service) \(e.method) \(e.path): \(e.outcome.rawValue)\(e.note.map { " (\($0))" } ?? "")"
       }
       return .status(StatusInfo(proxyRunning: proxyRunning, proxyState: proxyState, port: port, storage: storageDescription,
@@ -315,6 +341,24 @@ final class AppModel {
   }
 
   // MARK: Settings
+
+  /// Removes keydillo from this Mac's setup. The app itself is moved to the Trash by the caller.
+  func uninstall(restoreEnvFiles: Bool, deleteKeys: Bool) async -> String? {
+    if restoreEnvFiles {
+      let r = await ImportModel.restoreRealValues(model: self)
+      if r == "Cancelled." { return "Cancelled. Nothing was removed." }
+    }
+    ClaudeConnector.disconnect()
+    try? await Self.agent.unregister()
+    if deleteKeys {
+      for s in services { keychain.deleteSecret(s.name) }
+      try? keychain.save([])
+      for a in keychain.accounts(service: ImportModel.backupService) { keychain.deleteSecret(a, service: ImportModel.backupService) }
+    }
+    try? FileManager.default.removeItem(at: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo"))
+    if let domain = Bundle.main.bundleIdentifier { UserDefaults.standard.removePersistentDomain(forName: domain) }
+    return nil
+  }
 
   /// Starts keydillo at login and restarts it if it ever crashes (a launchd agent with KeepAlive).
   static let agent = SMAppService.agent(plistName: "com.studiokillswitch.keydillo.agent.plist")

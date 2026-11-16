@@ -46,6 +46,7 @@ public enum ImportScanner {
     public var folder: String { (path as NSString).deletingLastPathComponent }
     public var project: String { (folder as NSString).lastPathComponent }
     public let keys: [Found]
+    public init(path: String, keys: [Found]) { self.path = path; self.keys = keys }
   }
 
   static let skipDirs: Set<String> = ["node_modules", ".git", "Library", "build", "dist", ".build", "DerivedData", "Pods",

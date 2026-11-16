@@ -75,8 +75,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     showKeyWindow(kr, id: "key-\(kr.id)")
   }
 
-  func showImport() {
-    show("import", title: "Import keys") { ImportView(inSetup: false) { WindowManager.shared.close("import") }.sheetCard() }
+  func showImport(only: [String]? = nil) {
+    show("import", title: "Import keys") { ImportView(inSetup: false, onlyPaths: only) { WindowManager.shared.close("import") }.sheetCard() }
   }
 
   private func showKeyWindow(_ kr: KeyRequest, id: String) {

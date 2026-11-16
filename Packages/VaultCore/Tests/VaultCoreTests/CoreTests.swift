@@ -267,3 +267,25 @@ final class ImportTests: XCTestCase {
     XCTAssertEqual(r[0].keys.first?.service?.service, "openai")
   }
 }
+
+final class StreamingTests: XCTestCase {
+  func testQueryParamKeyAndChunkedStream() async throws {
+    let echo = try EchoServer()
+    let secrets = MemorySecrets(); secrets.values["q"] = Data("sk_TESTSECRET123".utf8)
+    var svc = ServiceConfig(name: "q", upstreamHost: "127.0.0.1:\(echo.port)", upstreamScheme: "http", authHeader: "")
+    svc.authQueryParam = "key"
+    let engine = ProxyEngine(services: { [svc] }, secrets: secrets, approver: StubApprover())
+    var events: [ActivityEvent] = []
+    engine.onEvent = { events.append($0) }
+    let server = ProxyServer(port: 18788, engine: engine)
+    server.identify = { _, _ in ClientProcess(pid: 1, name: "test") }
+    try server.start(); defer { server.stop() }
+    try await Task.sleep(nanoseconds: 200_000_000)
+    let (d, r) = try await URLSession(configuration: .ephemeral).data(from: URL(string: "http://127.0.0.1:18788/q/v1/x?a=1&key=agent")!)
+    let body = String(decoding: d, as: UTF8.self)
+    XCTAssertEqual((r as! HTTPURLResponse).statusCode, 200)
+    XCTAssertTrue(body.contains("GET /v1/x?a=1&key=[redacted by keydillo: Q key]"), body)
+    XCTAssertFalse(body.contains("agent"))
+    XCTAssertEqual(events.last?.path, "/v1/x")   // no query string in logs
+  }
+}

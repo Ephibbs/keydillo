@@ -9,6 +9,7 @@ struct ImportView: View {
   @State private var reviewOpen = false
   @State private var busy = false
   let inSetup: Bool
+  var onlyPaths: [String]? = nil
   var done: () -> Void
 
   var body: some View {
@@ -36,7 +37,7 @@ struct ImportView: View {
       }
       .padding(.top, 4)
     }
-    .task { if !im.scanned { await im.scan() } }
+    .task { if !im.scanned { im.onlyPaths = onlyPaths; await im.scan() } }
   }
 
   var summary: String {

@@ -1,8 +1,10 @@
 import Foundation
 import AppKit
+import LocalAuthentication
 import VaultCore
 
-/// Moves keys from .env files into keydillo, leaving placeholders behind. Originals are backed up for undo.
+/// Moves keys from .env files into keydillo, leaving placeholders behind.
+/// Backups of the original files live in the Keychain (they contain real keys), never on disk.
 @MainActor
 @Observable
 final class ImportModel {
@@ -12,16 +14,28 @@ final class ImportModel {
   var scanned = false
   var error: String?
   var lastResult: String?
+  /// Limit the scan to these files (re-import after something wrote real keys back).
+  var onlyPaths: [String]?
 
   var selectedCount: Int { files.flatMap(\.keys).filter { selected.contains($0.id) }.count }
   var totalCount: Int { files.flatMap(\.keys).count }
 
   func scan() async {
     scanning = true
-    let found = await Task.detached(priority: .userInitiated) { ImportScanner.scan() }.value
+    let only = onlyPaths
+    let found = await Task.detached(priority: .userInitiated) { () -> [ImportScanner.FileResult] in
+      guard let only else { return ImportScanner.scan() }
+      return only.compactMap { path in
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        let keys = ImportScanner.parse(text, file: path)
+        return keys.isEmpty ? nil : ImportScanner.FileResult(path: path, keys: keys)
+      }
+    }.value
     files = found
-    // Known services are selected by default; unknown ones are the user's call.
-    selected = Set(found.flatMap(\.keys).filter { $0.service != nil }.map(\.id))
+    let model = AppModel.shared
+    // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.
+    let all: [ImportScanner.Found] = found.flatMap { $0.keys }
+    selected = Set(all.filter { k in k.service != nil || model.existing(for: k) != nil }.map { $0.id })
     scanning = false
     scanned = true
   }
@@ -31,12 +45,7 @@ final class ImportModel {
     if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }
   }
 
-  static var backupRoot: URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("keydillo/backups", isDirectory: true)
-  }
-
-  struct Manifest: Codable { var date: Date; var files: [Entry]; struct Entry: Codable { var original: String; var backup: String } }
+  struct Backup: Codable { var date: Date; var files: [Entry]; struct Entry: Codable { var path: String; var text: String } }
 
   /// Returns true when the import ran.
   func run(model: AppModel) async -> Bool {
@@ -51,11 +60,18 @@ final class ImportModel {
 
     for key in chosen {
       let file = files.first { $0.path == key.file }!
-      let projectSlug = file.project.lowercased().filter { $0.isLetter || $0.isNumber }
       let name: String
       if let existing = nameByValue[key.value] {
         name = existing
+      } else if let existing = model.existing(for: key) {
+        // Same env var in the same folder: it's this key again (e.g. after `vercel env pull`). Update it.
+        name = existing.name
+        nameByValue[key.value] = name
+        do { try model.keychain.setSecret(Data(key.value.utf8), for: name, label: existing.displayName) }
+        catch { self.error = "Couldn't store \(key.name): \(error.localizedDescription)"; return false }
+        model.clearRejected(name)
       } else {
+        let projectSlug = file.project.lowercased().filter { $0.isLetter || $0.isNumber }
         var base = key.service?.service ?? Self.slug(key.name)
         if taken.contains(base) { base += "-" + projectSlug }
         var candidate = base; var i = 2
@@ -71,51 +87,110 @@ final class ImportModel {
         catch { self.error = "Couldn't store \(key.name): \(error.localizedDescription)"; return false }
         newServices.append(cfg)
       }
-      let summary = (newServices.first { $0.name == name } ?? model.service(named: name)).map(model.summary)
+      let cfg = newServices.first { $0.name == name } ?? model.service(named: name)
+      let summary = cfg.map(model.summary)
       replacementsByFile[key.file, default: [:]][key.name] =
-        (name, summary?.baseURL, (key.service == nil) ? nil : summary?.baseURLEnvName)
+        (name, summary?.baseURL, (cfg?.isProxyReady == true) ? summary?.baseURLEnvName : nil)
     }
     do { try model.addImported(newServices) } catch { self.error = error.localizedDescription; return false }
 
-    // Back up, then rewrite each file.
-    let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-    let dir = Self.backupRoot.appendingPathComponent(stamp, isDirectory: true)
-    var manifest = Manifest(date: Date(), files: [])
+    // Back up the original files into the Keychain, then rewrite them.
+    var backup = Backup(date: Date(), files: [])
+    var rewritten: [(String, String)] = []
     do {
-      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       for (path, reps) in replacementsByFile {
-        let url = URL(fileURLWithPath: path)
-        let text = try String(contentsOf: url, encoding: .utf8)
-        let backup = dir.appendingPathComponent(path.replacingOccurrences(of: "/", with: "_"))
-        try text.write(to: backup, atomically: true, encoding: .utf8)
-        chmod(backup.path, 0o600)
-        manifest.files.append(.init(original: path, backup: backup.path))
-        try ImportScanner.rewrite(text, replacements: reps).write(to: url, atomically: true, encoding: .utf8)
+        let text = try String(contentsOfFile: path, encoding: .utf8)
+        backup.files.append(.init(path: path, text: text))
+        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps)))
       }
-      try JSONEncoder().encode(manifest).write(to: dir.appendingPathComponent("manifest.json"))
+      try model.keychain.setSecret(try JSONEncoder().encode(backup), for: Self.backupAccount(backup.date), label: "keydillo .env backup",
+                                   service: Self.backupService)
+      for (path, text) in rewritten { try text.write(toFile: path, atomically: true, encoding: .utf8) }
     } catch {
-      self.error = "Keys were stored, but a file couldn't be rewritten: \(error.localizedDescription). Originals are in \(dir.path)."
+      self.error = "Keys were stored, but the files couldn't be rewritten: \(error.localizedDescription). Nothing was changed on disk."
       return false
     }
+    Self.track(Array(replacementsByFile.keys))
     lastResult = "Imported \(chosen.count) key\(chosen.count == 1 ? "" : "s") from \(replacementsByFile.count) file\(replacementsByFile.count == 1 ? "" : "s")."
     return true
   }
 
+  // MARK: Backups (Keychain)
+
+  static let backupService = "keydillo.backup"
+  static func backupAccount(_ d: Date) -> String { "backup-" + String(Int(d.timeIntervalSince1970)) }
+
   /// Puts back the .env files from the most recent import. Keys stay in keydillo.
-  static func undoLast() -> String {
-    guard let dirs = try? FileManager.default.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: nil)
-      .filter({ FileManager.default.fileExists(atPath: $0.appendingPathComponent("manifest.json").path) })
-      .sorted(by: { $0.lastPathComponent > $1.lastPathComponent }),
-          let last = dirs.first,
-          let data = try? Data(contentsOf: last.appendingPathComponent("manifest.json")),
-          let m = try? JSONDecoder().decode(Manifest.self, from: data) else { return "Nothing to undo." }
+  static func undoLast(model: AppModel) async -> String {
+    guard let account = model.keychain.accounts(service: backupService).sorted().last else { return "Nothing to undo." }
+    guard let ctx = await model.authenticate("restore your .env files from before the last import"),
+          let data = try? model.keychain.secret(for: account, context: ctx, service: backupService),
+          let b = try? JSONDecoder().decode(Backup.self, from: data) else { return "Couldn't read the backup." }
     var restored = 0
-    for e in m.files {
-      if let text = try? String(contentsOfFile: e.backup, encoding: .utf8),
-         (try? text.write(toFile: e.original, atomically: true, encoding: .utf8)) != nil { restored += 1 }
-    }
-    try? FileManager.default.moveItem(at: last, to: last.appendingPathExtension("undone"))
+    for e in b.files where (try? e.text.write(toFile: e.path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
+    model.keychain.deleteSecret(account, service: backupService)
     return "Restored \(restored) file\(restored == 1 ? "" : "s")."
+  }
+
+  /// Earlier builds kept backups as files. Move them into the Keychain and delete the files.
+  static func migrateFileBackups(model: AppModel) {
+    let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("keydillo/backups", isDirectory: true)
+    guard let dirs = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+    struct OldManifest: Codable { var date: Date; var files: [E]; struct E: Codable { var original: String; var backup: String } }
+    for dir in dirs {
+      if let d = try? Data(contentsOf: dir.appendingPathComponent("manifest.json")),
+         let m = try? JSONDecoder().decode(OldManifest.self, from: d), !dir.pathExtension.contains("undone") {
+        let files = m.files.compactMap { e in (try? String(contentsOfFile: e.backup, encoding: .utf8)).map { Backup.Entry(path: e.original, text: $0) } }
+        let b = Backup(date: m.date, files: files)
+        if let data = try? JSONEncoder().encode(b) {
+          try? model.keychain.setSecret(data, for: backupAccount(m.date), label: "keydillo .env backup", service: backupService)
+        }
+        track(m.files.map(\.original))
+      }
+      try? FileManager.default.removeItem(at: dir)
+    }
+    try? FileManager.default.removeItem(at: root)
+  }
+
+  // MARK: Tracking imported files
+
+  static var trackedFiles: [String] { UserDefaults.standard.stringArray(forKey: "importedFiles") ?? [] }
+  static func track(_ paths: [String]) {
+    UserDefaults.standard.set(Array(Set(trackedFiles + paths)).sorted(), forKey: "importedFiles")
+  }
+
+  /// Imported files that have real-looking key values in them again.
+  nonisolated static func filesWithRealKeys(_ paths: [String]) -> [String] {
+    paths.filter { path in
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+      return !ImportScanner.parse(text, file: path).isEmpty
+    }
+  }
+
+  // MARK: Uninstall
+
+  /// Writes real values back in place of keydillo placeholders in every tracked file.
+  static func restoreRealValues(model: AppModel) async -> String {
+    guard let ctx = await model.authenticate("put your real keys back into your .env files") else { return "Cancelled." }
+    var restored = 0
+    for path in trackedFiles {
+      guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+      var lines = text.components(separatedBy: "\n")
+      var changed = false
+      for (i, line) in lines.enumerated() {
+        guard let service = Placeholder.service(in: line), let eq = line.firstIndex(of: "="),
+              line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces).hasPrefix(Placeholder.prefix),
+              let value = try? model.keychain.secret(for: service, context: ctx) else { continue }
+        lines[i] = String(line[...eq]) + String(decoding: value, as: UTF8.self)
+        changed = true
+      }
+      if changed {
+        text = lines.filter { !$0.hasPrefix("# Added by keydillo") }.joined(separator: "\n")
+        if (try? text.write(toFile: path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
+      }
+    }
+    return "Restored real keys in \(restored) file\(restored == 1 ? "" : "s")."
   }
 
   static func slug(_ envName: String) -> String {
