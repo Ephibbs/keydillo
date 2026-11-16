@@ -11,12 +11,26 @@ struct KeydilloApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   func applicationDidFinishLaunching(_ notification: Notification) {
+    // One keydillo at a time: if another copy is running (e.g. started by launchd), ask it to show its window.
+    let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+      .filter { $0.processIdentifier != getpid() }
+    if !others.isEmpty && UserDefaults.standard.string(forKey: "kdPreview") == nil {
+      DistributedNotificationCenter.default().postNotificationName(.init("com.studiokillswitch.keydillo.show"), object: nil, deliverImmediately: true)
+      exit(0)
+    }
+    DistributedNotificationCenter.default().addObserver(forName: .init("com.studiokillswitch.keydillo.show"), object: nil, queue: .main) { _ in
+      MainActor.assumeIsolated { WindowManager.shared.showMain() }
+    }
     MainActor.assumeIsolated {
-      _ = AppModel.shared
+      AppModel.shared.noteUncleanExit()
       StatusItem.shared = StatusItem()
       if let screen = UserDefaults.standard.string(forKey: "kdPreview") { Preview.show(screen); return }
       if !AppModel.shared.setupDone { WindowManager.shared.showSetup() }
     }
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    MainActor.assumeIsolated { AppModel.shared.noteCleanExit() }
   }
 
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

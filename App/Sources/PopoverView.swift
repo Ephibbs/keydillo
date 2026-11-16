@@ -17,6 +17,7 @@ struct PopoverView: View {
       }
       .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
+      if let c = model.portConflict { portCard(c) }
       ForEach(model.pending) { p in pendingCard(p) }
 
       if !model.activeGrants.isEmpty {
@@ -67,6 +68,23 @@ struct PopoverView: View {
         Button(model.windowUpgrades.contains(p.id) ? "15 min ✓" : "15 min") { model.allowWindow(p) }.buttonStyle(SmallButtonStyle())
         Spacer()
         Text("Touch ID to allow").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      }
+    }
+    .padding(14)
+    .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
+    .padding(.horizontal, 12).padding(.bottom, 14)
+  }
+
+  func portCard(_ c: (port: UInt16, owner: String?, suggestion: UInt16)) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text("Port \(String(c.port)) is being used\(c.owner.map { " by " + $0 } ?? "")").font(.system(size: 14, weight: .semibold))
+        Text("keydillo can't start until it's free, or you can move keydillo to \(String(c.suggestion)). Claude picks up the new address automatically; update any .env files that use :\(String(c.port)).")
+          .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+      HStack(spacing: 6) {
+        Button("Use \(String(c.suggestion))") { model.movePort(to: c.suggestion) }.buttonStyle(SmallPrimaryStyle())
+        Button("Try again") { model.startProxy() }.buttonStyle(SmallButtonStyle())
       }
     }
     .padding(14)

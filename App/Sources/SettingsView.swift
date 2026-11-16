@@ -14,7 +14,7 @@ struct SettingsView: View {
         PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: $approval)
           .onChange(of: approval) { _, v in model.defaultApproval = v }
       }
-      Toggle("Open keydillo when you log in", isOn: $loginItem).toggleStyle(.switch)
+      Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }
       VStack(alignment: .leading, spacing: 8) {
         Text("Claude Code").font(.system(size: 13, weight: .medium))

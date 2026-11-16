@@ -19,6 +19,8 @@ public struct ApprovalRequest: Sendable {
 public enum ApprovalResult {
   case approved(LAContext?)
   case denied
+  /// Touch ID couldn't be shown (e.g. the Mac is locked). The reason is passed to the agent.
+  case unavailable(String)
 }
 
 public protocol Approver: AnyObject {

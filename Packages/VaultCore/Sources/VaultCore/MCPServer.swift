@@ -14,6 +14,11 @@ public final class MCPServer {
 
   static let tools: [[String: Any]] = [
     [
+      "name": "status",
+      "description": "What keydillo is doing: whether the proxy is up and on which port, which keys exist (names only), and recent refusals with reasons. Check this when a keydillo request fails.",
+      "inputSchema": ["type": "object", "properties": [String: Any]()],
+    ],
+    [
       "name": "list_services",
       "description": "List API services stored in keydillo: names, local proxy base URLs and env var names. Never returns key values.",
       "inputSchema": ["type": "object", "properties": [String: Any]()],
@@ -71,6 +76,13 @@ public final class MCPServer {
   func call(_ name: String, _ args: [String: Any]) -> [String: Any] {
     do {
       switch name {
+      case "status":
+        guard case .status(let st) = try send(.status) else { return text("Unexpected reply", error: true) }
+        var lines = [st.proxyRunning ? "Proxy running at http://localhost:\(st.port)." : "Proxy is not running (\(st.proxyState)). Tell the user; requests will fail until it's back."]
+        lines.append("Keys: " + (st.services.isEmpty ? "none yet." : st.services.map { "\($0.name) (\($0.project))" }.joined(separator: ", ")))
+        lines.append("Storage: \(st.storage).")
+        if !st.recentBlocks.isEmpty { lines.append("Recent refusals:\n" + st.recentBlocks.map { "- " + $0 }.joined(separator: "\n")) }
+        return text(lines.joined(separator: "\n"))
       case "list_services":
         guard case .services(let list) = try send(.listServices) else { return text("Unexpected reply", error: true) }
         if list.isEmpty { return text("No services yet. Use request_secret to ask the user for a key.") }

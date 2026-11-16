@@ -5,6 +5,7 @@ import Darwin
 /// Nothing here ever carries a key value.
 public enum ControlRequest: Codable, Equatable {
   case listServices
+  case status
   /// Opens the key window so the user can paste a key. Fields are suggestions from the agent.
   case requestSecret(SecretRequest)
 }
@@ -38,8 +39,23 @@ public struct ServiceSummary: Codable, Equatable {
   public var baseURLEnvName: String
 }
 
+public struct StatusInfo: Codable, Equatable {
+  public var proxyRunning: Bool
+  public var proxyState: String
+  public var port: UInt16
+  public var storage: String
+  public var services: [ServiceSummary]
+  /// Recent refusals in plain words, newest first.
+  public var recentBlocks: [String]
+  public init(proxyRunning: Bool, proxyState: String, port: UInt16, storage: String, services: [ServiceSummary], recentBlocks: [String]) {
+    self.proxyRunning = proxyRunning; self.proxyState = proxyState; self.port = port
+    self.storage = storage; self.services = services; self.recentBlocks = recentBlocks
+  }
+}
+
 public enum ControlResponse: Codable, Equatable {
   case services([ServiceSummary])
+  case status(StatusInfo)
   case saved(ServiceSummary, envLines: [String])
   case declined
   case error(String)

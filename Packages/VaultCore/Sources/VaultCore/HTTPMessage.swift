@@ -80,8 +80,11 @@ public struct HTTPResponse {
     self.body = body
   }
 
-  public static func error(_ status: Int, _ message: String) -> HTTPResponse {
-    let json = try! JSONSerialization.data(withJSONObject: ["error": message, "source": "keydillo"])
+  /// Errors are written for the agent: what happened, a stable code, and what to do next.
+  public static func error(_ status: Int, _ message: String, code: String = "error", hint: String? = nil) -> HTTPResponse {
+    var obj: [String: Any] = ["error": "keydillo: " + message, "code": code, "source": "keydillo"]
+    if let hint { obj["hint"] = hint }
+    let json = try! JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])
     return HTTPResponse(status: status, headers: [("Content-Type", "application/json")], body: json)
   }
 

@@ -78,7 +78,18 @@ final class AppModel {
   var paused = false
   var extraProjects: [String] = UserDefaults.standard.stringArray(forKey: "projects") ?? []
 
-  var port: UInt16 { UInt16(UserDefaults.standard.integer(forKey: "port")).nonZero ?? 7787 }
+  /// Chosen once (7787, or the next free port on first launch), then never changed silently.
+  var port: UInt16 {
+    get {
+      if let p = UInt16(UserDefaults.standard.integer(forKey: "port")).nonZero { return p }
+      let p = Ports.firstFree(from: 7787) ?? 7787
+      UserDefaults.standard.set(Int(p), forKey: "port")
+      return p
+    }
+    set { UserDefaults.standard.set(Int(newValue), forKey: "port") }
+  }
+  /// Set when the saved port is taken by something else.
+  var portConflict: (port: UInt16, owner: String?, suggestion: UInt16)?
   var setupDone: Bool {
     get { UserDefaults.standard.bool(forKey: "setupDone") }
     set { UserDefaults.standard.set(newValue, forKey: "setupDone") }
@@ -89,7 +100,7 @@ final class AppModel {
   }
 
   @ObservationIgnored private var engine: ProxyEngine!
-  @ObservationIgnored private var server: ProxyServer!
+  @ObservationIgnored private var server: ProxyServer?
   @ObservationIgnored private let snapshot = SnapshotBox([])
   @ObservationIgnored private var keyRequestWaiters: [UUID: CheckedContinuation<ControlResponse, Never>] = [:]
 
@@ -117,13 +128,27 @@ final class AppModel {
   // MARK: Proxy
 
   func startProxy() {
-    server = ProxyServer(port: port, engine: engine)
-    server.onStateChange = { [weak self] s in Task { @MainActor in self?.proxyState = s } }
-    do { try server.start(); paused = false } catch { proxyState = "failed: \(error.localizedDescription)" }
+    let p = port
+    if !Ports.isFree(p) {
+      portConflict = (p, Ports.listener(on: p), Ports.firstFree(from: p + 1) ?? p + 1)
+      proxyState = "port \(p) is in use"
+      return
+    }
+    portConflict = nil
+    let srv = ProxyServer(port: p, engine: engine)
+    srv.onStateChange = { [weak self] s in Task { @MainActor in self?.proxyState = s } }
+    server = srv
+    do { try srv.start(); paused = false } catch { proxyState = "failed: \(error.localizedDescription)" }
+  }
+
+  func movePort(to p: UInt16) {
+    server?.stop()
+    port = p
+    startProxy()
   }
 
   func togglePause() {
-    if paused { startProxy() } else { server.stop(); paused = true; proxyState = "paused" }
+    if paused { startProxy() } else { server?.stop(); paused = true; proxyState = "paused" }
   }
 
   var proxyRunning: Bool { proxyState == "ready" && !paused }
@@ -231,6 +256,12 @@ final class AppModel {
     switch req {
     case .listServices:
       return .services(services.map(summary))
+    case .status:
+      let blocks = events.filter { $0.outcome != .sent }.prefix(10).map { e in
+        "\(e.date.formatted(date: .omitted, time: .shortened)) \(e.process) → \(e.service) \(e.method) \(e.path): \(e.outcome.rawValue)\(e.note.map { " (\($0))" } ?? "")"
+      }
+      return .status(StatusInfo(proxyRunning: proxyRunning, proxyState: proxyState, port: port, storage: storageDescription,
+                                services: services.map(summary), recentBlocks: Array(blocks)))
     case .requestSecret(let r):
       guard ServiceConfig.isValidName(r.service) else { return .error("service must be lowercase letters, digits and dashes") }
       let kr = KeyRequest(service: r.service, displayName: r.displayName ?? HostCheck.displayName(r.service), host: r.host,
@@ -252,9 +283,27 @@ final class AppModel {
 
   // MARK: Settings
 
+  /// Starts keydillo at login and restarts it if it ever crashes (a launchd agent with KeepAlive).
+  static let agent = SMAppService.agent(plistName: "com.studiokillswitch.keydillo.agent.plist")
   var openAtLogin: Bool {
-    get { SMAppService.mainApp.status == .enabled }
-    set { if newValue { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() } }
+    get { Self.agent.status == .enabled }
+    set { if newValue { try? Self.agent.register() } else { try? Self.agent.unregister() } }
+  }
+
+  /// Logs a note if the last run ended without a normal quit.
+  func noteUncleanExit() {
+    let marker = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("keydillo/running")
+    if FileManager.default.fileExists(atPath: marker.path) {
+      events.insert(ActivityEvent(date: Date(), service: "keydillo", method: "", path: "", process: "keydillo", pid: getpid(),
+                                  outcome: .failed, status: 0, note: "restarted after an unexpected stop"), at: 0)
+    }
+    FileManager.default.createFile(atPath: marker.path, contents: Data())
+  }
+  func noteCleanExit() {
+    let marker = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("keydillo/running")
+    try? FileManager.default.removeItem(at: marker)
   }
 
   var storageDescription: String {
@@ -270,7 +319,13 @@ final class ModelApprover: Approver, @unchecked Sendable {
   weak var model: AppModel?
   init(model: AppModel) { self.model = model }
 
+  static var screenLocked: Bool {
+    guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+    return (d["CGSSessionScreenIsLocked"] as? Bool) == true
+  }
+
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
+    if Self.screenLocked { return .unavailable("the Mac is locked") }
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Deny"
     let project = await MainActor.run { model?.service(named: request.service)?.project ?? "" }

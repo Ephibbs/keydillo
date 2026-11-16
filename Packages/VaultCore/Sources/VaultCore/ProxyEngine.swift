@@ -57,7 +57,7 @@ public final class ProxyEngine: @unchecked Sendable {
     // Split /<service>/<rest>
     let (pathOnly, query) = Self.splitQuery(req.target)
     let parts = pathOnly.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
-    guard let first = parts.first else { return .error(404, "Use http://localhost:7787/<service>/<path>") }
+    guard let first = parts.first else { return .error(404, "use http://localhost:<port>/<service>/<path>", code: "bad_path", hint: "Call the keydillo list_services tool for base URLs.") }
     let name = String(first)
     let upstreamPath = "/" + (parts.count > 1 ? String(parts[1]) : "")
     func log(_ outcome: ActivityEvent.Outcome, _ status: Int, _ note: String? = nil) {
@@ -66,36 +66,42 @@ public final class ProxyEngine: @unchecked Sendable {
     }
     guard let svc = services().first(where: { $0.name == name }) else {
       log(.blocked, 404, "unknown service")
-      return .error(404, "No service named '\(name)'. Ask the user to add it in keydillo.")
+      return .error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat.")
     }
     guard !pathOnly.contains("/../"), !pathOnly.hasSuffix("/.."), !pathOnly.contains("%2e%2e"), !pathOnly.contains("%2E%2E") else {
-      log(.blocked, 400, "path traversal"); return .error(400, "Path not allowed")
+      log(.blocked, 400, "path traversal"); return .error(400, "path not allowed", code: "bad_path")
     }
     guard svc.permits(method: req.method, path: upstreamPath) else {
       log(.blocked, 403, "path not allowed")
-      return .error(403, "\(req.method) \(upstreamPath) is not allowed for \(name)")
+      return .error(403, "\(req.method) \(upstreamPath) isn't allowed for \(name)", code: "path_not_allowed", hint: "Tell the user which path you need; they can allow it in keydillo. Don't try another route.")
     }
     if let cap = svc.maxRequestsPerHour, !takeRateSlot(name, cap: cap) {
       log(.blocked, 429, "rate limit")
-      return .error(429, "Rate limit for \(name) reached (\(cap)/hour)")
+      return .error(429, "rate limit for \(name) reached (\(cap)/hour)", code: "rate_limited", hint: "Wait, or ask the user to raise the limit.")
     }
 
     let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: svc.upstreamHost,
                                    method: req.method, path: upstreamPath, client: client)
-    guard case .approved(let ctx) = await gate.authorize(svc, approval) else {
+    let ctx: LAContext?
+    switch await gate.authorize(svc, approval) {
+    case .approved(let c): ctx = c
+    case .denied:
       log(.denied, 403, nil)
-      return .error(403, "The user did not approve this request")
+      return .error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user. Don't retry unless they ask you to.")
+    case .unavailable(let why):
+      log(.denied, 423, why)
+      return .error(423, "can't ask for approval right now (\(why))", code: "approval_unavailable", hint: "Tell the user the request is waiting for them; retry once they're back.")
     }
 
     var secret: Data
     do { secret = try secrets.secret(for: name, context: ctx) }
-    catch VaultError.denied { log(.denied, 403); return .error(403, "The user did not approve this request") }
-    catch { log(.failed, 500, "key unavailable"); return .error(500, "Key for \(name) is unavailable") }
+    catch VaultError.denied { log(.denied, 403); return .error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user.") }
+    catch { log(.failed, 500, "key unavailable"); return .error(500, "the key for \(name) couldn't be read", code: "key_unavailable", hint: "Ask the user to check \(name) in keydillo.") }
     defer { secret.resetBytes(in: 0..<secret.count) }
 
     guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(upstreamPath)\(query.map { "?\($0)" } ?? "")"),
           url.host == svc.upstreamHost.split(separator: ":").first.map(String.init) else {
-      log(.blocked, 400, "bad url"); return .error(400, "Bad path")
+      log(.blocked, 400, "bad url"); return .error(400, "bad path", code: "bad_path")
     }
     var out = URLRequest(url: url)
     out.httpMethod = req.method
@@ -111,20 +117,20 @@ public final class ProxyEngine: @unchecked Sendable {
 
     do {
       let (data, resp) = try await session.data(for: out)
-      guard let http = resp as? HTTPURLResponse else { log(.failed, 502); return .error(502, "Bad upstream response") }
+      guard let http = resp as? HTTPURLResponse else { log(.failed, 502); return .error(502, "bad response from \(svc.upstreamHost)", code: "upstream_failed") }
       var headers: [(String, String)] = []
       for (k, v) in http.allHeaderFields {
         guard let k = k as? String, let v = v as? String else { continue }
         let lk = k.lowercased()
         if Self.hopByHop.contains(lk) || lk == "content-encoding" || lk == "set-cookie" { continue }
-        headers.append((k, Self.redact(v, secret: secret)))
+        headers.append((k, Self.redact(v, secret: secret, label: svc.displayName)))
       }
-      let body = Self.redact(data, secret: secret)
+      let body = Self.redact(data, secret: secret, label: svc.displayName)
       log(.sent, http.statusCode)
       return HTTPResponse(status: http.statusCode, headers: headers, body: body)
     } catch {
       log(.failed, 502, "upstream unreachable")
-      return .error(502, "Upstream request failed: \((error as NSError).localizedDescription)")
+      return .error(502, "couldn't reach \(svc.upstreamHost): \((error as NSError).localizedDescription)", code: "upstream_failed", hint: "Check the network, then retry.")
     }
   }
 
@@ -142,17 +148,16 @@ public final class ProxyEngine: @unchecked Sendable {
     return (String(target[..<q]), String(target[target.index(after: q)...]))
   }
 
-  static let redaction = Data("[redacted by keydillo]".utf8)
-
   /// Replaces any occurrence of the secret in upstream output, in case an API echoes it back.
-  public static func redact(_ data: Data, secret: Data) -> Data {
+  public static func redact(_ data: Data, secret: Data, label: String = "") -> Data {
     guard secret.count >= 8, data.count >= secret.count else { return data }
+    let mark = Data("[redacted by keydillo: \(label.isEmpty ? "" : label + " ")key]".utf8)
     var out = data
-    while let r = out.range(of: secret) { out.replaceSubrange(r, with: redaction) }
+    while let r = out.range(of: secret) { out.replaceSubrange(r, with: mark) }
     return out
   }
-  static func redact(_ s: String, secret: Data) -> String {
-    String(decoding: redact(Data(s.utf8), secret: secret), as: UTF8.self)
+  static func redact(_ s: String, secret: Data, label: String = "") -> String {
+    String(decoding: redact(Data(s.utf8), secret: secret, label: label), as: UTF8.self)
   }
 }
 

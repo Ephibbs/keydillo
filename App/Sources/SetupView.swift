@@ -110,6 +110,7 @@ struct SetupView: View {
 
   func finish() {
     model.setupDone = true
+    model.openAtLogin = true   // start at login and restart after a crash; can be turned off in Settings
     WindowManager.shared.close("setup")
     StatusItem.shared?.open()
   }
