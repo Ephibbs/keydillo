@@ -7,6 +7,7 @@ public final class ProxyServer: @unchecked Sendable {
   let engine: ProxyEngine
   let queue = DispatchQueue(label: "keydillo.proxy")
   var listener: NWListener?
+  var listener6: NWListener?
   public var onStateChange: (String) -> Void = { _ in }
   /// Override for tests (process lookup needs real sockets from other processes).
   public var identify: (UInt16, UInt16) -> ClientProcess = { ProcessLookup.process(connectedFrom: $0, to: $1) }
@@ -32,9 +33,17 @@ public final class ProxyServer: @unchecked Sendable {
     l.newConnectionHandler = { [weak self] c in self?.accept(c) }
     l.start(queue: queue)
     listener = l
+    // Also on ::1, since "localhost" resolves to IPv6 first for some clients (e.g. Node 17+).
+    let p6 = NWParameters.tcp
+    p6.requiredLocalEndpoint = .hostPort(host: "::1", port: NWEndpoint.Port(rawValue: port)!)
+    if let l6 = try? NWListener(using: p6) {
+      l6.newConnectionHandler = { [weak self] c in self?.accept(c) }
+      l6.start(queue: queue)
+      listener6 = l6
+    }
   }
 
-  public func stop() { listener?.cancel(); listener = nil }
+  public func stop() { listener?.cancel(); listener = nil; listener6?.cancel(); listener6 = nil }
 
   func accept(_ c: NWConnection) {
     // Refuse anything not from loopback.

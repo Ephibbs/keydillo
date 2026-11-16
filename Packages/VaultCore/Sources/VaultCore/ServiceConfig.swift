@@ -47,6 +47,10 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var folder: String?
   /// Send the key as this query parameter (e.g. "key") instead of a header.
   public var authQueryParam: String?
+  /// HTTP Basic auth: the key is the username (Stripe), or "user:password" (Twilio SID:token).
+  public var basicAuth: Bool?
+  /// More headers that carry the key, e.g. ["Authorization": "Bearer {key}"] for Supabase.
+  public var extraHeaders: [String: String]?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
@@ -82,7 +86,8 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
     }
   }
 
-  public var isProxyReady: Bool { !upstreamHost.isEmpty && (!authHeader.isEmpty || !(authQueryParam ?? "").isEmpty) }
+  /// A host is enough: without a header or query parameter, the key goes wherever its placeholder appears.
+  public var isProxyReady: Bool { !upstreamHost.isEmpty }
 
   public func permits(method: String, path: String) -> Bool {
     allowed.isEmpty || allowed.contains { $0.matches(method: method, path: path) }

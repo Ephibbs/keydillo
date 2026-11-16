@@ -79,13 +79,25 @@ public actor ApprovalGate {
     return g
   }
 
+  /// Parallel calls from the same program within a few seconds share one Touch ID, instead of N prompts in a row.
+  private var bursts: [String: (Date, LAContext?)] = [:]
+  public static let burstSeconds: TimeInterval = 3
+  func burst(_ service: ServiceConfig, _ client: ClientProcess) -> LAContext?? {
+    let k = service.name + "|" + client.sessionKey
+    guard let (t, ctx) = bursts[k], now().timeIntervalSince(t) < Self.burstSeconds else { return nil }
+    return .some(ctx)
+  }
+
   public func authorize(_ service: ServiceConfig, _ request: ApprovalRequest) async -> ApprovalResult {
     if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
+    if let ctx = burst(service, request.client) { return .approved(ctx) }
     await lock()
     defer { unlock() }
     // Another request may have been approved while we waited.
     if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
+    if let ctx = burst(service, request.client) { return .approved(ctx) }
     let result = await approver.approve(request)
+    if case .approved(let ctx) = result { bursts[service.name + "|" + request.client.sessionKey] = (now(), ctx) }
     if case .approved(let ctx) = result {
       switch service.approval {
       case .eachRequest: break

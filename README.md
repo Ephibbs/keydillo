@@ -21,3 +21,20 @@ approach (`<NAME>_BASE_URL`) for those.
 ## Credits
 
 Service logos are from [Simple Icons](https://simpleicons.org) (CC0-1.0). Logos are trademarks of their owners and are used only to identify each service.
+
+## Security model and limits
+
+keydillo is responsible for keys **while it's installed**. Copies that existed before you installed it (old
+`.env` files, shell history, git history, provider dashboards, chat transcripts) and copies you make yourself
+afterwards (the Readout, Show key, `keydillo run` raw mode) are outside what it can protect.
+
+What it does protect while installed:
+- Keys live in a private Keychain access group that only keydillo's signed binary can use, with Touch ID required to read them. `security find-generic-password` and other apps can't see them.
+- Agents only get local addresses and `keydillo:<name>` placeholders. The proxy adds the key on the way out, only to that key's host, and scrubs the key from responses.
+- Web pages can't use keydillo: cross-site browser requests and non-localhost Host headers are refused.
+
+Known limits, in scope:
+- macOS lets your login password stand in for Touch ID. Anyone who knows it can approve requests.
+- During an approval window (e.g. "every 15 minutes" or "once per session"), a program can *use* the key through the proxy without a new prompt. It still can't *read* the key.
+- Parallel calls from the same program within 3 seconds of an approval share it, instead of prompting once per call.
+- A program you approve can do anything that key allows with the provider. keydillo guards the key, not what you do with it.

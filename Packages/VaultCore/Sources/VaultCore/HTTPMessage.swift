@@ -50,10 +50,28 @@ public enum HTTPParser {
       headers.append((name, value))
     }
     var req = HTTPRequest(method: String(requestLine[0]).uppercased(), target: String(requestLine[1]), headers: headers, body: Data())
-    if let te = req.header("Transfer-Encoding"), te.lowercased() != "identity" {
-      return .invalid(status: 411, reason: "Chunked request bodies are not supported; send Content-Length")
-    }
     let bodyStart = headEnd.upperBound
+    if let te = req.header("Transfer-Encoding"), te.lowercased().contains("chunked") {
+      // Streamed request body (Node streams, Python generators): decode the chunks.
+      var i = bodyStart; var body = Data()
+      while true {
+        guard let lineEnd = buffer[i...].range(of: Data("\r\n".utf8)) else { return .incomplete }
+        let sizeLine = String(decoding: buffer[i..<lineEnd.lowerBound], as: UTF8.self).split(separator: ";").first ?? ""
+        guard let size = Int(sizeLine.trimmingCharacters(in: .whitespaces), radix: 16) else { return .invalid(status: 400, reason: "Bad chunk size") }
+        let dataStart = lineEnd.upperBound
+        if size == 0 {
+          // Skip optional trailers up to the blank line.
+          guard let end = buffer[lineEnd.lowerBound...].range(of: sep) else { return .incomplete }
+          req.body = body
+          req.headers.removeAll { $0.0.lowercased() == "transfer-encoding" }
+          return .complete(req, consumed: end.upperBound - buffer.startIndex)
+        }
+        guard buffer.endIndex >= dataStart + size + 2 else { return .incomplete }
+        body.append(buffer[dataStart..<(dataStart + size)])
+        guard body.count <= maxBodyBytes else { return .invalid(status: 413, reason: "Body too large") }
+        i = dataStart + size + 2
+      }
+    }
     var length = 0
     if let cl = req.header("Content-Length") {
       guard let n = Int(cl), n >= 0 else { return .invalid(status: 400, reason: "Bad Content-Length") }

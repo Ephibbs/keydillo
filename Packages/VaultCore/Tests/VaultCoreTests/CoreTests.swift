@@ -53,8 +53,11 @@ final class ParserTests: XCTestCase {
   func testIncompleteBody() {
     XCTAssertEqual(HTTPParser.parse(Data("POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc".utf8)), .incomplete)
   }
-  func testRejectsChunked() {
-    guard case .invalid(411, _) = HTTPParser.parse(Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)) else { return XCTFail() }
+  func testDecodesChunkedBody() {
+    let raw = Data("POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".utf8)
+    guard case .complete(let r, let n) = HTTPParser.parse(raw) else { return XCTFail() }
+    XCTAssertEqual(String(decoding: r.body, as: UTF8.self), "hello world"); XCTAssertEqual(n, raw.count)
+    XCTAssertEqual(HTTPParser.parse(raw.prefix(raw.count - 4)), .incomplete)
   }
 }
 
@@ -86,10 +89,16 @@ final class GateTests: XCTestCase {
   func req(_ s: ServiceConfig) -> ApprovalRequest {
     ApprovalRequest(service: s.name, displayName: s.displayName, host: s.upstreamHost, method: "GET", path: "/", client: client)
   }
-  func testEachRequestPromptsEveryTime() async {
-    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+  func testEachRequestPromptsEveryTimeOutsideABurst() async {
+    let a = StubApprover()
+    final class Clock: @unchecked Sendable { var t = Date(timeIntervalSince1970: 0) }
+    let clock = Clock()
+    let gate = ApprovalGate(approver: a, now: { clock.t })
     let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .eachRequest)
     _ = await gate.authorize(s, req(s)); _ = await gate.authorize(s, req(s))
+    XCTAssertEqual(a.calls, 1, "calls within the burst window share one Touch ID")
+    clock.t = clock.t.addingTimeInterval(5)
+    _ = await gate.authorize(s, req(s))
     XCTAssertEqual(a.calls, 2)
   }
   func testWindowReusesUntilExpiry() async {
@@ -162,7 +171,8 @@ final class EndToEndTests: XCTestCase {
     let (s3, _, _) = try await fetch("http://127.0.0.1:18787/nope/v1/x")
     XCTAssertEqual(s3, 404)
 
-    // Denied approval never reads the key.
+    // Denied approval never reads the key (after the burst window, which shares one approval between parallel calls).
+    try await Task.sleep(nanoseconds: 3_200_000_000)
     approver.answer = false
     let (s4, b4, _) = try await fetch("http://127.0.0.1:18787/echo/v1/voices")
     XCTAssertEqual(s4, 403); XCTAssertFalse(b4.contains("sk_"))

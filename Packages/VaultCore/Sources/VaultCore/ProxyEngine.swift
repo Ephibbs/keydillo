@@ -63,6 +63,11 @@ public final class ProxyEngine: @unchecked Sendable {
 
   /// Handles one request, streaming the upstream response into `sink` as it arrives.
   public func serve(_ req: HTTPRequest, client: ClientProcess, sink: ResponseSink) async {
+    // Web pages must never be able to use keys: block cross-site browser requests and DNS-rebinding hosts.
+    if let reason = Self.browserBlockReason(req) {
+      return await sink.respond(.error(403, reason, code: "browser_blocked",
+        hint: "Call keydillo from server-side code or a script, not from a web page. Browsers can't use keydillo, by design."))
+    }
     // Split /<service>/<rest>
     let (pathOnly, query) = Self.splitQuery(req.target)
     let parts = pathOnly.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
@@ -112,17 +117,23 @@ public final class ProxyEngine: @unchecked Sendable {
     catch VaultError.denied { log(.denied, 403); return await sink.respond(.error(403, "the user declined this request", code: "denied", hint: "Stop and tell the user.")) }
     catch { log(.failed, 500, "key unavailable"); return await sink.respond(.error(500, "the key for \(name) couldn't be read", code: "key_unavailable", hint: "Ask the user to check \(name) in keydillo.")) }
     defer { secret.resetBytes(in: 0..<secret.count) }
-    let keyValue = svc.authPrefix + String(decoding: secret, as: UTF8.self)
+    let raw = String(decoding: secret, as: UTF8.self)
+    let keyValue: String = svc.basicAuth == true
+      ? "Basic " + Data((raw.contains(":") ? raw : raw + ":").utf8).base64EncodedString()
+      : svc.authPrefix + raw
+    // Anywhere the agent put this key's placeholder (path, query, cookie, body), the real key goes instead.
+    let sub = PlaceholderSubstitution(service: name, value: raw)
 
     // Query string: drop any value the client sent for the key's parameter, then add the real one.
-    var queryItems = query.map { Self.parseQuery($0) } ?? []
+    var queryItems = query.map { Self.parseQuery(sub.apply($0, urlEncoded: true)) } ?? []
     if let qp = svc.authQueryParam, !qp.isEmpty {
       queryItems.removeAll { $0.0 == qp }
       queryItems.append((qp, keyValue))
     }
     let queryString = queryItems.isEmpty ? "" : "?" + queryItems.map { "\($0.0)\($0.1.map { "=" + Self.encode($0) } ?? "")" }.joined(separator: "&")
     let host = svc.upstreamHost.split(separator: ":").first.map(String.init) ?? svc.upstreamHost
-    let usesHeader = (svc.authQueryParam ?? "").isEmpty
+    let usesHeader = (svc.authQueryParam ?? "").isEmpty && !svc.authHeader.isEmpty
+    let outPath = sub.apply(upstreamPath, urlEncoded: true)   // logs keep the placeholder version
 
     func forwardedHeaders(keepUpgrade: Bool) -> [(String, String)] {
       var out: [(String, String)] = []
@@ -131,9 +142,11 @@ public final class ProxyEngine: @unchecked Sendable {
         if keepUpgrade && (lk == "upgrade" || lk == "connection") { out.append((k, v)); continue }
         if Self.hopByHop.contains(lk) { continue }
         if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization") { continue }
-        out.append((k, v))
+        if let extra = svc.extraHeaders, extra.keys.contains(where: { $0.lowercased() == lk }) { continue }
+        out.append((k, sub.apply(v, urlEncoded: false)))
       }
       if usesHeader { out.append((svc.authHeader, keyValue)) }
+      for (k, template) in svc.extraHeaders ?? [:] { out.append((k, template.replacingOccurrences(of: "{key}", with: raw))) }
       return out
     }
 
@@ -141,20 +154,20 @@ public final class ProxyEngine: @unchecked Sendable {
     if (req.header("Upgrade") ?? "").lowercased() == "websocket" {
       let tls = svc.upstreamScheme == "https"
       let port = svc.upstreamHost.split(separator: ":").dropFirst().first.flatMap { UInt16($0) } ?? (tls ? 443 : 80)
-      var head = "\(req.method) \(upstreamPath)\(queryString) HTTP/1.1\r\nHost: \(svc.upstreamHost)\r\n"
+      var head = "\(req.method) \(outPath)\(queryString) HTTP/1.1\r\nHost: \(svc.upstreamHost)\r\n"
       for (k, v) in forwardedHeaders(keepUpgrade: true) { head += "\(k): \(v)\r\n" }
       head += "\r\n"
       log(.sent, 101, "websocket")
       return await sink.tunnel(host: host, port: port, tls: tls, head: Data(head.utf8))
     }
 
-    guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(upstreamPath)\(queryString)"), url.host == host else {
+    guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(outPath)\(queryString)"), url.host == host else {
       log(.blocked, 400, "bad url"); return await sink.respond(.error(400, "bad path", code: "bad_path"))
     }
     var out = URLRequest(url: url)
     out.httpMethod = req.method
     for (k, v) in forwardedHeaders(keepUpgrade: false) { out.addValue(v, forHTTPHeaderField: k) }
-    if !req.body.isEmpty { out.httpBody = req.body }
+    if !req.body.isEmpty { out.httpBody = sub.apply(req.body) }
 
     let fetch = StreamFetch()
     let task = session.dataTask(with: out)
@@ -194,6 +207,21 @@ public final class ProxyEngine: @unchecked Sendable {
       log(.failed, 502, "upstream unreachable")
       await sink.respond(.error(502, "couldn't reach \(svc.upstreamHost): \((error as NSError).localizedDescription)", code: "upstream_failed", hint: "Check the network, then retry."))
     }
+  }
+
+  static func browserBlockReason(_ req: HTTPRequest) -> String? {
+    let localHosts = ["localhost", "127.0.0.1", "[::1]"]
+    if let host = req.header("Host") {
+      let name = host.hasPrefix("[") ? String(host.prefix { $0 != "]" }) + "]" : String(host.split(separator: ":").first ?? "")
+      if !localHosts.contains(name.lowercased()) { return "requests must be addressed to localhost (got Host: \(host))" }
+    }
+    if let origin = req.header("Origin"), !localHosts.contains(where: { origin.lowercased().hasPrefix("http://\($0)") }) {
+      return "requests from web pages (\(origin)) aren't allowed"
+    }
+    if let site = req.header("Sec-Fetch-Site")?.lowercased(), site == "cross-site" || site == "same-site" {
+      return "requests from web pages aren't allowed"
+    }
+    return nil
   }
 
   static func parseQuery(_ q: String) -> [(String, String?)] {
@@ -309,4 +337,34 @@ final class StreamFetch: NSObject, URLSessionDataDelegate, @unchecked Sendable {
   }
   func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                   newRequest request: URLRequest) async -> URLRequest? { nil }
+}
+
+
+/// Replaces `keydillo:<name>` placeholders (optionally with a format prefix such as `sk-`) with the real key.
+public struct PlaceholderSubstitution {
+  let service: String
+  let value: String
+  public init(service: String, value: String) { self.service = service; self.value = value }
+
+  var regex: NSRegularExpression {
+    let name = NSRegularExpression.escapedPattern(for: service)
+    return try! NSRegularExpression(pattern: "[A-Za-z0-9_\\-]*keydillo(?::|%3A|%3a)\(name)(?![A-Za-z0-9\\-])")
+  }
+
+  public func apply(_ s: String, urlEncoded: Bool) -> String {
+    guard s.contains("keydillo") else { return s }
+    let replacement = urlEncoded ? (value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(CharacterSet(charactersIn: "&=+?#/"))) ?? value) : value
+    return regex.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+  }
+
+  public func apply(_ body: Data) -> Data {
+    guard body.range(of: Data("keydillo".utf8)) != nil, let text = String(data: body, encoding: .utf8) else {
+      // Not UTF-8 (binary upload): swap exact byte runs only.
+      var out = body
+      let needle = Data(Placeholder.value(for: service).utf8)
+      while let r = out.range(of: needle) { out.replaceSubrange(r, with: Data(value.utf8)) }
+      return out
+    }
+    return Data(apply(text, urlEncoded: false).utf8)
+  }
 }
