@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Claude asks for a key</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#9CC08A}a:hover{color:#B8D6A8}
+</style>
+</helmet>
+<div style="width: 640px; height: 440px; box-sizing: border-box; background: #1E1D1B; border: 1px solid #3A3833; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; color: #E8E4DA">
+  <div style="height: 34px; display: flex; align-items: center; padding: 0 12px; gap: 7px; background: #2A2926; border-bottom: 1px solid #3A3833">
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #FF5F57"></span>
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #FEBC2E"></span>
+    <span style="width: 12px; height: 12px; border-radius: 6px; background: #28C840"></span>
+    <span style="flex: 1; text-align: center; font-size: 12px; color: #A8A397">~/Desktop/notes-app</span>
+  </div>
+  <div style="flex: 1; padding: 18px 20px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px; line-height: 1.75; display: flex; flex-direction: column; gap: 12px">
+    <div style="color: #E8E4DA">&gt; add ElevenLabs narration to the onboarding video</div>
+    <div style="color: #E8E4DA">I need an ElevenLabs API key. I'll ask keydillo for it so the key never passes through me.</div>
+    <div style="display: flex; flex-direction: column; padding-left: 14px; border-left: 2px solid #4A4740">
+      <div style="color: #C9C3B5">keydillo · request_secret</div>
+      <div style="color: #A8A397">service: elevenlabs · host: api.elevenlabs.io · header: xi-api-key</div>
+      <div style="color: #E3B866">Waiting for you in the keydillo window…</div>
+    </div>
+    <div style="display: flex; flex-direction: column; padding-left: 14px; border-left: 2px solid #4A4740">
+      <div style="color: #9CC08A">Saved. Use http://localhost:7787/elevenlabs</div>
+      <div style="color: #A8A397">Added ELEVENLABS_BASE_URL and a placeholder key to .env</div>
+    </div>
+    <div style="color: #E8E4DA">Updated scripts/narrate.ts to call the local address. Running it now; approve the Touch ID prompt when it appears.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":640,"height":440}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
