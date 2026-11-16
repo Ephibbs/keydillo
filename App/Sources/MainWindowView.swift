@@ -181,6 +181,8 @@ struct KeyDetailView: View {
   @State private var rateText = ""
   @State private var error: String?
   @State private var confirmDelete = false
+  @State private var revealed: String?
+  @State private var copied = false
 
   init(config: ServiceConfig) {
     _config = State(initialValue: config)
@@ -214,6 +216,24 @@ struct KeyDetailView: View {
         Label("In Keychain", systemImage: "lock").font(.system(size: 12)).foregroundStyle(Theme.tertiary)
           .padding(.horizontal, 11).frame(height: 26).background(Capsule().fill(Theme.fill))
       }
+
+      HStack(spacing: 8) {
+        Text(revealed ?? String(repeating: "•", count: 24))
+          .font(.system(size: 12.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+          .textSelection(.enabled)
+          .foregroundStyle(revealed == nil ? Theme.secondary : Theme.text)
+          .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+          .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+        if let revealed {
+          Button(copied ? "Copied" : "Copy") { model.copyConcealed(revealed); copied = true }.buttonStyle(SmallButtonStyle())
+            .help("Clears from the clipboard after 30 s")
+          Button { hide() } label: { Image(systemName: "eye.slash") }.buttonStyle(SmallButtonStyle()).accessibilityLabel("Hide key")
+        } else {
+          Button { Task { await reveal() } } label: { Label("Show", systemImage: "eye") }.buttonStyle(SmallButtonStyle())
+            .help("Shows the key after Touch ID. Hides again after 30 s.")
+        }
+      }
+      .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in hide() }
 
       Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
         field("Auth header") { FilledField(placeholder: "Authorization", text: $config.authHeader, monospaced: true) }
@@ -281,6 +301,15 @@ struct KeyDetailView: View {
   func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
     GridRow { Text(label).foregroundStyle(Theme.secondary).frame(width: 110, alignment: .leading); content() }
   }
+
+  func reveal() async {
+    guard let v = await model.reveal(config) else { return }
+    revealed = v; copied = false
+    try? await Task.sleep(for: .seconds(30))
+    if revealed == v { hide() }
+  }
+
+  func hide() { revealed = nil; copied = false }
 
   func saveChanges() async {
     do { if try await model.update(edited) { error = nil } }

@@ -246,6 +246,26 @@ final class AppModel {
     }
   }
 
+  /// One key's value for the Reveal button. Always a fresh Touch ID, never reachable from CLI, MCP or proxy.
+  func reveal(_ s: ServiceConfig) async -> String? {
+    guard let ctx = await authenticate("show your \(s.displayName) key") else { return nil }
+    guard let d = try? keychain.secret(for: s.name, context: ctx) else { return nil }
+    events.insert(ActivityEvent(date: Date(), service: s.name, method: "", path: "", process: "you", pid: getpid(),
+                                outcome: .sent, status: 0, note: "key revealed in keydillo"), at: 0)
+    return String(decoding: d, as: UTF8.self)
+  }
+
+  func copyConcealed(_ text: String) {
+    let pb = NSPasteboard.general
+    pb.clearContents()
+    pb.setString(text, forType: .string)
+    pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+    let change = pb.changeCount
+    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+      if NSPasteboard.general.changeCount == change { NSPasteboard.general.clearContents() }
+    }
+  }
+
   func authenticate(_ reason: String) async -> LAContext? {
     let ctx = LAContext()
     do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) ? ctx : nil }
