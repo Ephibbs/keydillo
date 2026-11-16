@@ -243,12 +243,33 @@ final class ImportTests: XCTestCase {
   """
 
   func testParseFindsOnlySecrets() {
-    let found = ImportScanner.parse(env, file: "/x/.env")
+    let all = ImportScanner.parse(env, file: "/x/.env")
+    XCTAssertEqual(all.filter(\.isPublic).map(\.name), ["NEXT_PUBLIC_SUPABASE_ANON_KEY"])
+    let found = all.filter { !$0.isPublic }
     XCTAssertEqual(found.map(\.name), ["ANTHROPIC_API_KEY", "ELEVENLABS_API_KEY", "GOOGLE_CLIENT_SECRET"])
     XCTAssertEqual(found[0].value, "sk-ant-api03-abcdefghijklmnop")
     XCTAssertEqual(found[1].value, "abcdef0123456789abcdef")
     XCTAssertEqual(found[0].service?.host, "api.anthropic.com")
     XCTAssertNil(found[2].service)
+  }
+
+  func testPublicKeysAreFlagged() {
+    let anon = "eyJhbGciOiJIUzI1NiJ9." + Data(#"{"role":"anon"}"#.utf8).base64EncodedString() + ".sig"
+    let svc = "eyJhbGciOiJIUzI1NiJ9." + Data(#"{"role":"service_role"}"#.utf8).base64EncodedString() + ".sig"
+    let text = """
+    STRIPE_PUBLISHABLE_KEY=pk_test_abcdefghijklmnop
+    STRIPE_KEY=pk_live_abcdefghijklmnop
+    STRIPE_SECRET_KEY=sk_test_abcdefghijklmnop
+    SUPABASE_KEY=\(anon)
+    SUPABASE_SERVICE_KEY=\(svc)
+    FIREBASE_API_KEY=AIzaSyAbcdefghijklmnop
+    FIREBASE_AUTH_DOMAIN=x.firebaseapp.com
+    NEXT_PUBLIC_POSTHOG_KEY=phc_abcdefghijklmnop
+    """
+    let f = Dictionary(uniqueKeysWithValues: ImportScanner.parse(text, file: "/x/.env").map { ($0.name, $0.isPublic) })
+    XCTAssertEqual(f["STRIPE_PUBLISHABLE_KEY"], true); XCTAssertEqual(f["STRIPE_KEY"], true); XCTAssertEqual(f["STRIPE_SECRET_KEY"], false)
+    XCTAssertEqual(f["SUPABASE_KEY"], true); XCTAssertEqual(f["SUPABASE_SERVICE_KEY"], false)
+    XCTAssertEqual(f["FIREBASE_API_KEY"], true); XCTAssertEqual(f["NEXT_PUBLIC_POSTHOG_KEY"], true)
   }
 
   func testRewriteKeepsEverythingElse() {

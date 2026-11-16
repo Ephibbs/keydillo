@@ -14,11 +14,12 @@ final class ImportModel {
   var scanned = false
   var error: String?
   var lastResult: String?
+  var restartHint = false
   /// Limit the scan to these files (re-import after something wrote real keys back).
   var onlyPaths: [String]?
 
   var selectedCount: Int { files.flatMap(\.keys).filter { selected.contains($0.id) }.count }
-  var totalCount: Int { files.flatMap(\.keys).count }
+  var totalCount: Int { files.flatMap(\.keys).filter { !$0.isPublic }.count }
 
   func scan() async {
     scanning = true
@@ -35,7 +36,7 @@ final class ImportModel {
     let model = AppModel.shared
     // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.
     let all: [ImportScanner.Found] = found.flatMap { $0.keys }
-    selected = Set(all.filter { k in k.service != nil || model.existing(for: k) != nil }.map { $0.id })
+    selected = Set(all.filter { k in !k.isPublic && (k.service != nil || model.existing(for: k) != nil) }.map { $0.id })
     scanning = false
     scanned = true
   }
@@ -111,6 +112,7 @@ final class ImportModel {
       return false
     }
     Self.track(Array(replacementsByFile.keys))
+    restartHint = true
     lastResult = "Imported \(chosen.count) key\(chosen.count == 1 ? "" : "s") from \(replacementsByFile.count) file\(replacementsByFile.count == 1 ? "" : "s")."
     return true
   }
@@ -164,7 +166,7 @@ final class ImportModel {
   nonisolated static func filesWithRealKeys(_ paths: [String]) -> [String] {
     paths.filter { path in
       guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
-      return !ImportScanner.parse(text, file: path).isEmpty
+      return ImportScanner.parse(text, file: path).contains { !$0.isPublic }
     }
   }
 

@@ -37,6 +37,8 @@ public enum ImportScanner {
     public let name: String
     public let value: String
     public let service: Known?
+    /// Safe to ship to browsers (publishable/anon keys): listed, but left alone unless the user ticks it.
+    public var isPublic: Bool = false
     public static func == (a: Found, b: Found) -> Bool { a.id == b.id && a.value == b.value }
   }
 
@@ -61,6 +63,7 @@ public enum ImportScanner {
   }
 
   public static func isEnvFile(_ name: String) -> Bool {
+    if name == ".dev.vars" { return true }   // Cloudflare Workers local secrets
     guard name == ".env" || name.hasPrefix(".env.") else { return false }
     let lower = name.lowercased()
     return !["example", "sample", "template", "dist", "defaults", "schema"].contains { lower.contains($0) }
@@ -87,15 +90,58 @@ public enum ImportScanner {
       }
     }
     roots.forEach { walk($0, 0) }
+    for profile in shellProfiles where !seen.contains(profile.path) {
+      if let text = try? String(contentsOf: profile, encoding: .utf8) {
+        let keys = parse(text, file: profile.path).filter { !$0.isPublic }
+        if !keys.isEmpty { results.append(FileResult(path: profile.path, keys: keys)) }
+      }
+    }
     return results.sorted { $0.path < $1.path }
   }
 
-  /// Secret-looking assignments in a .env file.
+  /// Secret-looking assignments in a .env file (public ones are included, flagged `isPublic`).
   public static func parse(_ text: String, file: String) -> [Found] {
-    text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { raw in
-      guard let (name, value) = assignment(String(raw)), looksSecret(name: name, value: value) else { return nil }
-      return Found(file: file, name: name, value: value, service: service(for: name))
+    let pairs = text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { assignment(String($0)) }
+    let names = Set(pairs.map { $0.0.uppercased() })
+    return pairs.compactMap { name, value in
+      if looksSecret(name: name, value: value) {
+        return Found(file: file, name: name, value: value, service: service(for: name), isPublic: isPublicValue(name: name, value: value, fileVars: names))
+      }
+      if looksPublicByName(name), value.count >= 12, !value.hasPrefix(Placeholder.prefix), !value.contains("://") {
+        return Found(file: file, name: name, value: value, service: nil, isPublic: true)
+      }
+      return nil
     }
+  }
+
+  static let publicMarkers = ["PUBLIC", "NEXT_PUBLIC_", "EXPO_PUBLIC_", "VITE_", "REACT_APP_", "PUBLISHABLE", "ANON"]
+  static func looksPublicByName(_ name: String) -> Bool {
+    let n = name.uppercased()
+    return publicMarkers.contains { n.contains($0) } && ["KEY", "TOKEN", "SECRET"].contains { n.contains($0) }
+  }
+
+  /// Known public formats: Stripe pk_, Supabase anon JWTs, Firebase web config keys.
+  public static func isPublicValue(name: String, value: String, fileVars: Set<String>) -> Bool {
+    if value.hasPrefix("pk_live_") || value.hasPrefix("pk_test_") { return true }
+    if value.hasPrefix("AIza") && fileVars.contains { $0.contains("AUTH_DOMAIN") || $0.contains("PROJECT_ID") } { return true }
+    if value.hasPrefix("eyJ"), let role = jwtRole(value) { return role == "anon" }
+    return false
+  }
+
+  static func jwtRole(_ jwt: String) -> String? {
+    let parts = jwt.split(separator: ".")
+    guard parts.count >= 2 else { return nil }
+    var b = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    while b.count % 4 != 0 { b += "=" }
+    guard let d = Data(base64Encoded: b), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+    return obj["role"] as? String
+  }
+
+  /// Shell profiles that may export keys (they override .env for anything started from a terminal).
+  public static var shellProfiles: [URL] {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    return [".zshrc", ".zprofile", ".zshenv", ".bashrc", ".bash_profile", ".profile"].map { home.appendingPathComponent($0) }
+      .filter { FileManager.default.fileExists(atPath: $0.path) }
   }
 
   static func assignment(_ line: String) -> (String, String)? {
@@ -116,7 +162,6 @@ public enum ImportScanner {
 
   public static func looksSecret(name: String, value: String) -> Bool {
     let n = name.uppercased()
-    let publicMarkers = ["PUBLIC", "NEXT_PUBLIC_", "EXPO_PUBLIC_", "VITE_", "REACT_APP_", "PUBLISHABLE", "ANON"]
     if publicMarkers.contains(where: { n.contains($0) }) { return false }
     if n.hasSuffix("_URL") || n.hasSuffix("_HOST") || n.hasSuffix("_PORT") || n.hasSuffix("_ID") && !n.contains("SECRET") { return false }
     let secretMarkers = ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASS", "PRIVATE", "CREDENTIAL", "AUTH"]

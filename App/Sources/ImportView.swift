@@ -54,7 +54,7 @@ struct ImportView: View {
         }
       }
       .frame(maxHeight: 300)
-      Text("Settings like PORT are left alone. If an app reads a key directly, start it with `keydillo run` to keep it working.")
+      Text("Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, start it with `keydillo run`. Files tracked by git will show the change in your next commit.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
@@ -66,7 +66,8 @@ struct ImportView: View {
         Toggle("", isOn: Binding(get: { ids.isSubset(of: im.selected) }, set: { _ in im.toggleGroup(f) }))
           .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import all \(f.project) keys")
         VStack(alignment: .leading, spacing: 1) {
-          Text(f.project).font(.system(size: 13, weight: .semibold))
+          Text(f.path.hasPrefix(NSHomeDirectory() + "/.") && !f.path.contains("/.env") ? "Shell profile" : f.project).font(.system(size: 13, weight: .semibold))
+            + Text(GitCheck.isTracked(f.path) ? "  ·  tracked by git" : "").font(.system(size: 11)).foregroundColor(Theme.danger)
           Text((f.path as NSString).abbreviatingWithTildeInPath).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.secondary)
             .lineLimit(1).truncationMode(.middle)
         }
@@ -84,11 +85,30 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)")
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          Text(k.service?.displayName ?? "Needs a host").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          Text(k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Needs a host")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
       }
     }
     .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+  }
+}
+
+
+enum GitCheck {
+  /// True when the file is committed to a git repo (rewriting it will show up as a change).
+  nonisolated(unsafe) static var cache: [String: Bool] = [:]
+  static func isTracked(_ path: String) -> Bool {
+    if let c = cache[path] { return c }
+    let r = check(path); cache[path] = r; return r
+  }
+  static func check(_ path: String) -> Bool {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", (path as NSString).deletingLastPathComponent, "ls-files", "--error-unmatch", (path as NSString).lastPathComponent]
+    p.standardOutput = Pipe(); p.standardError = Pipe()
+    guard (try? p.run()) != nil else { return false }
+    p.waitUntilExit()
+    return p.terminationStatus == 0
   }
 }

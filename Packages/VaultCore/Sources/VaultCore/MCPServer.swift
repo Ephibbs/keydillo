@@ -37,6 +37,7 @@ public final class MCPServer {
           "prefix": ["type": "string", "description": "Value prefix, e.g. 'Bearer ' for Authorization headers"],
           "env_var_name": ["type": "string", "description": "Env var name for the key, e.g. ELEVENLABS_API_KEY"],
           "project": ["type": "string", "description": "Project to file the key under (defaults to the current folder name)"],
+          "is_public": ["type": "boolean", "description": "True for keys meant to ship to browsers (Stripe pk_, Supabase anon, Firebase web config, NEXT_PUBLIC_*). Those don't need keydillo."],
           "key_page_url": ["type": "string", "description": "The provider's page where the user creates or rotates this key, e.g. https://elevenlabs.io/app/settings/api-keys"],
         ],
       ],
@@ -89,6 +90,9 @@ public final class MCPServer {
         let lines = list.map { "\($0.name) (\($0.displayName), project \($0.project)): \($0.baseURL)  env: \($0.placeholderEnvLines.joined(separator: ", "))" }
         return text(lines.joined(separator: "\n"))
       case "request_secret":
+        if args["is_public"] as? Bool == true {
+          return text("Public keys (publishable/anon/browser keys) don't need keydillo. Ask the user to put it in the project's .env directly; it's safe to see.")
+        }
         guard let service = args["service"] as? String, let host = args["host"] as? String, let header = args["header"] as? String else {
           return text("service, host and header are required", error: true)
         }
