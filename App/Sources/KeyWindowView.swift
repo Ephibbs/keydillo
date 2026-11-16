@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VaultCore
 
 /// The window that collects a key: opened by the user ("Add key") or by an agent (request_secret).
@@ -12,6 +13,8 @@ struct KeyWindowView: View {
   @State private var error: String?
   @State private var saved: ServiceConfig?
   @State private var busy = false
+  @State private var promptCopied = false
+  static let samplePrompt = "Add my Stripe key with keydillo"
 
   init(request: KeyRequest, windowID: String) {
     self.windowID = windowID
@@ -45,6 +48,25 @@ struct KeyWindowView: View {
         Text(title).font(.system(size: 20, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
         Text("Your key is encrypted. \(request.fromAgent ? requesterName : "AI tools") never \(request.fromAgent ? "sees" : "see") it.")
           .font(.system(size: 14)).foregroundStyle(Theme.secondary)
+      }
+
+      if !request.fromAgent && request.service.isEmpty {
+        HStack(alignment: .top, spacing: 10) {
+          Image(systemName: "sparkles").font(.system(size: 13)).foregroundStyle(Theme.tertiary).padding(.top, 1)
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Easier: ask Claude to add it for you. It fills in the settings; you just paste the key.")
+              .font(.system(size: 13)).foregroundStyle(Theme.tertiary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+              Text("\u{201C}\(Self.samplePrompt)\u{201D}").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+              Button(promptCopied ? "Copied" : "Copy") {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(Self.samplePrompt, forType: .string); promptCopied = true
+              }
+              .buttonStyle(.plain).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
+            }
+          }
+        }
+        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
       }
 
       VStack(alignment: .leading, spacing: 8) {
