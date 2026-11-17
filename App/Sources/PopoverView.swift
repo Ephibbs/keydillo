@@ -83,7 +83,7 @@ struct PopoverView: View {
   func pendingCard(_ p: PendingApproval) -> some View {
     VStack(alignment: .leading, spacing: 12) {
       VStack(alignment: .leading, spacing: 3) {
-        Text("\(p.request.client.displayName) wants \(p.request.displayName)").font(.system(size: 14, weight: .semibold))
+        Text("\(p.request.client.friendlyName) wants your \(p.request.displayName) key").font(.system(size: 14, weight: .semibold))
         Text("\(p.project.isEmpty ? "" : p.project + " · ")\(p.request.method) \(p.request.path) · pid \(String(p.request.client.pid))")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
       }

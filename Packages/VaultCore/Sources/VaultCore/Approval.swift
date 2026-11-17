@@ -12,7 +12,9 @@ public struct ApprovalRequest: Sendable {
   /// Shown in the Touch ID dialog. macOS prefixes it with "keydillo is trying to".
   public var reason: String {
     let shortPath = path.count > 48 ? String(path.prefix(47)) + "…" : path
-    return "let \(client.displayName) use your \(displayName) key: \(method) \(host)\(shortPath)"
+    // macOS shows this after '"keydillo" is trying to', so it reads: keydillo is trying to let Claude Code use your OpenAI key.
+    let via = client.agent != nil && client.name.lowercased() != client.agent?.lowercased() ? " (\(client.name))" : ""
+    return "let \(client.friendlyName) use your \(displayName) key\(via): \(method) \(host)\(shortPath)"
   }
 }
 

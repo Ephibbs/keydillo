@@ -34,6 +34,14 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
     return "\(pid)|\(startTime)"
   }
 
+  /// The app a person would name: "Claude Code" for the claude CLI, else the agent or program name.
+  public var friendlyName: String {
+    let raw = (agent ?? name).lowercased()
+    let names: [(String, String)] = [("claude", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor"), ("aider", "Aider"), ("goose", "Goose"),
+                                     ("gemini", "Gemini CLI"), ("opencode", "OpenCode"), ("windsurf", "Windsurf"), ("copilot", "Copilot")]
+    return names.first { raw == $0.0 || raw.hasPrefix($0.0 + "-") || raw.hasPrefix($0.0 + ".") }?.1 ?? (agent ?? name)
+  }
+
   public var displayName: String {
     if let agent, agent != name { return "\(name) via \(agent)" }
     return name

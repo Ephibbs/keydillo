@@ -384,7 +384,7 @@ final class AppModel {
                           envVarName: r.envVarName ?? ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).envVarName,
                           project: r.project ?? "Personal",
                           // Who's asking comes from the kernel's view of the caller, not from what the request says.
-                          requester: r.requester == KeyRequest.cliRequester && caller.agent == nil ? nil : (caller.agent ?? (caller.identified ? caller.name : "an unidentified program")),
+                          requester: r.requester == KeyRequest.cliRequester && caller.agent == nil ? nil : (caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : "an unidentified program")),
                           cwd: caller.cwd ?? r.cwd,
                           keyPageURL: Self.safeKeyPage(r.keyPageURL) ?? "")
       return await withCheckedContinuation { cont in
