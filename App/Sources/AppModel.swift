@@ -280,9 +280,10 @@ final class AppModel {
     // Too broad to stand for one project: everything would count as "in the folder".
     let f = (folder as NSString).standardizingPath
     if f == "/" || f == NSHomeDirectory() || f == NSHomeDirectory() + "/Desktop" || f == NSHomeDirectory() + "/Documents" { return nil }
-    // Only a folder that really is a keydillo project: it holds an env file keydillo rewrote.
+    // Only a folder that really is a keydillo project: you chose it in keydillo, or it holds an env file keydillo rewrote.
     let names = (try? FileManager.default.contentsOfDirectory(atPath: f)) ?? []
-    guard names.contains(where: { ImportScanner.isEnvFile($0)
+    let chosen = services.contains { $0.project == project && $0.folderChosen == true }
+    guard chosen || names.contains(where: { ImportScanner.isEnvFile($0)
       && ((try? String(contentsOfFile: f + "/" + $0, encoding: .utf8))?.contains(ImportScanner.headerStart) ?? false) }) else { return nil }
     return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
   }
@@ -437,6 +438,16 @@ final class AppModel {
     guard var s = service(named: name), !s.allHosts.contains(host) else { return }
     if s.upstreamHost.isEmpty { s.upstreamHost = host } else { s.extraHosts = (s.extraHosts ?? []) + [host] }
     try? persist(services.map { $0.name == name ? s : $0 })
+  }
+
+  /// Sets (or changes) a project's folder from the window. Same rules as a requested move; needs Touch ID.
+  func setFolder(_ path: String, for project: String) async -> String? {
+    let new = (path as NSString).standardizingPath
+    if let why = ProjectFolders.problem(old: folder(for: project) ?? "", new: new) { return why }
+    guard await authenticate("set \(project)'s folder to \((new as NSString).abbreviatingWithTildeInPath)") != nil else { return nil }
+    do { try persist(services.map { var c = $0; if c.project == project { c.folder = new; c.folderChosen = true }; return c }) } catch { return error.localizedDescription }
+    unlocks.close(project)
+    return nil
   }
 
   /// Narrowing where a key can go needs no Touch ID.
@@ -698,7 +709,7 @@ final class AppModel {
                             note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Ask once per project\": programs in the new folder will use its keys without asking again." : nil,
                             touchReason: "move \(project)'s keys to \(short(new))") { [weak self] _ in
         guard let self else { return "" }
-        try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new }; return c })
+        try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new; c.folderChosen = true }; return c })
         self.unlocks.close(project)
         return "\(project) now lives in \(short(new)); its keys and settings are unchanged."
       }

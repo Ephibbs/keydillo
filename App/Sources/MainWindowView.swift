@@ -194,6 +194,15 @@ struct MainWindowView: View {
 
   @State private var confirmAlways: String?
 
+  func chooseFolder(_ project: String) {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+    panel.message = "Choose \(project)'s folder"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    Task { folderError = await model.setFolder(url.path, for: project) }
+  }
+  @State private var folderError: String?
+
   @ViewBuilder func trustRow(_ project: String) -> some View {
     let folder = model.folder(for: project)
     let access = model.access(for: project)
@@ -205,15 +214,22 @@ struct MainWindowView: View {
           Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
           Divider()
           ForEach(ProjectAccess.allCases) { a in
-            Button(a.label) { if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } } }
+            Button(a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
+              if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } }
+            }
+            .disabled(a == .always && folder == nil)
           }
         } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
-          .menuStyle(.borderlessButton).fixedSize().disabled(folder == nil)
+          .menuStyle(.borderlessButton).fixedSize()
+        if folder == nil {
+          Button("Set folder…") { chooseFolder(project) }.buttonStyle(.plain).font(.system(size: 12)).underline()
+        }
       }
-      Text(folder == nil ? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder)."
+      Text(folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
            : "After one Touch ID, programs in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even while the Mac is locked. Logged in Activity.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
     }
     .alert("Ask once per project for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
       Button("Continue with Touch ID") { Task { await model.setAccess(project, .always) }; confirmAlways = nil }

@@ -61,6 +61,8 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// A launch-time key (database URL, JWT secret…): not sent over the network by keydillo, but given to a program
   /// in its environment when `kd` starts it. The program can see the value.
   public var launchTime: Bool?
+  /// The user chose this folder in keydillo (with Touch ID), so it counts as the project's folder even without a keydillo .env.
+  public var folderChosen: Bool?
   public var isLaunchTime: Bool { launchTime == true }
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?
