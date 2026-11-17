@@ -247,6 +247,9 @@ enum Runner {
   /// The app's services, opening keydillo in the background first if it isn't running.
   static func appServices() -> [ServiceSummary]? {
     if case .services(let s)? = try? ControlSocket.send(.listServices) { return s }
+    // You quit keydillo yourself: don't reopen it behind your back.
+    let quit = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/quit-by-user")
+    if FileManager.default.fileExists(atPath: quit.path) { fail("keydillo was quit. Open it to use keys.") }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
     // The app this command belongs to (…/keydillo.app/Contents/Resources/bin/keydillo), not whichever copy Spotlight finds.

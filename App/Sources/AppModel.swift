@@ -178,6 +178,7 @@ final class AppModel {
     // Development previews and UI self-tests run next to the real app: they must not take its port or control
     // socket, or touch the user's files.
     guard !Self.devHarness else { return }
+    try? FileManager.default.removeItem(at: Self.quitMarker)
     startProxy()
     startControl()
     ImportModel.addHeadersToTrackedFiles(port: port)
@@ -186,9 +187,7 @@ final class AppModel {
     ShellIntegration.refreshLinks()
     Task { @MainActor in
       while true {
-        let paths = ImportModel.trackedFiles
-        let found = await Task.detached { ImportModel.filesWithRealKeys(paths) }.value
-        if found != self.realKeyFiles { self.realKeyFiles = found }
+        await self.checkRealKeys()
         try? await Task.sleep(for: .seconds(60))
       }
     }
@@ -269,6 +268,20 @@ final class AppModel {
     guard names.contains(where: { ImportScanner.isEnvFile($0)
       && ((try? String(contentsOfFile: f + "/" + $0, encoding: .utf8))?.contains(ImportScanner.headerStart) ?? false) }) else { return nil }
     return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
+  }
+
+  /// Re-checks tracked .env files for keys keydillo manages that hold real values again.
+  func checkRealKeys() async {
+    let paths = ImportModel.trackedFiles
+    var managed: [String: Set<String>] = [:]
+    for s in services { if let f = s.folder { managed[f, default: []].insert(s.envVarName) } }
+    let found = await Task.detached { ImportModel.filesWithRealKeys(paths, managed: managed) }.value
+    if found != realKeyFiles { realKeyFiles = found }
+  }
+
+  /// Set when the user quits keydillo from the menu: `kd` then refuses instead of reopening it.
+  static var quitMarker: URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/quit-by-user")
   }
 
   func saveRejected() { UserDefaults.standard.set(Array(rejected), forKey: "rejectedKeys") }

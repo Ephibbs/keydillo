@@ -287,4 +287,10 @@ public enum ImportScanner {
     }
     return lines.joined(separator: "\n")
   }
+
+  /// Keys keydillo had replaced with a placeholder that now hold a real value again (e.g. after `vercel env pull`).
+  /// Values the user chose to leave in the file (unticked, public, launch-time keys they skipped) don't count.
+  public static func keysBack(_ text: String, file: String, managed: Set<String>) -> [String] {
+    parse(text, file: file).filter { managed.contains($0.name) && !$0.value.contains(Placeholder.prefix) }.map(\.name)
+  }
 }

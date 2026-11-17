@@ -104,5 +104,14 @@ export KEYDILLO_TEST_LAUNCH_VALUES='{}'
 ok "launch-time: if it isn't approved, kd says so" '[[ $(cd $T/web && $DEV run -- true 2>&1) == *"JWT_SECRET wasn"* ]]'
 unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_LAUNCH_VALUES KEYDILLO_TEST_APP_PORT
 
+# 11. After you quit keydillo yourself, kd doesn't reopen it. (Stops the running app for a moment, then restarts it.)
+QM="$HOME/Library/Application Support/keydillo/quit-by-user"
+launchctl kill TERM gui/$(id -u)/com.studiokillswitch.keydillo.agent 2>/dev/null; sleep 2
+touch "$QM"
+out=$("$B" run -- true 2>&1); running=$(pgrep -f "MacOS/keydillo$")
+ok "quit: kd says keydillo was quit and doesn't reopen it" '[[ $out == *"keydillo was quit"* && -z $running ]]'
+rm -f "$QM"; launchctl kickstart gui/$(id -u)/com.studiokillswitch.keydillo.agent 2>/dev/null; sleep 3
+ok "quit: once keydillo is open again, kd works" '"$B" run -- true 2>/dev/null'
+
 print "\n$pass passed, $fail failed"
 exit $fail

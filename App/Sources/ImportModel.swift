@@ -129,6 +129,7 @@ final class ImportModel {
       return false
     }
     Self.track(Array(replacementsByFile.keys))
+    await model.checkRealKeys()
     restartHint = true
     lastResult = "Imported \(chosen.count) key\(chosen.count == 1 ? "" : "s") from \(replacementsByFile.count) file\(replacementsByFile.count == 1 ? "" : "s")."
     return true
@@ -180,10 +181,12 @@ final class ImportModel {
   }
 
   /// Imported files that have real-looking key values in them again.
-  nonisolated static func filesWithRealKeys(_ paths: [String]) -> [String] {
+  /// Files where a key keydillo manages (same env var, same folder) holds a real value again.
+  nonisolated static func filesWithRealKeys(_ paths: [String], managed: [String: Set<String>]) -> [String] {
     paths.filter { path in
       guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
-      return ImportScanner.parse(text, file: path).contains { !$0.isPublic && $0.localOnly == nil }
+      let folder = (path as NSString).deletingLastPathComponent
+      return !ImportScanner.keysBack(text, file: path, managed: managed[folder] ?? []).isEmpty
     }
   }
 

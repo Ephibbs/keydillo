@@ -293,6 +293,14 @@ final class ChangeRequestTests: XCTestCase {
   }
 }
 
+final class RealKeysBackTests: XCTestCase {
+  func testOnlyKeysKeydilloReplacedCount() {
+    let text = "OPENAI_API_KEY=sk-proj-REALVALUEabc123def456ghi789\nTOGETHER_API_KEY=tg_FAKEleftAlone0123456789\nJWT_SECRET=FAKEjwtLeftAlone0123456789abc\nSTRIPE_KEY=keydillo:stripe:start-with-keydillo-run\n"
+    XCTAssertEqual(ImportScanner.keysBack(text, file: "/p/.env", managed: ["OPENAI_API_KEY", "STRIPE_KEY"]), ["OPENAI_API_KEY"])
+    XCTAssertEqual(ImportScanner.keysBack(text, file: "/p/.env", managed: ["STRIPE_KEY"]), [], "keys the user left unticked don't count")
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

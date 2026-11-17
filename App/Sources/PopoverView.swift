@@ -73,7 +73,11 @@ struct PopoverView: View {
       VStack(alignment: .leading, spacing: 0) {
         menuRow("Open keydillo…") { StatusItem.shared?.close(); WindowManager.shared.showMain() }
         menuRow("Put my real keys back…") { StatusItem.shared?.close(); WindowManager.shared.showRestore() }
-        menuRow("Quit") { NSApp.terminate(nil) }
+        menuRow("Quit") {
+          // kd won't reopen keydillo after you quit it yourself; opening keydillo again clears this.
+          FileManager.default.createFile(atPath: AppModel.quitMarker.path, contents: Data())
+          NSApp.terminate(nil)
+        }
       }
       .padding(6)
     }
