@@ -7,6 +7,7 @@ struct SettingsView: View {
   @State private var connectStatus: String?
   @State private var undoStatus: String?
   @State private var showUninstall = false
+  @State private var terminal = ShellIntegration.installed
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -23,6 +24,13 @@ struct SettingsView: View {
         }
         .labelsHidden().fixedSize()
         Text("Applies to projects without their own setting. Change a single project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      }
+      VStack(alignment: .leading, spacing: 4) {
+        Toggle("Make keys work in my Terminal (commands inside keydillo projects)", isOn: $terminal).toggleStyle(.switch)
+          .onChange(of: terminal) { _, v in if v { try? ShellIntegration.install() } else { ShellIntegration.remove() } }
+        Text(terminal ? "Adds one line to ~/.zshrc. New Terminal windows pick it up. `kd <command>` works anywhere."
+                      : "Use `kd <command>` to run something with keydillo, or turn this on.")
+          .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }

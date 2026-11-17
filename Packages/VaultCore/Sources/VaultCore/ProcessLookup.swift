@@ -154,22 +154,3 @@ public enum ProcessLookup {
   }
 }
 
-import Security
-
-public extension ProcessLookup {
-  /// Anthropic's Apple team ID, which signs the Claude Code binary.
-  static let anthropicTeam = "Q6L2SF6YDW"
-
-  /// True when `pid` is a genuine Claude Code process: its code signature is valid and issued to Anthropic's team.
-  /// Renaming another program to "claude" doesn't pass this.
-  static func isSignedClaude(pid: Int32?) -> Bool {
-    guard let pid, pid > 0 else { return false }
-    var code: SecCode?
-    let attrs = [kSecGuestAttributePid: NSNumber(value: pid)] as CFDictionary
-    guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess, let code else { return false }
-    var req: SecRequirement?
-    let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(anthropicTeam)\"" as CFString
-    guard SecRequirementCreateWithString(text, [], &req) == errSecSuccess, let req else { return false }
-    return SecCodeCheckValidity(code, [], req) == errSecSuccess
-  }
-}

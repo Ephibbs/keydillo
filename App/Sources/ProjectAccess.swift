@@ -2,51 +2,19 @@ import Foundation
 import LocalAuthentication
 import VaultCore
 
-/// How long one Touch ID opens a project's keys for programs working inside that project's folder.
+/// Whether one Touch ID opens a whole project for programs working inside that project's folder.
+/// (Timed windows and Claude-Code-only scoping live on the `project-timed-windows-and-scope` branch.)
 enum ProjectAccess: String, CaseIterable, Identifiable {
-  /// No project-wide approval: each key follows its own setting (e.g. once per session).
+  /// No project-wide approval: each key follows its own setting (every time, or once per session).
   case perKey
-  case hour1, hours8, untilLock
-  /// Open until keydillo quits.
+  /// After one Touch ID, programs in the project's folder use its keys without asking until keydillo quits.
   case always
 
   var id: String { rawValue }
-  var label: String {
-    switch self {
-    case .perKey: return "Each key's own setting"
-    case .hour1: return "1 hour"
-    case .hours8: return "8 hours"
-    case .untilLock: return "Until the Mac locks"
-    case .always: return "Don't ask again"
-    }
-  }
+  var label: String { self == .perKey ? "Each key's own setting" : "Don't ask again" }
   /// Phrase used in the Touch ID prompt and the menu bar.
-  var span: String {
-    switch self {
-    case .perKey: return ""
-    case .hour1: return "for 1 hour"
-    case .hours8: return "for 8 hours"
-    case .untilLock: return "until the Mac locks"
-    case .always: return "until keydillo quits"
-    }
-  }
-  var duration: TimeInterval? {
-    switch self {
-    case .hour1: return 3600
-    case .hours8: return 8 * 3600
-    default: return nil
-    }
-  }
-}
-
-/// Which callers an open project covers.
-enum ProjectScope: String, CaseIterable, Identifiable {
-  /// Only processes started by Claude Code, verified by Anthropic's code signature.
-  case claude
-  /// Anything running inside the project's folder, including your Terminal.
-  case any
-  var id: String { rawValue }
-  var label: String { self == .claude ? "Claude Code only" : "Claude Code and my Terminal" }
+  var span: String { self == .perKey ? "" : "until keydillo quits" }
+  var duration: TimeInterval? { nil }
 }
 
 /// A project opened with one Touch ID. While open, its keys are kept in keydillo's memory so they keep

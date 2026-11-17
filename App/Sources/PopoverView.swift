@@ -35,7 +35,7 @@ struct PopoverView: View {
             HStack {
               VStack(alignment: .leading, spacing: 1) {
                 Text(o.project).font(.system(size: 13, weight: .medium))
-                Text("\(model.scope(for: o.project) == .claude ? "Claude Code" : "Anything in the folder") · " + (o.unlock.expires.map { "until \($0.formatted(date: .omitted, time: .shortened))" } ?? (o.unlock.access == .untilLock ? "until the Mac locks" : "until keydillo quits")))
+                Text("Programs in its folder · until keydillo quits")
                   .font(.system(size: 12)).foregroundStyle(Theme.secondary)
               }
               Spacer()

@@ -196,10 +196,9 @@ struct MainWindowView: View {
     let folder = model.folder(for: project)
     let access = model.access(for: project)
     let override = model.accessOverride(for: project)
-    let scope = model.scope(for: project)
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
-        Text("One Touch ID covers this project").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        Text("Touch ID for this project").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         Menu {
           Button("Default (\(model.projectAccessDefault.label))") { model.setAccess(project, nil) }
           Divider()
@@ -208,23 +207,17 @@ struct MainWindowView: View {
           }
         } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
           .menuStyle(.borderlessButton).fixedSize().disabled(folder == nil)
-        if access != .perKey {
-          Menu {
-            ForEach(ProjectScope.allCases) { sc in Button(sc.label) { model.setScope(project, sc) } }
-          } label: { Text(scope.label).font(.system(size: 12, weight: .medium)) }
-            .menuStyle(.borderlessButton).fixedSize()
-        }
       }
       Text(folder == nil ? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder)."
            : access == .perKey ? "Each key asks on its own."
-           : "\(scope == .claude ? "Claude Code" : "Anything") in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys \(access.span) after one Touch ID\(access == .untilLock ? "" : ", even while the Mac is locked"). \(scope == .claude ? "Your Terminal still asks. " : "")Logged in Activity.")
+           : "Programs in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits after one Touch ID, even while the Mac is locked. Logged in Activity.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
     .alert("Never ask again for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
       Button("Don't ask again") { model.setAccess(project, .always); confirmAlways = nil }
       Button("Cancel", role: .cancel) { confirmAlways = nil }
     } message: {
-      Text("After one Touch ID each time keydillo starts, \(scope == .claude ? "Claude Code" : "any program") in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use \(project)'s keys until keydillo quits, even while the Mac is locked.")
+      Text("After one Touch ID each time keydillo starts, any program in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use \(project)'s keys until keydillo quits, even while the Mac is locked.")
     }
   }
 
