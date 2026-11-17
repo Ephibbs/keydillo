@@ -35,10 +35,10 @@ enum Preview {
     case "setup3": wm.show("setup", title: "Setup") { SetupView(step: 2) }
     case "key":
       wm.showKeyWindow(KeyRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs.io", header: "xi-api-key",
-                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "claude", cwd: NSHomeDirectory() + "/Desktop/notes-app"))
+                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "Claude Code", cwd: NSHomeDirectory() + "/Desktop/notes-app", keyPageURL: "https://elevenlabs.io/app/settings/api-keys"))
     case "keybad":
       wm.showKeyWindow(KeyRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs-proxy.net", header: "xi-api-key",
-                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "claude", cwd: nil))
+                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "Claude Code", cwd: nil, keyPageURL: "https://elevenlabs-keys.net/login"))
     case "saved":
       wm.show("saved", title: "Saved") { SavedView(config: AppModel.shared.services[0], fromAgent: true) {}.sheetCard() }
     case "add": wm.showAddKey(project: "Notes")

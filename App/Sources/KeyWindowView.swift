@@ -37,6 +37,37 @@ struct KeyWindowView: View {
     return request.displayName.isEmpty ? "Add a key" : "Add your \(request.displayName) key"
   }
 
+  /// The agent-supplied page where this key is created. https only (also checked when the request arrived).
+  var keyPage: URL? {
+    guard let u = URL(string: request.keyPageURL), u.scheme == "https", u.host != nil, u.user == nil else { return nil }
+    return u
+  }
+
+  @ViewBuilder func keyPageLink(_ page: URL) -> some View {
+    let related = HostCheck.keyPageRelated(page, service: request.service, apiHost: request.host)
+    let shown = page.host ?? ""   // the domain is what matters; the full address is in the tooltip
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        Image(systemName: related ? "key" : "exclamationmark.triangle").font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(related ? Theme.secondary : Theme.danger)
+        Text("Don't have one? Create it at").foregroundStyle(Theme.tertiary)
+        Link(destination: page) {
+          HStack(spacing: 2) {
+            Text(shown).lineLimit(1).truncationMode(.middle)
+            Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .semibold))
+          }
+          .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text).underline()
+        }
+        .help(page.absoluteString)
+      }
+      .font(.system(size: 13))
+      if !related {
+        Text("This page isn't on \(HostCheck.site(request.host)). Check the address before you sign in there.")
+          .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
   var requesterName: String {
     let r = request.requester ?? "An agent"
     return r.prefix(1).uppercased() + r.dropFirst()
@@ -86,6 +117,7 @@ struct KeyWindowView: View {
             Text(warning).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
           }
         }
+        if request.fromAgent, let page = keyPage { keyPageLink(page) }
       }
 
       if let old = model.service(named: request.service), old.project == request.project,
@@ -254,6 +286,23 @@ enum HostCheck {
     guard !brands.isEmpty else { return .unknown }
     let inDomain = brands.contains { $0.value.contains { h == $0 || h.hasSuffix("." + $0) } }
     return inDomain ? .known : .mismatch
+  }
+
+  /// Sites where some providers' key pages live, beyond their API domain.
+  static let extraKeyPageDomains: [String: [String]] = ["gemini": ["google.com"], "google": ["google.com"]]
+
+  /// The last two labels of a host: api.example.com becomes example.com.
+  static func site(_ host: String) -> String {
+    let parts = host.lowercased().split(separator: ":").first.map { $0.split(separator: ".") } ?? []
+    return parts.suffix(2).joined(separator: ".")
+  }
+
+  /// True when an agent-supplied key page is on the same site as the key's API host or the provider's known domains.
+  static func keyPageRelated(_ page: URL, service: String, apiHost: String) -> Bool {
+    guard let h = page.host?.lowercased() else { return false }
+    var allowed = [site(apiHost)] + (domains(service) ?? [])
+    if let extra = extraKeyPageDomains.first(where: { service.lowercased().contains($0.key) })?.value { allowed += extra }
+    return allowed.contains { !$0.isEmpty && (h == $0 || h.hasSuffix("." + $0)) }
   }
 
   static func isKnown(service: String, host: String) -> Bool {
