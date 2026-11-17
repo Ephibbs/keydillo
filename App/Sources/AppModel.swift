@@ -208,7 +208,7 @@ final class AppModel {
 
   /// What projects use unless set on their own page. Ships as "each key's own setting".
   /// Both settings live in the private Keychain group, not in preferences, so no other program can switch them,
-  /// and turning "don't ask again" on needs Touch ID.
+  /// and turning "ask once per project" on needs Touch ID.
   private(set) var projectAccessDefault: ProjectAccess = .perKey
   private(set) var projectAccessOverrides: [String: String] = [:]
 
@@ -232,7 +232,7 @@ final class AppModel {
     try keychain.setSetting("projectAccess", d)
   }
 
-  /// Changes the default for all projects. Turning on "don't ask again" needs Touch ID.
+  /// Changes the default for all projects. Turning on "ask once per project" needs Touch ID.
   @discardableResult func setDefaultAccess(_ a: ProjectAccess) async -> Bool {
     if a.rank > projectAccessDefault.rank {
       let what = a == .always ? "stop asking for Touch ID in every project's folder" : "ask for Touch ID only once per session"
@@ -248,7 +248,7 @@ final class AppModel {
   }
   func access(for project: String) -> ProjectAccess { projectAccessOverrides[project].flatMap(ProjectAccess.init) ?? projectAccessDefault }
   func accessOverride(for project: String) -> ProjectAccess? { projectAccessOverrides[project].flatMap(ProjectAccess.init) }
-  /// nil goes back to the default. Changing it closes the project if it's open. Turning on "don't ask again" needs Touch ID.
+  /// nil goes back to the default. Changing it closes the project if it's open. Turning on "ask once per project" needs Touch ID.
   @discardableResult func setAccess(_ project: String, _ access: ProjectAccess?) async -> Bool {
     let next = access ?? projectAccessDefault
     if next.rank > self.access(for: project).rank {
@@ -695,7 +695,7 @@ final class AppModel {
       if let why = ProjectFolders.problem(old: old, new: new) { throw fail(why) }
       let short = { (p: String) in (p as NSString).abbreviatingWithTildeInPath }
       return ChangeProposal(title: "Move \(project) to a new folder", requester: requester, rows: [(label: "Folder", old: short(old), new: short(new))],
-                            note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Don't ask again\": programs in the new folder will use its keys without asking." : nil,
+                            note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Ask once per project\": programs in the new folder will use its keys without asking again." : nil,
                             touchReason: "move \(project)'s keys to \(short(new))") { [weak self] _ in
         guard let self else { return "" }
         try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new }; return c })

@@ -54,9 +54,9 @@ Known limits, in scope:
 - The Claude Code hook is guidance that steers agents to keydillo, not a security barrier.
 - Builds without a private Keychain access group refuse to store keys.
 - While the Mac is locked, keys can't be read from the Keychain and requests get a clear "Mac is locked" reply,
-  except for projects set to "Don't ask again": after one Touch ID those keys are held in keydillo's memory
+  except for projects set to "Ask once per project": after one Touch ID those keys are held in keydillo's memory
   (locked into RAM, zeroed when dropped) and keep working while the Mac is locked, until keydillo quits.
-- "Don't ask again" trusts programs by their working folder. Any program you run that changes into that folder
+- "Ask once per project" trusts programs by their working folder. Any program you run that changes into that folder
   can use the project's keys without a prompt. Use it only for projects whose keys can't cost much.
 
 What doesn't work yet (use the local base URL instead, or keep that key out of keydillo):

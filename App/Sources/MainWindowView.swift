@@ -215,7 +215,7 @@ struct MainWindowView: View {
            : "After one Touch ID, programs in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even while the Mac is locked. Logged in Activity.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
-    .alert("Never ask again for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
+    .alert("Ask once per project for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
       Button("Continue with Touch ID") { Task { await model.setAccess(project, .always) }; confirmAlways = nil }
       Button("Cancel", role: .cancel) { confirmAlways = nil }
     } message: {

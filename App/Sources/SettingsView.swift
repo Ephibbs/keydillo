@@ -17,7 +17,7 @@ struct SettingsView: View {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
         .labelsHidden().fixedSize()
-        Text("For every project, unless it has its own setting on its page. \"Don't ask again\" covers any program in the project's folder, not just Claude, and turning it on needs Touch ID.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        Text("For every project, unless it has its own setting on its page. \"Ask once per project\": after one Touch ID, any program run from the project's folder (not just Claude) can use its keys until keydillo quits, even while the Mac is locked. Turning it on needs Touch ID.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))

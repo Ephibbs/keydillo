@@ -17,7 +17,7 @@ enum ProjectAccess: String, CaseIterable, Identifiable {
     switch self {
     case .everyTime: return "Every time"
     case .perKey: return "Once per session"
-    case .always: return "Don't ask again in this project's folder"
+    case .always: return "Ask once per project"
     }
   }
   /// How permissive it is; moving up needs Touch ID.
