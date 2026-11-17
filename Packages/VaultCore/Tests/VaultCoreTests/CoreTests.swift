@@ -413,6 +413,38 @@ final class PutBackCleanupTests: XCTestCase {
   }
 }
 
+final class ExistingBaseURLTests: XCTestCase {
+  func testImportNeverReplacesABaseURLTheUserSet() {
+    let original = "OPENAI_BASE_URL=https://my-gateway.example.com/v1\nOPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123\n"
+    let out = ImportScanner.rewrite(original, replacements: ["OPENAI_API_KEY": (service: "openai", baseURL: "http://localhost:7787/openai/v1", baseURLEnvName: "OPENAI_BASE_URL")])
+    XCTAssertTrue(out.contains("OPENAI_BASE_URL=https://my-gateway.example.com/v1"))
+    XCTAssertFalse(out.contains("OPENAI_BASE_URL=http://localhost"))
+    XCTAssertEqual(out.components(separatedBy: "\n").filter { $0.hasPrefix("OPENAI_BASE_URL=") }.count, 1)
+    // And putting keys back leaves it alone too.
+    let back = out.replacingOccurrences(of: #"OPENAI_API_KEY=[^\n]*"#, with: "OPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123", options: .regularExpression)
+    XCTAssertTrue(ImportScanner.afterPutBack(back, droppingAdded: ["OPENAI_BASE_URL"]).contains("OPENAI_BASE_URL=https://my-gateway.example.com/v1"))
+  }
+
+  func testUserBaseURLsSurviveImportAndEveryKindOfPutBack() {
+    // The user's own base URLs, including one on localhost, written before import.
+    let original = "# app\nOPENAI_BASE_URL=http://localhost:11434/openai\nANTHROPIC_BASE_URL=https://gw.example.com\nOPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123\nELEVENLABS_API_KEY=sk_FAKE0123456789abcdef0123\n"
+    let imported = ImportScanner.rewrite(original, replacements: [
+      "OPENAI_API_KEY": (service: "openai", baseURL: "http://localhost:7787/openai/v1", baseURLEnvName: "OPENAI_BASE_URL"),
+      "ELEVENLABS_API_KEY": (service: "elevenlabs", baseURL: "http://localhost:7787/elevenlabs", baseURLEnvName: "ELEVENLABS_BASE_URL")])
+    func restore(_ t: String, _ name: String, _ v: String) -> String {
+      t.components(separatedBy: "\n").map { $0.hasPrefix(name + "=") ? name + "=" + v : $0 }.joined(separator: "\n")
+    }
+    // One key back (header stays), then the other (everything of keydillo's goes).
+    let one = ImportScanner.afterPutBack(restore(imported, "OPENAI_API_KEY", "sk-proj-FAKE0123456789abcdef0123"), droppingAdded: ["OPENAI_BASE_URL"])
+    let all = ImportScanner.afterPutBack(restore(one, "ELEVENLABS_API_KEY", "sk_FAKE0123456789abcdef0123"), droppingAdded: ["ELEVENLABS_BASE_URL"])
+    for t in [imported, one, all, ImportScanner.stripKeydilloLines(all)] {
+      XCTAssertTrue(t.contains("OPENAI_BASE_URL=http://localhost:11434/openai"), t)
+      XCTAssertTrue(t.contains("ANTHROPIC_BASE_URL=https://gw.example.com"), t)
+    }
+    XCTAssertEqual(all.trimmingCharacters(in: .whitespacesAndNewlines), original.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

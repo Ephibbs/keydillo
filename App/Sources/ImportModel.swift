@@ -212,7 +212,8 @@ final class ImportModel {
         // A keydillo-added line looks like NAME=http://localhost:<port>/<service>...
         if let eq = line.firstIndex(of: "="), !line.hasPrefix("#") {
           let value = line[line.index(after: eq)...]
-          if let r = value.range(of: #"^http://(localhost|127\.0\.0\.1):\d+/([a-z0-9-]+)"#, options: .regularExpression) {
+          // Only keydillo's own address (its port), so a user's local server line is never touched.
+          if let r = value.range(of: #"^http://(localhost|127\.0\.0\.1):\#(model.port)/([a-z0-9-]+)"#, options: .regularExpression) {
             let svcName = String(value[r].split(separator: "/").last ?? "")
             if let svc = byName[svcName] {
               let sum = model.summary(svc)
