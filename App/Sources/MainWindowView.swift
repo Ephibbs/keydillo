@@ -54,7 +54,7 @@ struct MainWindowView: View {
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
         ForEach(model.projects, id: \.self) { p in
-          sideRow(p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
+          sideRow(model.trustedProjects.contains(p) ? "\(p)  ·  no Touch ID" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
             project = p; showActivity = false
           }
         }
@@ -138,6 +138,10 @@ struct MainWindowView: View {
       }
       .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 10)
 
+      if let project {
+        trustRow(project).padding(.horizontal, 16).padding(.bottom, 10)
+      }
+
       HStack(spacing: 6) {
         Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         TextField("Search keys", text: $search).textFieldStyle(.plain).font(.system(size: 13))
@@ -183,6 +187,28 @@ struct MainWindowView: View {
         }
         .padding(.horizontal, 8)
       }
+    }
+  }
+
+  @State private var confirmTrust: String?
+
+  @ViewBuilder func trustRow(_ project: String) -> some View {
+    let folder = model.folder(for: project)
+    let on = model.trustedProjects.contains(project)
+    VStack(alignment: .leading, spacing: 4) {
+      Toggle(isOn: Binding(get: { on }, set: { v in if v { confirmTrust = project } else { model.setTrusted(project, false) } })) {
+        Text("Don't ask for Touch ID in this folder").font(.system(size: 12))
+      }
+      .toggleStyle(.switch).controlSize(.mini).disabled(folder == nil)
+      Text(folder.map { on ? "Programs in \(($0 as NSString).abbreviatingWithTildeInPath) use these keys without asking (after one unlock per launch). Logged in Activity." : ($0 as NSString).abbreviatingWithTildeInPath }
+           ?? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder).")
+        .font(.system(size: 11)).foregroundStyle(on ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+    .alert("Stop asking for Touch ID in \(project)?", isPresented: Binding(get: { confirmTrust == project }, set: { if !$0 { confirmTrust = nil } })) {
+      Button("Don't ask") { model.setTrusted(project, true); confirmTrust = nil }
+      Button("Cancel", role: .cancel) { confirmTrust = nil }
+    } message: {
+      Text("Any program running inside \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can then use \(project)'s keys without a prompt, after you unlock once each time keydillo starts. Programs elsewhere still ask.")
     }
   }
 

@@ -153,6 +153,19 @@ final class AppModel {
     }
   }
 
+  /// Projects where callers inside the project's folder aren't asked for Touch ID (after one unlock per launch).
+  var trustedProjects: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "trustedProjects") ?? [])
+  func setTrusted(_ project: String, _ on: Bool) {
+    if on { trustedProjects.insert(project) } else { trustedProjects.remove(project) }
+    UserDefaults.standard.set(Array(trustedProjects), forKey: "trustedProjects")
+    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: on ? "Touch ID turned off for \(project)'s folder" : "Touch ID turned back on for \(project)"), at: 0)
+  }
+  func logTrusted(_ r: ApprovalRequest, project: String) {
+    events.insert(ActivityEvent(date: Date(), service: r.service, method: r.method, path: r.path, process: r.client.displayName, pid: r.client.pid,
+                                outcome: .sent, status: 0, note: "no Touch ID: \(project) is trusted for its folder"), at: 0)
+  }
+
   func saveRejected() { UserDefaults.standard.set(Array(rejected), forKey: "rejectedKeys") }
   func clearRejected(_ name: String) { if rejected.remove(name) != nil { saveRejected() } }
 
@@ -429,8 +442,34 @@ final class ModelApprover: Approver, @unchecked Sendable {
     return (d["CGSSessionScreenIsLocked"] as? Bool) == true
   }
 
+  /// Per-project "Don't ask for Touch ID": one unlock per keydillo launch, then no prompts for callers working
+  /// inside that project's folder. Keychain items still need user presence, so the first use asks once.
+  private var projectUnlocks: [String: LAContext] = [:]
+  private let unlockLock = NSLock()
+
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
     if Self.screenLocked { return .unavailable("the Mac is locked") }
+    let trust = await MainActor.run { () -> (project: String, folder: String)? in
+      guard let m = model, let svc = m.service(named: request.service), m.trustedProjects.contains(svc.project),
+            let folder = m.folder(for: svc.project), let cwd = request.client.cwd,
+            cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") else { return nil }
+      return (svc.project, folder)
+    }
+    if let trust {
+      unlockLock.lock(); let cached = projectUnlocks[trust.project]; unlockLock.unlock()
+      if let cached {
+        await MainActor.run { model?.logTrusted(request, project: trust.project) }
+        return .approved(cached)
+      }
+      let ctx = LAContext()
+      ctx.localizedCancelTitle = "Deny"
+      do {
+        guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication,
+                                           localizedReason: "unlock \(trust.project)'s keys for programs in \((trust.folder as NSString).abbreviatingWithTildeInPath) until keydillo restarts") else { return .denied }
+        unlockLock.lock(); projectUnlocks[trust.project] = ctx; unlockLock.unlock()
+        return .approved(ctx)
+      } catch { return .denied }
+    }
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Deny"
     let project = await MainActor.run { model?.service(named: request.service)?.project ?? "" }
