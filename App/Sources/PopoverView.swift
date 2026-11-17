@@ -28,6 +28,25 @@ struct PopoverView: View {
       if !model.realKeyFiles.isEmpty { realKeysCard }
       ForEach(model.pending) { p in pendingCard(p) }
 
+      if !model.openProjects.isEmpty {
+        Text("Open projects").font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 6)
+        VStack(spacing: 0) {
+          ForEach(model.openProjects, id: \.project) { o in
+            HStack {
+              VStack(alignment: .leading, spacing: 1) {
+                Text(o.project).font(.system(size: 13, weight: .medium))
+                Text("\(model.scope(for: o.project) == .claude ? "Claude Code" : "Anything in the folder") · " + (o.unlock.expires.map { "until \($0.formatted(date: .omitted, time: .shortened))" } ?? (o.unlock.access == .untilLock ? "until the Mac locks" : "until keydillo quits")))
+                  .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+              }
+              Spacer()
+              Button("Close") { model.closeProject(o.project) }.buttonStyle(SmallButtonStyle())
+            }
+            .padding(10)
+          }
+        }
+        .padding(.horizontal, 6)
+      }
+
       if !model.activeGrants.isEmpty {
         Text("Open right now").font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 6)
         VStack(spacing: 0) {
@@ -45,7 +64,7 @@ struct PopoverView: View {
           }
         }
         .padding(.horizontal, 6)
-      } else if model.pending.isEmpty {
+      } else if model.pending.isEmpty && model.openProjects.isEmpty {
         Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") locked. Nothing open right now.")
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
       }

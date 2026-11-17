@@ -16,6 +16,14 @@ struct SettingsView: View {
         PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: $approval)
           .onChange(of: approval) { _, v in model.defaultApproval = v }
       }
+      VStack(alignment: .leading, spacing: 8) {
+        Text("One Touch ID opens a project for").font(.system(size: 13, weight: .medium))
+        Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { model.projectAccessDefault = $0 })) {
+          ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
+        }
+        .labelsHidden().fixedSize()
+        Text("Applies to projects without their own setting. Change a single project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }
       VStack(alignment: .leading, spacing: 8) {

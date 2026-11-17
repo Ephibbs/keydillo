@@ -24,6 +24,11 @@ public final class MCPServer {
       "inputSchema": ["type": "object", "properties": [String: Any]()],
     ],
     [
+      "name": "open_project",
+      "description": "Ask the user to approve all of a project's keys at once with one Touch ID, instead of one prompt per key. Use it at the start of work that will call several of the project's APIs, or when the user is away and asked you to work unattended. How long it lasts is the user's setting; you can't choose it. Defaults to the project of the current folder.",
+      "inputSchema": ["type": "object", "properties": ["project": ["type": "string", "description": "Project name, if not the current folder's"]]],
+    ],
+    [
       "name": "request_secret",
       "description": "Ask the user to add an API key to keydillo. Opens a window on the user's Mac where they paste the key; you never see it. Fill in the API's real host and auth header. Returns the local base URL and placeholder .env lines to use instead of the key.",
       "inputSchema": [
@@ -89,6 +94,14 @@ public final class MCPServer {
         if list.isEmpty { return text("No services yet. Use request_secret to ask the user for a key.") }
         let lines = list.map { "\($0.name) (\($0.displayName), project \($0.project)): \($0.baseURL)  env: \($0.placeholderEnvLines.joined(separator: ", "))" }
         return text(lines.joined(separator: "\n"))
+      case "open_project":
+        switch try send(.openProject(OpenProjectRequest(project: args["project"] as? String))) {
+        case .opened(let p, let names, let span):
+          return text("The user approved \(p)'s keys (\(names.joined(separator: ", "))) \(span), for programs running in that project's folder. Call them through their keydillo base URLs as usual.")
+        case .declined: return text("The user declined. Keys will still ask for Touch ID one at a time.")
+        case .error(let m): return text(m, error: true)
+        default: return text("Unexpected reply", error: true)
+        }
       case "request_secret":
         if args["is_public"] as? Bool == true {
           return text("Public keys (publishable/anon/browser keys) don't need keydillo. Ask the user to put it in the project's .env directly; it's safe to see.")

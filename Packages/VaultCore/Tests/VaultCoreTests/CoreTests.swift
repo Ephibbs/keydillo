@@ -205,6 +205,22 @@ final class ControlTests: XCTestCase {
 }
 
 final class MCPTests: XCTestCase {
+  func testOpenProject() throws {
+    var sent: ControlRequest?
+    let mcp = MCPServer(cwd: "/Users/x/Desktop/voiceover", send: { req in
+      sent = req
+      return .opened(project: "voiceover", services: ["elevenlabs", "openai"], span: "for 8 hours")
+    })
+    XCTAssertTrue(mcp.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)!.contains("open_project"))
+    let out = mcp.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"open_project","arguments":{}}}"#)!
+    XCTAssertTrue(out.contains("elevenlabs, openai") && out.contains("for 8 hours"), out)
+    guard case .openProject(let r) = sent else { return XCTFail() }
+    XCTAssertNil(r.project)   // the app works out the project from the caller's folder
+    // Round-trips over the control socket encoding.
+    let d = try JSONEncoder().encode(ControlResponse.opened(project: "p", services: ["a"], span: "for 1 hour"))
+    XCTAssertEqual(try JSONDecoder().decode(ControlResponse.self, from: d), .opened(project: "p", services: ["a"], span: "for 1 hour"))
+  }
+
   func testToolsAndRequestSecret() throws {
     var sent: ControlRequest?
     let mcp = MCPServer(cwd: "/Users/x/Desktop/notes-app", send: { req in

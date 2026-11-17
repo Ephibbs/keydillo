@@ -54,7 +54,7 @@ struct MainWindowView: View {
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
         ForEach(model.projects, id: \.self) { p in
-          sideRow(model.trustedProjects.contains(p) ? "\(p)  ·  no Touch ID" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
+          sideRow(model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
             project = p; showActivity = false
           }
         }
@@ -190,25 +190,41 @@ struct MainWindowView: View {
     }
   }
 
-  @State private var confirmTrust: String?
+  @State private var confirmAlways: String?
 
   @ViewBuilder func trustRow(_ project: String) -> some View {
     let folder = model.folder(for: project)
-    let on = model.trustedProjects.contains(project)
-    VStack(alignment: .leading, spacing: 4) {
-      Toggle(isOn: Binding(get: { on }, set: { v in if v { confirmTrust = project } else { model.setTrusted(project, false) } })) {
-        Text("Don't ask for Touch ID in this folder").font(.system(size: 12))
+    let access = model.access(for: project)
+    let override = model.accessOverride(for: project)
+    let scope = model.scope(for: project)
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 8) {
+        Text("One Touch ID covers this project").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        Menu {
+          Button("Default (\(model.projectAccessDefault.label))") { model.setAccess(project, nil) }
+          Divider()
+          ForEach(ProjectAccess.allCases) { a in
+            Button(a.label) { if a == .always { confirmAlways = project } else { model.setAccess(project, a) } }
+          }
+        } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
+          .menuStyle(.borderlessButton).fixedSize().disabled(folder == nil)
+        if access != .perKey {
+          Menu {
+            ForEach(ProjectScope.allCases) { sc in Button(sc.label) { model.setScope(project, sc) } }
+          } label: { Text(scope.label).font(.system(size: 12, weight: .medium)) }
+            .menuStyle(.borderlessButton).fixedSize()
+        }
       }
-      .toggleStyle(.switch).controlSize(.mini).disabled(folder == nil)
-      Text(folder.map { on ? "Programs in \(($0 as NSString).abbreviatingWithTildeInPath) use these keys without asking (after one unlock per launch). Logged in Activity." : ($0 as NSString).abbreviatingWithTildeInPath }
-           ?? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder).")
-        .font(.system(size: 11)).foregroundStyle(on ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
+      Text(folder == nil ? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder)."
+           : access == .perKey ? "Each key asks on its own."
+           : "\(scope == .claude ? "Claude Code" : "Anything") in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys \(access.span) after one Touch ID. \(scope == .claude ? "Your Terminal still asks. " : "")Logged in Activity.")
+        .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
-    .alert("Stop asking for Touch ID in \(project)?", isPresented: Binding(get: { confirmTrust == project }, set: { if !$0 { confirmTrust = nil } })) {
-      Button("Don't ask") { model.setTrusted(project, true); confirmTrust = nil }
-      Button("Cancel", role: .cancel) { confirmTrust = nil }
+    .alert("Never ask again for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
+      Button("Don't ask again") { model.setAccess(project, .always); confirmAlways = nil }
+      Button("Cancel", role: .cancel) { confirmAlways = nil }
     } message: {
-      Text("Any program running inside \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can then use \(project)'s keys without a prompt, after you unlock once each time keydillo starts. Programs elsewhere still ask.")
+      Text("After one Touch ID each time keydillo starts, \(scope == .claude ? "Claude Code" : "any program") in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use \(project)'s keys until keydillo quits, even while the Mac is locked.")
     }
   }
 

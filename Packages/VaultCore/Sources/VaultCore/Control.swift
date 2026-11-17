@@ -8,6 +8,14 @@ public enum ControlRequest: Codable, Equatable {
   case status
   /// Opens the key window so the user can paste a key. Fields are suggestions from the agent.
   case requestSecret(SecretRequest)
+  /// Opens all of a project's keys with one Touch ID, for as long as the project's setting allows.
+  case openProject(OpenProjectRequest)
+}
+
+public struct OpenProjectRequest: Codable, Equatable {
+  /// Project name; when nil, the project whose folder contains the caller's working directory.
+  public var project: String?
+  public init(project: String? = nil) { self.project = project }
 }
 
 public struct SecretRequest: Codable, Equatable {
@@ -59,6 +67,7 @@ public enum ControlResponse: Codable, Equatable {
   case saved(ServiceSummary, envLines: [String])
   case declined
   case error(String)
+  case opened(project: String, services: [String], span: String)
 }
 
 public extension ServiceConfig {

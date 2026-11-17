@@ -142,7 +142,15 @@ final class AppModel {
 
   private init() {
     let approver = ModelApprover(model: self)
-    engine = ProxyEngine(services: { [snapshot] in snapshot.value }, secrets: keychain, approver: approver)
+    let secrets = ProjectAwareSecrets(keychain: keychain, store: unlocks, projectOf: { [snapshot] name in snapshot.value.first { $0.name == name }?.project })
+    engine = ProxyEngine(services: { [snapshot] in snapshot.value }, secrets: secrets, approver: approver)
+    unlocks.onChange = { [weak self] in self?.refreshOpenProjects() }
+    DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+      self?.unlocks.closeAll { $0.access == .untilLock }
+    }
+    Task { @MainActor in   // drop expired projects from the menu bar
+      while true { try? await Task.sleep(for: .seconds(30)); self.refreshOpenProjects() }
+    }
     engine.notReady = { [weak self] in
       guard let self else { return nil }
       return self.loadedFlag.value ? nil : "keydillo can't read keys until the Mac is unlocked"
@@ -176,17 +184,68 @@ final class AppModel {
     }
   }
 
-  /// Projects where callers inside the project's folder aren't asked for Touch ID (after one unlock per launch).
-  var trustedProjects: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "trustedProjects") ?? [])
-  func setTrusted(_ project: String, _ on: Bool) {
-    if on { trustedProjects.insert(project) } else { trustedProjects.remove(project) }
-    UserDefaults.standard.set(Array(trustedProjects), forKey: "trustedProjects")
-    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
-                                note: on ? "Touch ID turned off for \(project)'s folder" : "Touch ID turned back on for \(project)"), at: 0)
+  // MARK: Project access (one Touch ID opens a project's keys for programs in its folder)
+
+  @ObservationIgnored let unlocks = ProjectUnlockStore()
+  /// Projects open right now, for the menu bar. Refreshed when one opens, closes or expires.
+  private(set) var openProjects: [(project: String, unlock: ProjectUnlockStore.Unlock)] = []
+  func refreshOpenProjects() { openProjects = unlocks.list() }
+
+  /// What new projects use, chosen in Settings. Ships as "each key's own setting".
+  var projectAccessDefault: ProjectAccess = ProjectAccess(rawValue: UserDefaults.standard.string(forKey: "projectAccessDefault") ?? "") ?? .perKey {
+    didSet { UserDefaults.standard.set(projectAccessDefault.rawValue, forKey: "projectAccessDefault") }
   }
-  func logTrusted(_ r: ApprovalRequest, project: String) {
+  /// Per-project choices that differ from the default.
+  var projectAccessOverrides: [String: String] = AppModel.loadAccessOverrides() {
+    didSet { UserDefaults.standard.set(projectAccessOverrides, forKey: "projectAccess") }
+  }
+  private static func loadAccessOverrides() -> [String: String] {
+    var o = UserDefaults.standard.dictionary(forKey: "projectAccess") as? [String: String] ?? [:]
+    // Earlier versions had a single "Don't ask for Touch ID" switch.
+    for p in UserDefaults.standard.stringArray(forKey: "trustedProjects") ?? [] where o[p] == nil { o[p] = ProjectAccess.always.rawValue }
+    UserDefaults.standard.removeObject(forKey: "trustedProjects")
+    return o
+  }
+  /// Who an open project covers. Defaults to Claude Code only; the Terminal and other programs keep asking.
+  var projectScopes: [String: String] = UserDefaults.standard.dictionary(forKey: "projectScope") as? [String: String] ?? [:] {
+    didSet { UserDefaults.standard.set(projectScopes, forKey: "projectScope") }
+  }
+  func scope(for project: String) -> ProjectScope { projectScopes[project].flatMap(ProjectScope.init) ?? .claude }
+  func setScope(_ project: String, _ scope: ProjectScope) {
+    projectScopes[project] = scope.rawValue
+    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: "\(project) now covers \(scope.label.lowercased())"), at: 0)
+  }
+  /// Whether a caller falls under an open project's scope.
+  func covered(_ client: ClientProcess, by project: String) -> Bool {
+    switch scope(for: project) {
+    case .any: return true
+    case .claude: return client.agent.map { $0.lowercased().hasPrefix("claude") } == true && ProcessLookup.isSignedClaude(pid: client.agentPid)
+    }
+  }
+
+  func access(for project: String) -> ProjectAccess { projectAccessOverrides[project].flatMap(ProjectAccess.init) ?? projectAccessDefault }
+  func accessOverride(for project: String) -> ProjectAccess? { projectAccessOverrides[project].flatMap(ProjectAccess.init) }
+  /// nil goes back to the default. Changing it closes the project if it's open.
+  func setAccess(_ project: String, _ access: ProjectAccess?) {
+    projectAccessOverrides[project] = access?.rawValue
+    unlocks.close(project)
+    let now = self.access(for: project)
+    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: "\(project): Touch ID \(now == .perKey ? "follows each key's setting" : "covers the folder " + now.span)"), at: 0)
+  }
+  func closeProject(_ project: String) {
+    unlocks.close(project)
+    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: "closed \(project); its keys ask for Touch ID again"), at: 0)
+  }
+  func logProjectUse(_ r: ApprovalRequest, project: String) {
     events.insert(ActivityEvent(date: Date(), service: r.service, method: r.method, path: r.path, process: r.client.displayName, pid: r.client.pid,
-                                outcome: .sent, status: 0, note: "no Touch ID: \(project) is trusted for its folder"), at: 0)
+                                outcome: .sent, status: 0, note: "no prompt: \(project) is open for its folder"), at: 0)
+  }
+  func inFolder(_ cwd: String?, of project: String) -> String? {
+    guard let folder = folder(for: project), let cwd else { return nil }
+    return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
   }
 
   func saveRejected() { UserDefaults.standard.set(Array(rejected), forKey: "rejectedKeys") }
@@ -376,6 +435,32 @@ final class AppModel {
       }
       return .status(StatusInfo(proxyRunning: proxyRunning, proxyState: proxyState, port: port, storage: storageDescription,
                                 services: services.map(summary), recentBlocks: Array(blocks)))
+    case .openProject(let r):
+      guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't open keys yet. Tell the user and retry after they unlock.") }
+      let name = r.project ?? projects.first { inFolder(caller.cwd, of: $0) != nil }
+      guard let name, projects.contains(name) else { return .error("No keydillo project matches \(r.project ?? "this folder"). Call list_services to see the projects.") }
+      let keys = services.filter { $0.project == name }
+      guard !keys.isEmpty else { return .error("\(name) has no keys yet.") }
+      let access = self.access(for: name)
+      let who = caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : "a program")
+      let list = keys.map(\.displayName).joined(separator: ", ")
+      let ctx = LAContext(); ctx.localizedCancelTitle = "Deny"
+      if access == .perKey {
+        // No project window: approve each key for this caller's session only.
+        guard caller.identified else { return .error("keydillo couldn't identify the caller, so it can't approve keys in advance.") }
+        let reason = "let \(who) use \(name)'s keys (\(list)) for this session"
+        guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
+        for k in keys { await engine.gate.grantWindow(service: k.name, minutes: 24 * 60, context: ctx, client: caller) }
+        await refreshGrants()
+        return .opened(project: name, services: keys.map(\.name), span: "for this session")
+      }
+      guard let folder = folder(for: name) else { return .error("keydillo doesn't know \(name)'s folder yet, so it can't open it for that folder.") }
+      let reason = "let \(scope(for: name) == .any ? "programs in" : "Claude Code in") \((folder as NSString).abbreviatingWithTildeInPath) use \(name)'s keys (\(list)) \(access.span)"
+      guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
+      unlocks.open(name, access: access, folder: folder, context: ctx, keys: keys.map(\.name), keychain: keychain)
+      events.insert(ActivityEvent(date: Date(), service: name, method: "", path: "", process: who, pid: caller.pid, outcome: .sent, status: 0,
+                                  note: "opened \(name) \(access.span)"), at: 0)
+      return .opened(project: name, services: keys.map(\.name), span: access.span)
     case .requestSecret(let r):
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read or add keys yet. Tell the user and retry after they unlock.") }
       guard ServiceConfig.isValidName(r.service) else { return .error("service must be lowercase letters, digits and dashes") }
@@ -468,34 +553,32 @@ final class ModelApprover: Approver, @unchecked Sendable {
     return (d["CGSSessionScreenIsLocked"] as? Bool) == true
   }
 
-  /// Per-project "Don't ask for Touch ID": one unlock per keydillo launch, then no prompts for callers working
-  /// inside that project's folder. Keychain items still need user presence, so the first use asks once.
-  private var projectUnlocks: [String: LAContext] = [:]
-  private let unlockLock = NSLock()
-
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
-    if Self.screenLocked { return .unavailable("the Mac is locked") }
-    let trust = await MainActor.run { () -> (project: String, folder: String)? in
-      guard let m = model, let svc = m.service(named: request.service), m.trustedProjects.contains(svc.project),
-            let folder = m.folder(for: svc.project), let cwd = request.client.cwd,
-            cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") else { return nil }
-      return (svc.project, folder)
+    // A project opened for its folder: callers working inside that folder don't get a prompt.
+    let open = await MainActor.run { () -> (project: String, folder: String, access: ProjectAccess, names: String)? in
+      guard let m = model, let svc = m.service(named: request.service) else { return nil }
+      let access = m.access(for: svc.project)
+      guard access != .perKey, let folder = m.inFolder(request.client.cwd, of: svc.project), m.covered(request.client, by: svc.project) else { return nil }
+      return (svc.project, folder, access, m.services.filter { $0.project == svc.project }.map(\.displayName).joined(separator: ", "))
     }
-    if let trust {
-      unlockLock.lock(); let cached = projectUnlocks[trust.project]; unlockLock.unlock()
-      if let cached {
-        await MainActor.run { model?.logTrusted(request, project: trust.project) }
-        return .approved(cached)
+    if let open {
+      if let u = model?.unlocks.valid(open.project) {
+        await MainActor.run { model?.logProjectUse(request, project: open.project) }
+        return .approved(u.context)
       }
+      if Self.screenLocked { return .unavailable("the Mac is locked and \(open.project) isn't open. The user can open it with one Touch ID before leaving the Mac") }
       let ctx = LAContext()
       ctx.localizedCancelTitle = "Deny"
+      let whom = await MainActor.run { model?.scope(for: open.project) == .any ? "programs in" : "Claude Code in" } ?? "Claude Code in"
+      let reason = "let \(whom) \((open.folder as NSString).abbreviatingWithTildeInPath) use \(open.project)'s keys (\(open.names)) \(open.access.span)"
       do {
-        guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication,
-                                           localizedReason: "unlock \(trust.project)'s keys for programs in \((trust.folder as NSString).abbreviatingWithTildeInPath) until keydillo restarts") else { return .denied }
-        unlockLock.lock(); projectUnlocks[trust.project] = ctx; unlockLock.unlock()
+        guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) else { return .denied }
+        let keys = await MainActor.run { model?.services.filter { $0.project == open.project }.map(\.name) ?? [] }
+        if let m = model { m.unlocks.open(open.project, access: open.access, folder: open.folder, context: ctx, keys: keys, keychain: m.keychain) }
         return .approved(ctx)
       } catch { return .denied }
     }
+    if Self.screenLocked { return .unavailable("the Mac is locked") }
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Deny"
     let project = await MainActor.run { model?.service(named: request.service)?.project ?? "" }
