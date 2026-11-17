@@ -19,7 +19,8 @@ enum ClaudeConnector {
     guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude/plugins/installed_plugins.json")),
           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let plugins = root["plugins"] as? [String: Any] else { return false }
-    return plugins.keys.contains { $0.hasPrefix("keydillo@") }
+    // Only the full plugin from keydillo's own marketplace brings the tools and hooks; the directory one is skill-only.
+    return plugins.keys.contains("keydillo@keydillo")
   }
 
   /// Returns an error message, or nil on success.

@@ -1,0 +1,21 @@
+{
+  "name": "keydillo",
+  "displayName": "keydillo",
+  "description": "Let Claude use your API keys without seeing them. Teaches Claude to work with the free keydillo Mac app, which keeps keys in the Keychain behind Touch ID.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Studio Killswitch",
+    "url": "https://github.com/Ephibbs"
+  },
+  "homepage": "https://ephibbs.github.io/keydillo-site/",
+  "repository": "https://github.com/Ephibbs/keydillo",
+  "license": "MIT",
+  "keywords": [
+    "secrets",
+    "api-keys",
+    "security",
+    "keychain",
+    "touch-id",
+    "env"
+  ]
+}
