@@ -46,6 +46,10 @@ enum Preview {
       wm.showReadout(project: "Notes", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
     case "restore": wm.showRestore()
+    case "exposed":
+      AppModel.shared.exposed = ["Notes": [(file: "/Users/x/Desktop/oda/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/oda/.env.local", name: "OPENAI_API_KEY")]]
+      wm.showMain()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "Notes") }
     case "access":
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .showAccess, object: nil) }

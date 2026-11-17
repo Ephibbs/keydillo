@@ -45,6 +45,7 @@ struct MainWindowView: View {
     }
     .frame(minWidth: 860, minHeight: 560)
     .onReceive(NotificationCenter.default.publisher(for: .showAccess)) { _ in showAccess = true; showActivity = false }
+    .onReceive(NotificationCenter.default.publisher(for: .selectProject)) { n in project = n.object as? String; showAccess = false; showActivity = false }
     // Marks where the draggable title bar ends.
     .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1).allowsHitTesting(false) }
     .background(Theme.background)
@@ -62,7 +63,7 @@ struct MainWindowView: View {
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
         ForEach(model.projects, id: \.self) { p in
-          sideRow(model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
+          sideRow((model.exposed[p]?.isEmpty == false ? "⚠︎ " : "") + (model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p), count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
             project = p; showActivity = false; showAccess = false
           }
         }
@@ -148,6 +149,7 @@ struct MainWindowView: View {
       .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 10)
 
       if let project {
+        if let ex = model.exposed[project], !ex.isEmpty { exposedCard(project, ex).padding(.horizontal, 16).padding(.bottom, 10) }
         trustRow(project).padding(.horizontal, 16).padding(.bottom, 10)
       }
 
@@ -210,6 +212,34 @@ struct MainWindowView: View {
   }
   @State private var folderError: String?
 
+  @State private var securing = false
+  @State private var secureStatus: String?
+
+  func exposedCard(_ project: String, _ ex: [(file: String, name: String)]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("\(ex.count) real key\(ex.count == 1 ? "" : "s") in this project's .env files").font(.system(size: 13, weight: .semibold))
+      Text("Note: any program here can read \(ex.count == 1 ? "it" : "them"), including AI tools. Keep real keys in .env only for tools keydillo doesn't support yet, like Go or gRPC.")
+        .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      ForEach(ex.indices, id: \.self) { i in
+        HStack(spacing: 8) {
+          Text(ex[i].name).font(.system(size: 12, design: .monospaced))
+          Text((ex[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+          Spacer()
+        }
+      }
+      HStack {
+        Button(securing ? "Securing…" : "Secure") {
+          securing = true
+          Task { secureStatus = await ImportModel.secure(model: model, files: Array(Set(ex.map(\.file)))); securing = false; await model.checkRealKeys() }
+        }
+        .buttonStyle(SmallPrimaryStyle()).disabled(securing)
+        if let secureStatus { Text(secureStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary) }
+      }
+    }
+    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+  }
+
   @ViewBuilder func trustRow(_ project: String) -> some View {
     let folder = model.folder(for: project)
     let access = model.access(for: project)
@@ -237,6 +267,8 @@ struct MainWindowView: View {
            : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
+      Button("Put this project's real keys back in .env…") { Task { _ = await ImportModel.restoreRealValues(model: model, project: project); await model.checkRealKeys() } }
+        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.secondary).underline()
     }
     .sheet(isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
       VStack(alignment: .leading, spacing: 14) {
@@ -359,6 +391,7 @@ struct KeyDetailView: View {
         Spacer(minLength: 8)
         Menu {
           Button("Rotate…") { rotate() }
+          Button("Put real key back in .env…") { Task { _ = await ImportModel.restoreRealValues(model: model, key: config.name); await model.checkRealKeys() } }
           Divider()
           Button("Delete key…", role: .destructive) { confirmDelete = true }
         } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
@@ -575,4 +608,7 @@ struct KeyDetailView: View {
   }
 }
 
-extension Notification.Name { static let showAccess = Notification.Name("keydillo.showAccess") }
+extension Notification.Name {
+  static let showAccess = Notification.Name("keydillo.showAccess")
+  static let selectProject = Notification.Name("keydillo.selectProject")
+}

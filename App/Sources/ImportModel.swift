@@ -232,6 +232,17 @@ final class ImportModel {
   }
 
   /// Short placeholders from earlier imports become the self-explaining form.
+  /// Imports the real secret values found in these files (not public or launch-time ones, not ones the user kept).
+  static func secure(model: AppModel, files: [String]) async -> String? {
+    let im = ImportModel()
+    im.onlyPaths = files
+    await im.scan()
+    let kept = model.keptInFile
+    im.selected = Set(im.files.flatMap(\.keys).filter { !$0.isPublic && $0.localOnly == nil && !kept.contains($0.file + "#" + $0.name) }.map(\.id))
+    guard !im.selected.isEmpty else { return "Nothing to secure." }
+    return await im.run(model: model) ? nil : (im.error ?? "Not secured.")
+  }
+
   /// Launch-time keys imported before random placeholders get one now.
   static func randomizeLaunchPlaceholders(model: AppModel) {
     let launch = Set(model.services.filter(\.isLaunchTime).map(\.name))
@@ -286,8 +297,8 @@ final class ImportModel {
 
   /// Writes real values back in place of keydillo placeholders in every tracked file.
   /// Puts real values back in place of placeholders, for one project or (nil) everything. The way to stop using keydillo.
-  static func restoreRealValues(model: AppModel, project: String? = nil) async -> String {
-    let whose = project.map { "\($0)'s" } ?? "your"
+  static func restoreRealValues(model: AppModel, project: String? = nil, key: String? = nil) async -> String {
+    let whose = key.flatMap { model.service(named: $0)?.displayName }.map { "your \($0)" } ?? project.map { "\($0)'s" } ?? "your"
     guard let ctx = await model.authenticate("put \(whose) real keys back into .env files (programs will see them again)") else { return "Cancelled." }
     var restored = 0
     var missed: [String] = []
@@ -313,6 +324,7 @@ final class ImportModel {
       var changed = false
       for (i, line) in lines.enumerated() {
         guard let service = Placeholder.service(in: line), project == nil || model.service(named: service)?.project == project,
+              key == nil || service == key,
               let eq = line.firstIndex(of: "="),
               Placeholder.isPlaceholder(String(line[line.index(after: eq)...])) else { continue }
         guard let value = try? model.keychain.secret(for: service, context: ctx), !Placeholder.isPlaceholder(String(decoding: value, as: UTF8.self)) else {
