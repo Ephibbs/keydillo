@@ -227,7 +227,7 @@ struct MainWindowView: View {
       }
       Text(folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
-           : "After one Touch ID, programs in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even while the Mac is locked. Logged in Activity.")
+           : "Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
     }
