@@ -108,30 +108,24 @@ keydillo is responsible for keys **while it's installed**. Copies that existed b
 `.env` files, shell history, git history, provider dashboards, chat transcripts) and copies you make yourself
 afterwards (the Readout, Show key) are outside what it can protect.
 
-What it does protect while installed:
-- Keys live in a private Keychain access group that only keydillo's signed binary can use, with Touch ID required to read them. `security find-generic-password` and other apps can't see them.
-- Agents only get local addresses and `keydillo:<name>` placeholders. The proxy adds the key on the way out, only to that key's host, and scrubs the key from responses.
-- Web pages can't use keydillo: cross-site browser requests and non-localhost Host headers are refused.
-
-Known limits, in scope:
-- macOS lets your login password stand in for Touch ID. Anyone who knows it can approve requests.
-- During an approval window (e.g. "every 15 minutes" or "once per session"), a program can *use* the key through the proxy without a new prompt. It still can't *read* the key.
-- Parallel calls from the same program within 3 seconds of an approval share it, instead of prompting once per call.
-- A program you approve can do anything that key allows with the provider. keydillo guards the key, not what you do with it.
-- Response scrubbing is best effort: keydillo removes the forms of the key it produced itself (raw, Basic, base64, percent-encoded), but can't catch a provider that transforms a key in other ways. That's why each key is only ever placed in its one configured spot unless you opt in.
-- The Claude Code hook is guidance that steers agents to keydillo, not a security barrier.
-- Builds without a private Keychain access group refuse to store keys.
-- While the Mac is locked, keys can't be read from the Keychain and requests get a clear "Mac is locked" reply,
-  except for projects set to "Ask once per project": after one Touch ID those keys are held in keydillo's memory
-  (locked into RAM, zeroed when dropped) and keep working while the Mac is locked, until keydillo quits.
-- "Ask once per project" trusts programs by their working folder. Any program you run that changes into that folder
-  can use the project's keys without a prompt. Use it only for projects whose keys can't cost much.
-
-What doesn't work yet (use the local base URL instead, or keep that key out of keydillo):
-- A key the API wants in the body, query or path is refused with `placeholder_misplaced` unless you turn on "Allow the key anywhere" for that key.
-- Secrets your app uses itself (database URLs, JWT, session, encryption and webhook signing keys) can be imported as **launch-time keys**: the .env keeps a random placeholder and `kd` gives the real value to the program as it starts, after a Touch ID prompt that names the command (every time; project and session approvals don't cover these). They are **not fully hidden**: anything started with `kd` with that key can read it. They're unticked at import; tick the ones you want. Request-signing keys (AWS, Cloudinary) and service-account files work the same way. A database proxy that keeps passwords out of the program entirely is on the roadmap (docs/roadmap.md).
-- Under `kd`: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
-- Some SDKs check a key's exact format at startup (Clerk, for example) and reject the placeholder.
+| | What | Details |
+|---|---|---|
+| ✅ | Keys stay in a private Keychain group | Only keydillo's signed binary can use it, and reading a key needs Touch ID. `security find-generic-password` and other apps can't see them. |
+| ✅ | Agents never get the key | They get local addresses and `keydillo:<name>` placeholders. The proxy adds the key on the way out, only to that key's host, and scrubs it from responses. |
+| ✅ | Web pages can't use keydillo | Cross-site browser requests and non-localhost Host headers are refused. |
+| ⚠️ | Login password = Touch ID | macOS lets your login password stand in for Touch ID, so anyone who knows it can approve requests. |
+| ⚠️ | Approvals last a while | With "Once per session", a program can *use* a key through the proxy without a new prompt. It still can't *read* it. |
+| ⚠️ | Parallel calls share one approval | Calls from the same program within 3 seconds of an approval don't each prompt. |
+| ⚠️ | Approved means trusted with the provider | A program you approve can do anything that key allows. keydillo guards the key, not what you do with it. |
+| ⚠️ | Response scrubbing is best effort | It removes the forms of the key it produced (raw, Basic, base64, percent-encoded), not keys a provider transforms other ways. That's why each key goes only in its one configured spot unless you opt in. |
+| ⚠️ | The Claude Code hook is guidance | It steers agents to keydillo. It isn't a security barrier. |
+| ⚠️ | Locked Mac | Keys can't be read and requests get a "Mac is locked" reply. Exception: "Ask once per project" keys stay in keydillo's memory (locked into RAM, zeroed when dropped) after one Touch ID, and keep working until keydillo quits. |
+| ⚠️ | "Ask once per project" trusts the folder | Any program you run in that folder can use its keys without a prompt. Use it only for keys that can't cost much. |
+| ⚠️ | Launch-time keys aren't fully hidden | For secrets your app uses itself (database URLs, JWT, session, encryption, webhook signing, AWS/Cloudinary signing, service-account files). The .env keeps a random placeholder and `kd` hands the real value to the program at start, after a Touch ID naming the command, every time. Anything started with `kd` with that key can read it. Unticked at import. A database proxy is on the [roadmap](docs/roadmap.md). |
+| ⚠️ | Builds without the private Keychain group | They refuse to store keys. |
+| ❌ | Keys in the body, query or path | Refused with `placeholder_misplaced`. Turn on "Allow the key anywhere" for that key. |
+| ❌ | Some programs under `kd` | Cleaned environments, Go and Rust (they ignore the extra certificate), gRPC, Next.js edge middleware, Python with `-I`, Docker with `--env-file`. Use the key's local base URL instead; in Docker, `http://host.docker.internal:7787/<name>`. |
+| ❌ | SDKs that check key format at startup | Clerk, for example, rejects the placeholder. Keep that key out of keydillo for now. |
 
 Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
