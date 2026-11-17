@@ -19,7 +19,7 @@ final class ImportModel {
   var onlyPaths: [String]?
 
   var selectedCount: Int { files.flatMap(\.keys).filter { selected.contains($0.id) }.count }
-  var totalCount: Int { files.flatMap(\.keys).filter { !$0.isPublic }.count }
+  var totalCount: Int { files.flatMap(\.keys).filter { !$0.isPublic && $0.localOnly == nil }.count }
 
   func scan() async {
     scanning = true
@@ -36,13 +36,13 @@ final class ImportModel {
     let model = AppModel.shared
     // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.
     let all: [ImportScanner.Found] = found.flatMap { $0.keys }
-    selected = Set(all.filter { k in !k.isPublic && (k.service != nil || model.existing(for: k) != nil) }.map { $0.id })
+    selected = Set(all.filter { k in !k.isPublic && k.localOnly == nil && (k.service != nil || model.existing(for: k) != nil) }.map { $0.id })
     scanning = false
     scanned = true
   }
 
   func toggleGroup(_ f: ImportScanner.FileResult) {
-    let ids = Set(f.keys.map(\.id))
+    let ids = Set(f.keys.filter { $0.localOnly == nil && !$0.isPublic }.map(\.id))
     if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }
   }
 
@@ -50,7 +50,8 @@ final class ImportModel {
 
   /// Returns true when the import ran.
   func run(model: AppModel) async -> Bool {
-    let chosen = files.flatMap(\.keys).filter { selected.contains($0.id) }
+    // Secrets the app uses itself can never be filled back in by a proxy, so they're never replaced.
+    let chosen = files.flatMap(\.keys).filter { selected.contains($0.id) && $0.localOnly == nil }
     guard !chosen.isEmpty else { return true }
     guard model.storageSecure else { self.error = AppModel.insecureMessage; return false }
     guard await model.authenticate("import \(chosen.count) key\(chosen.count == 1 ? "" : "s") from your .env files") != nil else { return false }
@@ -59,6 +60,7 @@ final class ImportModel {
     var nameByValue: [String: String] = [:]
     var taken = Set(model.services.map(\.name))
     var replacementsByFile: [String: [String: (service: String, baseURL: String?, baseURLEnvName: String?)]] = [:]
+    var prefixesByFile: [String: [String: String]] = [:]
 
     for key in chosen {
       let file = files.first { $0.path == key.file }!
@@ -97,6 +99,7 @@ final class ImportModel {
       let summary = cfg.map(model.summary)
       // Only add a base-URL line when the service's SDK actually reads one; otherwise it's noise.
       let readsEnv = cfg.map { $0.baseURLEnvName != nil || ImportScanner.convention(for: $0.name)?.env != nil } ?? false
+      prefixesByFile[key.file, default: [:]][key.name] = key.keyPrefix
       replacementsByFile[key.file, default: [:]][key.name] =
         (name, summary?.baseURL, (cfg?.isProxyReady == true && readsEnv) ? summary?.baseURLEnvName : nil)
     }
@@ -109,7 +112,7 @@ final class ImportModel {
       for (path, reps) in replacementsByFile {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         backup.files.append(.init(path: path, text: text))
-        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port)))
+        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:])))
       }
       try model.keychain.setSecret(try JSONEncoder().encode(backup), for: Self.backupAccount(backup.date), label: "keydillo .env backup",
                                    service: Self.backupService)
@@ -173,7 +176,7 @@ final class ImportModel {
   nonisolated static func filesWithRealKeys(_ paths: [String]) -> [String] {
     paths.filter { path in
       guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
-      return ImportScanner.parse(text, file: path).contains { !$0.isPublic }
+      return ImportScanner.parse(text, file: path).contains { !$0.isPublic && $0.localOnly == nil }
     }
   }
 

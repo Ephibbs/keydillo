@@ -398,3 +398,30 @@ final class CallerScopeTests: XCTestCase {
     XCTAssertEqual(a.calls, 2)
   }
 }
+
+final class ImportClassificationTests: XCTestCase {
+  func testLocalSecretsInterpolationAndPrefixes() {
+    let text = """
+    JWT_SECRET=abcdefghijklmnopqrstuvwxyz
+    STRIPE_WEBHOOK_SECRET=whsec_abcdefghijklmnop
+    RESEND_WEBHOOK_SECRET=abcdefghijklmnopqrst
+    AWS_SECRET_ACCESS_KEY=abcdefghijklmnopqrstuvwxyz
+    ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
+    OPENAI_KEY=${OPENAI_API_KEY}
+    OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrst
+    """
+    let f = Dictionary(uniqueKeysWithValues: ImportScanner.parse(text, file: "/x/.env").map { ($0.name, $0) })
+    for n in ["JWT_SECRET", "STRIPE_WEBHOOK_SECRET", "RESEND_WEBHOOK_SECRET", "AWS_SECRET_ACCESS_KEY", "ENCRYPTION_KEY"] {
+      XCTAssertNotNil(f[n]?.localOnly, n)
+    }
+    XCTAssertNil(f["OPENAI_KEY"], "interpolation skipped")
+    XCTAssertNil(f["OPENAI_API_KEY"]?.localOnly)
+    XCTAssertEqual(f["OPENAI_API_KEY"]?.keyPrefix, "sk-proj-")
+    XCTAssertEqual(ImportScanner.formatPrefix("sk_live_abc123"), "sk_live_")
+    XCTAssertEqual(ImportScanner.formatPrefix("sk-ant-api03-xyz"), "sk-ant-api03-")
+    XCTAssertEqual(ImportScanner.formatPrefix("abcdefghijklmnop"), "")
+    let out = ImportScanner.rewrite("OPENAI_API_KEY=sk-proj-abc", replacements: ["OPENAI_API_KEY": ("openai", nil, nil)], prefixes: ["OPENAI_API_KEY": "sk-proj-"])
+    XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:start-with-keydillo-run"))
+    XCTAssertEqual(PlaceholderSubstitution(service: "openai", value: "REAL").apply("Bearer sk-proj-keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
+  }
+}

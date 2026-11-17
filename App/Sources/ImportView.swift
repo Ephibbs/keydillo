@@ -60,7 +60,7 @@ struct ImportView: View {
   }
 
   func group(_ f: ImportScanner.FileResult) -> some View {
-    let ids = Set(f.keys.map(\.id))
+    let ids = Set(f.keys.filter { $0.localOnly == nil && !$0.isPublic }.map(\.id))
     return VStack(spacing: 0) {
       HStack(spacing: 10) {
         Toggle("", isOn: Binding(get: { ids.isSubset(of: im.selected) }, set: { _ in im.toggleGroup(f) }))
@@ -81,11 +81,12 @@ struct ImportView: View {
       ForEach(f.keys) { k in
         Divider().overlay(Theme.hairline)
         HStack(spacing: 10) {
-          Toggle("", isOn: Binding(get: { im.selected.contains(k.id) }, set: { on in if on { im.selected.insert(k.id) } else { im.selected.remove(k.id) } }))
-            .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)")
+          Toggle("", isOn: Binding(get: { im.selected.contains(k.id) && k.localOnly == nil }, set: { on in if on { im.selected.insert(k.id) } else { im.selected.remove(k.id) } }))
+            .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.localOnly != nil)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          Text(k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Needs a host")).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          Text(k.localOnly.map { "Left as is: \($0)" } ?? (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Needs a host")))
+            .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
       }

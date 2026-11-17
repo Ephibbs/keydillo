@@ -54,6 +54,11 @@ public enum ImportScanner {
     public let service: Known?
     /// Safe to ship to browsers (publishable/anon keys): listed, but left alone unless the user ticks it.
     public var isPublic: Bool = false
+    /// Used by the app itself (signing, encryption, sessions) or signs requests (AWS): a proxy can't put it back,
+    /// so it's never imported as a placeholder. Holds the reason shown in the review.
+    public var localOnly: String? = nil
+    /// Format prefix kept in the placeholder so startup checks like `startsWith("sk-")` still pass.
+    public var keyPrefix: String { ImportScanner.formatPrefix(value) }
     public static func == (a: Found, b: Found) -> Bool { a.id == b.id && a.value == b.value }
   }
 
@@ -119,14 +124,44 @@ public enum ImportScanner {
     let pairs = text.split(separator: "\n", omittingEmptySubsequences: false).compactMap { assignment(String($0)) }
     let names = Set(pairs.map { $0.0.uppercased() })
     return pairs.compactMap { name, value in
+      if value.contains("${") || value.contains("$(") { return nil }   // interpolation, not a key
       if looksSecret(name: name, value: value) {
-        return Found(file: file, name: name, value: value, service: service(for: name), isPublic: isPublicValue(name: name, value: value, fileVars: names))
+        var f = Found(file: file, name: name, value: value, service: service(for: name), isPublic: isPublicValue(name: name, value: value, fileVars: names))
+        f.localOnly = localUse(name: name, value: value)
+        return f
       }
       if looksPublicByName(name), value.count >= 12, !value.hasPrefix(Placeholder.prefix), !value.contains("://") {
         return Found(file: file, name: name, value: value, service: nil, isPublic: true)
       }
       return nil
     }
+  }
+
+  /// Secrets the app uses itself, which never travel to an API in a form a proxy could fill in.
+  public static func localUse(name: String, value: String) -> String? {
+    let n = name.uppercased()
+    if value.hasPrefix("whsec_") || n.contains("WEBHOOK") || n.contains("SIGNING") || n.contains("SIGNATURE") || n.contains("HMAC") {
+      return "verifies webhooks or signatures locally"
+    }
+    if n.contains("SECRET_ACCESS_KEY") || n.hasPrefix("AWS_") || n.contains("CLOUDINARY_API_SECRET") { return "signs requests (AWS-style)" }
+    if ["JWT", "NEXTAUTH", "AUTH_SECRET", "SESSION", "COOKIE", "CSRF", "ENCRYPTION", "ENCRYPT", "CRON", "PASSWORD", "PASSWD",
+        "PASSPHRASE", "SALT", "PRIVATE_KEY", "MASTER_KEY", "SERVICE_ACCOUNT", "DATABASE_URL", "DB_"].contains(where: { n.contains($0) }) {
+      return "used by your app itself"
+    }
+    return nil
+  }
+
+  /// "sk-proj-abc…" → "sk-proj-", "sk_live_x" → "sk_live_", "xai-…" → "xai-". Letters-only segments, at most two.
+  public static func formatPrefix(_ value: String) -> String {
+    var out = ""; var segments = 0; var current = ""
+    for ch in value {
+      if ch == "-" || ch == "_" {
+        guard !current.isEmpty, current.allSatisfy({ $0.isLetter || $0.isNumber }), current.count <= 6, current.first!.isLetter else { break }
+        out += current + String(ch); current = ""; segments += 1
+        if segments == 3 { break }
+      } else { current.append(ch); if current.count > 6 { break } }
+    }
+    return out
   }
 
   static let publicMarkers = ["PUBLIC", "NEXT_PUBLIC_", "EXPO_PUBLIC_", "VITE_", "REACT_APP_", "PUBLISHABLE", "ANON"]
@@ -222,14 +257,15 @@ public enum ImportScanner {
   }
 
   /// Replaces imported values with placeholders and adds base-URL lines. Returns the new file text.
-  public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787) -> String {
+  public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787,
+                             prefixes: [String: String] = [:]) -> String {
     var lines = text.components(separatedBy: "\n")
     if !lines.contains(headerStart) { lines = header(port: port) + lines }
     var added: [String] = []
     for (i, raw) in lines.enumerated() {
       guard let (name, _) = assignment(raw), let r = replacements[name] else { continue }
       let exported = raw.trimmingCharacters(in: .whitespaces).hasPrefix("export ")
-      lines[i] = (exported ? "export " : "") + "\(name)=\(Placeholder.value(for: r.service))"
+      lines[i] = (exported ? "export " : "") + "\(name)=\(prefixes[name] ?? "")\(Placeholder.value(for: r.service))"
       if let base = r.baseURL, let envName = r.baseURLEnvName,
          !lines.contains(where: { assignment($0)?.0 == envName }), !added.contains(where: { $0.hasPrefix(envName + "=") }) {
         added.append("\(envName)=\(base)")
