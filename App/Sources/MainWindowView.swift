@@ -63,7 +63,7 @@ struct MainWindowView: View {
           .frame(height: 22).foregroundStyle(Theme.text).accessibilityHidden(true)
         Text("keydillo").font(.system(size: 17, weight: .semibold))
       }
-      .padding(.horizontal, 8).padding(.top, 34)
+      .padding(.horizontal, 8).padding(.top, 48)
       sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
