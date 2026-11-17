@@ -506,10 +506,9 @@ struct KeyDetailView: View {
   func reveal() async {
     authenticating = true
     let v = await model.reveal(config)
-    // Touch ID hands focus to another app; bring keydillo back to the front so the key is actually visible.
-    NSApp.activate()
-    WindowManager.shared.bringToFront("main")
-    try? await Task.sleep(nanoseconds: 300_000_000)
+    // Touch ID hands focus to another app; authenticate() brings this window back. Keep ignoring the focus change
+    // for a moment so the key isn't hidden as the window becomes key again.
+    try? await Task.sleep(nanoseconds: 500_000_000)
     authenticating = false
     guard let v else { return }
     revealed = v; copied = false

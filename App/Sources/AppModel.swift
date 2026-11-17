@@ -520,8 +520,20 @@ final class AppModel {
 
   func authenticate(_ reason: String) async -> LAContext? {
     let ctx = LAContext()
+    // The Touch ID dialog belongs to another process. When it closes, macOS may hand focus to the previous app and
+    // leave keydillo's window behind it, which looks like the window closed. Bring that window back explicitly.
+    let window = NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeKey }
+    defer { Self.restoreFront(window) }
     do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) ? ctx : nil }
     catch { return nil }
+  }
+
+  static func restoreFront(_ window: NSWindow?) {
+    guard let window else { return }
+    NSApp.activate(ignoringOtherApps: true)
+    if window.isMiniaturized { window.deminiaturize(nil) }
+    window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
   }
 
   // MARK: Control socket (CLI / MCP)
