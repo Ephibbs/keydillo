@@ -374,6 +374,16 @@ final class AppModel {
 
   func refreshGrants() async { activeGrants = await engine.gate.activeGrants() }
 
+  func endAccess(session: String) async { await engine.gate.revoke(session: session); await refreshGrants() }
+
+  func endAllAccess() async {
+    await engine.gate.revokeAll()
+    unlocks.closeAll()
+    await refreshGrants(); refreshOpenProjects()
+    events.insert(ActivityEvent(date: Date(), service: "keydillo", method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: "ended all access; every key asks again"), at: 0)
+  }
+
   func endGrant(_ service: String) {
     Task { await engine.gate.revokeAll(service: service); await refreshGrants() }
   }

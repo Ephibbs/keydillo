@@ -67,8 +67,22 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 6)
       } else if model.pending.isEmpty && model.openProjects.isEmpty {
-        Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") locked. Nothing open right now.")
+        Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") locked. Nothing has access right now.")
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
+      }
+
+      if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
+        let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
+        Button {
+          StatusItem.shared?.close(); WindowManager.shared.showMain()
+          NotificationCenter.default.post(name: .showAccess, object: nil)
+        } label: {
+          HStack(spacing: 4) {
+            Text("\(n) \(n == 1 ? "has" : "have") access ·").foregroundStyle(Theme.secondary)
+            Text("View").underline()
+          }.font(.system(size: 12))
+        }
+        .buttonStyle(.plain).padding(.horizontal, 16).padding(.top, 4)
       }
 
       Divider().overlay(Theme.hairline).padding(.top, 8)

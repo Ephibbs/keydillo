@@ -139,6 +139,12 @@ public actor ApprovalGate {
     grants["\(service)|\(client.sessionKey)|override"] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: client)
   }
 
+  /// Ends every approval held by one program session.
+  public func revoke(session: String) {
+    grants = grants.filter { $0.value.client?.sessionKey != session }
+    bursts = bursts.filter { !$0.key.hasSuffix("|" + session) }
+  }
+
   public func revokeAll(service: String? = nil) {
     if let service { grants = grants.filter { !$0.key.hasPrefix(service + "|") && $0.key != service }; bursts = bursts.filter { !$0.key.hasPrefix(service + "|") } }
     else { grants.removeAll() }

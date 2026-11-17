@@ -326,6 +326,22 @@ final class PlaceholderSafetyTests: XCTestCase {
   }
 }
 
+final class RevokeTests: XCTestCase {
+  func testEndingOneProgramsAccessLeavesOthers() async {
+    let approver = StubApprover()
+    let gate = ApprovalGate(approver: approver)
+    let svc = ServiceConfig(name: "s", upstreamHost: "h", authHeader: "x", approval: .perProcess)
+    var a = ClientProcess(pid: 10, name: "a", startTime: 1); a.rootPid = 10; a.rootStart = 1
+    var b = ClientProcess(pid: 20, name: "b", startTime: 2); b.rootPid = 20; b.rootStart = 2
+    for c in [a, b] { _ = await gate.authorize(svc, ApprovalRequest(service: "s", displayName: "S", host: "h", method: "GET", path: "/", client: c)) }
+    var grants = await gate.activeGrants()
+    XCTAssertEqual(grants.count, 2)
+    await gate.revoke(session: a.sessionKey)
+    grants = await gate.activeGrants()
+    XCTAssertEqual(grants.compactMap { $0.client?.name }, ["b"])
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

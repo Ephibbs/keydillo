@@ -7,6 +7,7 @@ struct MainWindowView: View {
   @State private var project: String? = nil   // nil = all keys
   @State private var selected: String?
   @State private var showActivity = false
+  @State private var showAccess = false
   @State private var newProject = ""
   @State private var addingProject = false
   @State private var search = ""
@@ -32,7 +33,9 @@ struct MainWindowView: View {
     HStack(spacing: 0) {
       sidebar
       Divider().overlay(Theme.hairline)
-      if showActivity {
+      if showAccess {
+        AccessView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if showActivity {
         ActivityView().frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         keyList.frame(width: listWidth)
@@ -41,23 +44,26 @@ struct MainWindowView: View {
       }
     }
     .frame(minWidth: 860, minHeight: 560)
+    .onReceive(NotificationCenter.default.publisher(for: .showAccess)) { _ in showAccess = true; showActivity = false }
     // Marks where the draggable title bar ends.
     .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1).allowsHitTesting(false) }
     .background(Theme.background)
     .foregroundStyle(Theme.text)
   }
 
+  var accessCount: Int { Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count }
+
   // MARK: Sidebar
 
   var sidebar: some View {
     VStack(alignment: .leading, spacing: 18) {
       Text("keydillo").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 8).padding(.top, 34)
-      sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity) { project = nil; showActivity = false }
+      sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
         ForEach(model.projects, id: \.self) { p in
-          sideRow(model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity) {
-            project = p; showActivity = false
+          sideRow(model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p, count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
+            project = p; showActivity = false; showAccess = false
           }
         }
         if addingProject {
@@ -72,7 +78,8 @@ struct MainWindowView: View {
       }
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Monitor")
-        sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true }
+        sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false }
+        sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false }
         sideRow("Settings", count: "", isOn: false) { WindowManager.shared.showSettings() }
       }
       Spacer()
@@ -567,3 +574,5 @@ struct KeyDetailView: View {
     return rules
   }
 }
+
+extension Notification.Name { static let showAccess = Notification.Name("keydillo.showAccess") }
