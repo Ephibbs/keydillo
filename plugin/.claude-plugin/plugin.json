@@ -1,8 +1,19 @@
 {
   "name": "keydillo",
-  "description": "Use API keys without seeing them: a skill, keydillo's MCP tools and a guard hook. Needs the keydillo Mac app (github.com/Ephibbs/keydillo).",
-  "author": { "name": "Studio Killswitch" },
+  "description": "Let Claude use your API keys without seeing them. Adds keydillo's skill, MCP tools and command checks. Needs the free keydillo Mac app.",
+  "author": {
+    "name": "Studio Killswitch"
+  },
   "homepage": "https://github.com/Ephibbs/keydillo",
   "license": "MIT",
-  "version": "0.1.0"
+  "version": "0.1.1",
+  "repository": "https://github.com/Ephibbs/keydillo",
+  "keywords": [
+    "secrets",
+    "api-keys",
+    "security",
+    "keychain",
+    "touch-id",
+    "env"
+  ]
 }

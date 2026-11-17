@@ -1,5 +1,10 @@
 {
   "mcpServers": {
-    "keydillo": { "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli", "mcp"] }
+    "keydillo": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli",
+      "args": [
+        "mcp"
+      ]
+    }
   }
 }

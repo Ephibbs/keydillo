@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" --check-installed",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" --check-installed",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook",
             "timeout": 5
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook post",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook post",
             "timeout": 5
           }
         ]
