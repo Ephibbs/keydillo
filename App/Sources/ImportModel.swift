@@ -46,6 +46,19 @@ final class ImportModel {
     scanned = true
   }
 
+  /// Asks for a folder, remembers it for future scans and scans again.
+  func scanAnotherFolder() async {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+    panel.prompt = "Scan"; panel.message = "Choose a folder with your projects. keydillo looks for .env files up to 4 levels down."
+    NSApp.activate(ignoringOtherApps: true)
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    guard ImportScanner.addExtraRoot(url.path) else { error = "Choose a folder inside your home folder or on another drive."; return }
+    error = nil
+    onlyPaths = nil
+    await scan()
+  }
+
   func toggleGroup(_ f: ImportScanner.FileResult) {
     let ids = Set(f.keys.filter { !$0.isPublic }.map(\.id))
     if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }

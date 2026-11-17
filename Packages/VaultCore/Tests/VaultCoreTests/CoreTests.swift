@@ -472,6 +472,38 @@ final class FrontendExposureTests: XCTestCase {
   }
 }
 
+final class ScanLocationTests: XCTestCase {
+  func testEnvFilesLooksTwoLevelsDownAndSkipsDependencies() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("kd-scan-\(getpid())").path
+    defer { try? FileManager.default.removeItem(atPath: root) }
+    for d in ["apps/web", "apps/web/deep/er", "node_modules/pkg", ".git"] {
+      try FileManager.default.createDirectory(atPath: root + "/" + d, withIntermediateDirectories: true)
+    }
+    for f in [".env", "apps/web/.env.local", "apps/web/deep/er/.env", "node_modules/pkg/.env", ".git/.env", ".env.example"] {
+      try "A=1\n".write(toFile: root + "/" + f, atomically: true, encoding: .utf8)
+    }
+    let found = Set(ImportScanner.envFiles(in: root, maxDepth: 2).map { String($0.dropFirst(root.count + 1)) })
+    XCTAssertEqual(found, [".env", "apps/web/.env.local"])
+  }
+
+  func testExtraRootsAreRememberedAndScanned() throws {
+    let key = ImportScanner.extraRootsKey
+    let saved = UserDefaults.standard.stringArray(forKey: key)
+    defer { UserDefaults.standard.set(saved, forKey: key) }
+    UserDefaults.standard.removeObject(forKey: key)
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("kd-extra-\(getpid())").path
+    defer { try? FileManager.default.removeItem(atPath: root) }
+    try FileManager.default.createDirectory(atPath: root + "/work/app", withIntermediateDirectories: true)
+    try "OPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123\n".write(toFile: root + "/work/app/.env", atomically: true, encoding: .utf8)
+    XCTAssertFalse(ImportScanner.addExtraRoot("/"), "the filesystem root is refused")
+    XCTAssertTrue(ImportScanner.addExtraRoot(root + "/work"))
+    XCTAssertTrue(ImportScanner.addExtraRoot(root + "/work"))
+    XCTAssertEqual(ImportScanner.extraRoots.map(\.path).filter { $0.hasSuffix("/work") }.count, 1)
+    let results = ImportScanner.scan(roots: ImportScanner.extraRoots)
+    XCTAssertTrue(results.contains { $0.path.hasSuffix("/work/app/.env") })
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

@@ -84,6 +84,40 @@ public enum ImportScanner {
       .filter { FileManager.default.fileExists(atPath: $0.path) }
   }
 
+  /// Folders the user added with "Scan another folder…", on top of the defaults (paths, kept in preferences).
+  public static let extraRootsKey = "scanFolders"
+  public static var extraRoots: [URL] {
+    (UserDefaults.standard.stringArray(forKey: extraRootsKey) ?? [])
+      .filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0) }
+  }
+  /// Remembers a folder to scan. The filesystem root is refused (too big to walk).
+  @discardableResult public static func addExtraRoot(_ path: String) -> Bool {
+    let p = (path as NSString).standardizingPath
+    guard p != "/", !p.isEmpty else { return false }
+    var list = UserDefaults.standard.stringArray(forKey: extraRootsKey) ?? []
+    if !list.contains(p) { list.append(p); UserDefaults.standard.set(list, forKey: extraRootsKey) }
+    return true
+  }
+
+  /// Env files in `folder` and its subfolders, `maxDepth` levels down, skipping dependency and build folders.
+  public static func envFiles(in folder: String, maxDepth: Int = 2) -> [String] {
+    var out: [String] = []
+    func walk(_ dir: String, _ depth: Int) {
+      guard let items = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
+      for name in items.sorted() {
+        let path = dir + "/" + name
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { continue }
+        if isDir.boolValue {
+          if depth < maxDepth, !skipDirs.contains(name), !name.hasPrefix("."),
+             (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == nil { walk(path, depth + 1) }
+        } else if isEnvFile(name) { out.append(path) }
+      }
+    }
+    walk(folder, 0)
+    return out
+  }
+
   public static func isEnvFile(_ name: String) -> Bool {
     if name == ".dev.vars" { return true }   // Cloudflare Workers local secrets
     guard name == ".env" || name.hasPrefix(".env.") else { return false }
@@ -93,7 +127,7 @@ public enum ImportScanner {
 
   public static var includeShellProfiles = false
 
-  public static func scan(roots: [URL] = defaultRoots, maxDepth: Int = 4) -> [FileResult] {
+  public static func scan(roots: [URL] = defaultRoots + extraRoots, maxDepth: Int = 4) -> [FileResult] {
     var results: [FileResult] = []
     var seen = Set<String>()
     func walk(_ dir: URL, _ depth: Int) {

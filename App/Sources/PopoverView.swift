@@ -24,6 +24,11 @@ struct PopoverView: View {
         Text(AppModel.insecureMessage).font(.system(size: 12)).foregroundStyle(Theme.danger)
           .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)
       }
+      if ShellIntegration.isTranslocated {
+        Text("Move keydillo to your Applications folder and open it from there, so kd and Claude can find it.")
+          .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, 16).padding(.bottom, 12)
+      }
       if let c = model.portConflict { portCard(c) }
       if !model.realKeys.files.isEmpty {
         if dismissedRealKeys == realKeysSignature { realKeysLine } else { realKeysCard }

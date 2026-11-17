@@ -17,6 +17,11 @@ struct ImportView: View {
       VStack(alignment: .leading, spacing: 8) {
         Text("Protect all your existing keys in 1 click").font(.system(size: 22, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
         Text(summary).font(.system(size: 14)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        if im.scanned && onlyPaths == nil {
+          Button { Task { await im.scanAnotherFolder() } } label: { Text("Scan another folder…").underline() }
+            .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Theme.secondary).disabled(im.scanning)
+            .help("keydillo looks in Desktop, Documents, Developer, Projects, code, src, GitHub, repos and similar folders. Add others here.")
+        }
       }
       if im.totalCount > 0 {
         Collapsible(title: "Review keys and files", isOpen: $reviewOpen) { review }

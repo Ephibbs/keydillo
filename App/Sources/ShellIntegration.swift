@@ -7,7 +7,12 @@ enum ShellIntegration {
   static var binDir: URL { home.appendingPathComponent(".local/bin", isDirectory: true) }
 
   /// Keeps ~/.local/bin/{keydillo,kd} pointing at this copy of the app. Never replaces a file keydillo didn't make.
+  /// True when macOS runs this copy from a temporary, randomized path because it was opened straight from
+  /// Downloads (App Translocation). Links to it would break once it quits, so they're left alone.
+  static var isTranslocated: Bool { Bundle.main.bundlePath.contains("/AppTranslocation/") }
+
   static func refreshLinks() {
+    if isTranslocated { return }
     let fm = FileManager.default
     try? fm.createDirectory(at: binDir, withIntermediateDirectories: true)
     for name in ["keydillo", "kd"] {

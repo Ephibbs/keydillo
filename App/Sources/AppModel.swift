@@ -369,9 +369,11 @@ final class AppModel {
       var out: [String: [(file: String, name: String)]] = [:]
       var front: [String: [(file: String, name: String)]] = [:]
       for (folder, project) in folders {
-        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).filter(ImportScanner.isEnvFile)
-        for n in names {
-          let path = folder + "/" + n
+        // The project folder and two levels below it (monorepos keep .env files in apps/web and the like).
+        for path in ImportScanner.envFiles(in: folder, maxDepth: 2) {
+          // A subfolder that is another project's folder is counted under that project.
+          let dir = (path as NSString).deletingLastPathComponent
+          if dir != folder, folders[dir] != nil { continue }
           guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
           for k in ImportScanner.parse(text, file: path) {
             if k.inFrontend { front[project, default: []].append((path, k.name)); continue }
