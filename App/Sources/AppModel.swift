@@ -676,11 +676,15 @@ final class AppModel {
       if let p = r.prefix { n.authPrefix = p }
       if let b = r.basicAuth { n.basicAuth = b ? true : nil }
       if let q = r.queryParam { n.authQueryParam = q.isEmpty ? nil : q }
+      if let h = r.host?.lowercased().trimmingCharacters(in: .whitespaces), !h.isEmpty, !s.allHosts.contains(h) {
+        if s.upstreamHost.isEmpty { n.upstreamHost = h } else { n.extraHosts = (s.extraHosts ?? []) + [h] }
+      }
       try n.validate()
       guard n != s else { throw fail("That's already how \(s.displayName) is sent.") }
       let rows = [("Header", s.authHeader, n.authHeader), ("Prefix", s.authPrefix, n.authPrefix),
                   ("Basic auth", s.basicAuth == true ? "on" : "off", n.basicAuth == true ? "on" : "off"),
-                  ("Query parameter", s.authQueryParam ?? "", n.authQueryParam ?? "")].filter { $0.1 != $0.2 }
+                  ("Query parameter", s.authQueryParam ?? "", n.authQueryParam ?? ""),
+                  ("Sent to", s.allHosts.joined(separator: ", "), n.allHosts.joined(separator: ", "))].filter { $0.1 != $0.2 }
       return ChangeProposal(title: "Change how your \(s.displayName) key is sent", requester: requester, rows: rows.map { (label: $0.0, old: $0.1, new: $0.2) },
                             note: r.why, warning: nil, touchReason: "change how your \(s.displayName) key is sent to \(s.upstreamHost.isEmpty ? "its site" : s.upstreamHost)") { [weak self] _ in
         guard let self else { return "" }

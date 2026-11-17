@@ -15,7 +15,7 @@ enum Hook {
     default: exit(0)
     }
     // In a keydillo project, programs must start with `kd` so their placeholders get swapped. Catch it before it runs.
-    if tool == "Bash", let msg = needsKd(text, cwd: obj["cwd"] as? String) {
+    if tool == "Bash", !keydilloQuit, let msg = needsKd(text, cwd: obj["cwd"] as? String) {
       FileHandle.standardError.write(Data(("keydillo: " + msg + "\n").utf8))
       exit(2)
     }
@@ -49,11 +49,20 @@ enum Hook {
   static let certFailures = ["x509", "certificate is not trusted", "certificate verify failed", "unknown authority",
                               "self signed certificate", "self-signed certificate", "tsi_protocol_failure", "handshake failed"]
 
+  /// The user quit keydillo from its menu: keys aren't available until they open it again.
+  static var keydilloQuit: Bool {
+    FileManager.default.fileExists(atPath: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("keydillo/quit-by-user").path)
+  }
+
   static func postAdvice(output: String, command: String, cwd: String?) -> String? {
     let found = programs(command, cwd: cwd)
     guard !found.isEmpty else { return nil }
     let lower = " " + output.lowercased() + " "
     let authFailed = authFailures.contains(where: { lower.contains($0) })
+    if keydilloQuit && (authFailed || lower.contains("keydillo was quit")) {
+      return "keydillo: the user quit keydillo, so this project's keys aren't available. Ask them to open keydillo, then rerun with kd."
+    }
     if found.contains(where: { nativeRunner($0.seg) }) && (authFailed || certFailures.contains(where: { lower.contains($0) })) {
       return "keydillo: " + baseURLAdvice
     }

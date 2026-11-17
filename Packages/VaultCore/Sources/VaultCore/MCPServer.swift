@@ -30,7 +30,7 @@ public final class MCPServer {
     ],
     [
       "name": "request_key_change",
-      "description": "Ask the user to approve a change to a stored key. A window on their Mac shows exactly what changes and they approve with Touch ID; you never see the key. Use: kind=auth when calls fail because the key is sent the wrong way (header name, Bearer prefix, Basic auth, query parameter); kind=share to use an existing key in another project instead of asking for a second copy; kind=rotate when the provider rejected the key or the user wants a new one (they paste it); kind=move_folder when a project's folder moved or was renamed. You can't ask to show a key, turn off Touch ID prompts or make them less frequent; the user does that in keydillo.",
+      "description": "Ask the user to approve a change to a stored key. A window on their Mac shows exactly what changes and they approve with Touch ID; you never see the key. Use: kind=auth when calls fail because the key is sent the wrong way (header name, Bearer prefix, Basic auth, query parameter) or has no site yet (host); kind=share to use an existing key in another project instead of asking for a second copy; kind=rotate when the provider rejected the key or the user wants a new one (they paste it); kind=move_folder when a project's folder moved or was renamed. You can't ask to show a key, turn off Touch ID prompts or make them less frequent; the user does that in keydillo.",
       "inputSchema": [
         "type": "object",
         "required": ["kind"],
@@ -42,6 +42,7 @@ public final class MCPServer {
           "prefix": ["type": "string", "description": "auth: value prefix, e.g. 'Bearer '"],
           "basic_auth": ["type": "boolean", "description": "auth: send the key as HTTP Basic auth"],
           "query_param": ["type": "string", "description": "auth: send the key as this query parameter instead of a header"],
+          "host": ["type": "string", "description": "auth: the API host this key is for (adds it to the key's sites), e.g. api.together.xyz"],
           "folder": ["type": "string", "description": "move_folder: the project's new folder (absolute path)"],
           "why": ["type": "string", "description": "One sentence shown to the user explaining why"],
         ],
@@ -125,7 +126,7 @@ public final class MCPServer {
         guard let kind = (args["kind"] as? String).flatMap(ChangeRequest.Kind.init) else { return text("kind must be auth, share, rotate or move_folder", error: true) }
         let r = ChangeRequest(kind: kind, service: args["service"] as? String, project: args["project"] as? String, header: args["header"] as? String,
                               prefix: args["prefix"] as? String, basicAuth: args["basic_auth"] as? Bool, queryParam: args["query_param"] as? String,
-                              folder: args["folder"] as? String, why: args["why"] as? String)
+                              folder: args["folder"] as? String, host: args["host"] as? String, why: args["why"] as? String)
         switch try send(.requestChange(r)) {
         case .changed(let what): return text("The user approved: \(what)")
         case .declined: return text("The user declined the change. Don't ask again unless they bring it up.")

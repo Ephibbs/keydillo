@@ -342,6 +342,18 @@ final class RevokeTests: XCTestCase {
   }
 }
 
+final class PutBackQuotingTests: XCTestCase {
+  func testValuesSurviveTheRoundTrip() {
+    for v in ["plainVALUE123", "p#ss$word", "has space", "it's", "say \"hi\"", "line1\nline2", "back\\slash", "a=b"] {
+      let text = "X=" + ImportScanner.envValueText(v) + "\n"
+      XCTAssertEqual(ImportScanner.unquote(String(text.dropFirst(2).dropLast())), v, text)
+    }
+    XCTAssertEqual(ImportScanner.envValueText("p#ss$word", original: "\"p#ss$word\""), "\"p#ss$word\"", "original quoting kept")
+    XCTAssertEqual(ImportScanner.envValueText("new#value", original: "\"old\""), "'new#value'", "original ignored when the value changed")
+    XCTAssertEqual(ImportScanner.envValueText("sk_abc123"), "sk_abc123")
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

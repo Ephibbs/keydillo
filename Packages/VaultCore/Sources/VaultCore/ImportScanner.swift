@@ -297,4 +297,28 @@ public enum ImportScanner {
   public static func keysBack(_ text: String, file: String, managed: Set<String>) -> [String] {
     parse(text, file: file).filter { managed.contains($0.name) && !$0.value.contains(Placeholder.prefix) }.map(\.name)
   }
+
+  /// The value part of `NAME=value` for writing a real value back into an env file. Reuses the original text when it
+  /// still means the same value (so the file's own quoting is kept); otherwise quotes only when needed.
+  public static func envValueText(_ value: String, original: String? = nil) -> String {
+    if let o = original, unquote(o) == value { return o }
+    let plain = value.allSatisfy { $0.isLetter || $0.isNumber || "-_./:@+,%=~".contains($0) }
+    if plain && !value.isEmpty { return value }
+    if !value.contains("'") && !value.contains("\n") { return "'" + value + "'" }
+    let escaped = value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+      .replacingOccurrences(of: "\n", with: "\\n")
+    return "\"" + escaped + "\""
+  }
+
+  /// What a dotenv loader reads from a value's text: quotes removed, \n and \" unescaped in double quotes.
+  public static func unquote(_ text: String) -> String {
+    let t = text.trimmingCharacters(in: .whitespaces)
+    if t.count >= 2, t.hasPrefix("'"), t.hasSuffix("'") { return String(t.dropFirst().dropLast()) }
+    if t.count >= 2, t.hasPrefix("\""), t.hasSuffix("\"") {
+      return String(t.dropFirst().dropLast()).replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\\"", with: "\"")
+        .replacingOccurrences(of: "\\\\", with: "\\")
+    }
+    if let hash = t.range(of: " #") { return String(t[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
+    return t
+  }
 }

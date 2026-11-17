@@ -443,6 +443,9 @@ final class MitmProxy: @unchecked Sendable {
   /// For keys without a host yet: likely provider domains from the key's name (together → together.xyz, upstash → upstash.io).
   /// Traffic to these is looked into so the placeholder can be seen and its host approved once with Touch ID.
   static func guessedDomains(_ services: [ServiceSummary]) -> [String] {
+    // Guessing sites from key names intercepted unrelated hosts (a "github" key took over github.com and broke git),
+    // so kd only looks inside traffic to hosts a key is bound to. Keys without a site get one from the user.
+    return []
     let tlds = ["com", "ai", "io", "xyz", "co", "dev", "app", "net", "org", "cloud", "sh", "so"]
     var out = Set<String>()
     for s in services where hosts(of: s).isEmpty {

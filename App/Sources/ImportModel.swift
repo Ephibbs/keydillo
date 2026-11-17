@@ -274,6 +274,22 @@ final class ImportModel {
     guard let ctx = await model.authenticate("put \(whose) real keys back into .env files (programs will see them again)") else { return "Cancelled." }
     var restored = 0
     var missed: [String] = []
+    // The lines as they were before import, newest backup first, to keep each value's original quoting.
+    var originalText: [String: [String: String]] = [:]
+    for a in model.keychain.accounts(service: backupService, context: ctx).sorted(by: >) {
+      guard let d = try? model.keychain.secret(for: a, context: ctx, service: backupService),
+            let b = try? JSONDecoder().decode(Backup.self, from: d) else { continue }
+      for f in b.files {
+        for line in f.text.components(separatedBy: "\n") {
+          var l = line.trimmingCharacters(in: .whitespaces)
+          if l.hasPrefix("export ") { l = String(l.dropFirst(7)) }
+          guard let eq = l.firstIndex(of: "="), !l.hasPrefix("#") else { continue }
+          let name = String(l[..<eq]).trimmingCharacters(in: .whitespaces)
+          let raw = String(l[l.index(after: eq)...])
+          if originalText[f.path]?[name] == nil, !Placeholder.isPlaceholder(raw) { originalText[f.path, default: [:]][name] = raw }
+        }
+      }
+    }
     for path in trackedFiles {
       guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
       var lines = text.components(separatedBy: "\n")
@@ -285,7 +301,8 @@ final class ImportModel {
         guard let value = try? model.keychain.secret(for: service, context: ctx), !Placeholder.isPlaceholder(String(decoding: value, as: UTF8.self)) else {
           missed.append(String(line[..<eq])); continue
         }
-        lines[i] = String(line[...eq]) + String(decoding: value, as: UTF8.self)
+        let name = String(line[..<eq]).replacingOccurrences(of: "export ", with: "").trimmingCharacters(in: .whitespaces)
+        lines[i] = String(line[...eq]) + ImportScanner.envValueText(String(decoding: value, as: UTF8.self), original: originalText[path]?[name])
         changed = true
       }
       if changed {

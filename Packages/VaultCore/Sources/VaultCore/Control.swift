@@ -27,11 +27,12 @@ public struct ChangeRequest: Codable, Equatable {
   public var basicAuth: Bool?
   public var queryParam: String?
   public var folder: String?
+  public var host: String?
   public var why: String?
   public init(kind: Kind, service: String? = nil, project: String? = nil, header: String? = nil, prefix: String? = nil,
-              basicAuth: Bool? = nil, queryParam: String? = nil, folder: String? = nil, why: String? = nil) {
+              basicAuth: Bool? = nil, queryParam: String? = nil, folder: String? = nil, host: String? = nil, why: String? = nil) {
     self.kind = kind; self.service = service; self.project = project; self.header = header; self.prefix = prefix
-    self.basicAuth = basicAuth; self.queryParam = queryParam; self.folder = folder; self.why = why
+    self.basicAuth = basicAuth; self.queryParam = queryParam; self.folder = folder; self.host = host; self.why = why
   }
 }
 
