@@ -5,7 +5,9 @@
   </picture>
 </p>
 
-<p align="center">Let AI use your keys without seeing them.</p>
+<h3 align="center">Let AI use your keys without seeing them</h3>
+
+<p align="center">Your AI coding tool's missing secrets manager.<br>Get set up in seconds and forget about it.</p>
 
 <p align="center"><img src="docs/assets/demo.gif" alt="Claude Code runs kd python voiceover.py, keydillo asks for Touch ID to use the ElevenLabs key, and the voiceover is saved" width="760"></p>
 
@@ -130,3 +132,5 @@ Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+keydillo is not affiliated with Anthropic.
