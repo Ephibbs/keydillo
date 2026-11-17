@@ -46,6 +46,13 @@ Known limits, in scope:
 - Response scrubbing is best effort: keydillo removes the forms of the key it produced itself (raw, Basic, base64, percent-encoded), but can't catch a provider that transforms a key in other ways. That's why each key is only ever placed in its one configured spot unless you opt in.
 - The Claude Code hook is guidance that steers agents to keydillo, not a security barrier.
 - Builds without a private Keychain access group refuse to store keys.
+- While the Mac is locked keydillo can't read keys; requests get a clear "Mac is locked" reply until you unlock.
+
+What doesn't work yet (use the local base URL instead, or keep that key out of keydillo):
+- A key the API wants in the body, query or path is refused with `placeholder_misplaced` unless you turn on "Allow the key anywhere" for that key.
+- Secrets your app uses itself (webhook signing, JWT, session, encryption, database passwords, service-account files) and request-signing keys (AWS, Cloudinary) are left in your `.env`; keydillo can't stand in for them.
+- Under `keydillo run`: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
+- Some SDKs check a key's exact format at startup (Clerk, for example) and reject the placeholder.
 
 Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 

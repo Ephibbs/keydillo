@@ -144,6 +144,11 @@ public enum ImportScanner {
       return "verifies webhooks or signatures locally"
     }
     if n.contains("SECRET_ACCESS_KEY") || n.hasPrefix("AWS_") || n.contains("CLOUDINARY_API_SECRET") { return "signs requests (AWS-style)" }
+    // Service-account files (raw or base64 JSON) are used to sign tokens locally, so a placeholder can't stand in.
+    if n.contains("CREDENTIALS") || n.contains("KEYFILE") || value.hasPrefix("{") && value.contains("private_key")
+        || (value.hasPrefix("eyJ") && value.count > 200 && (Data(base64Encoded: value).flatMap { String(data: $0, encoding: .utf8) }?.contains("private_key") ?? false)) {
+      return "a credentials file your app signs with"
+    }
     if ["JWT", "NEXTAUTH", "AUTH_SECRET", "SESSION", "COOKIE", "CSRF", "ENCRYPTION", "ENCRYPT", "CRON", "PASSWORD", "PASSWD",
         "PASSPHRASE", "SALT", "PRIVATE_KEY", "MASTER_KEY", "SERVICE_ACCOUNT", "DATABASE_URL", "DB_"].contains(where: { n.contains($0) }) {
       return "used by your app itself"
