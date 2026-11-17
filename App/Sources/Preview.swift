@@ -8,12 +8,14 @@ enum Preview {
   static func sample() {
     let m = AppModel.shared
     m.services = [
-      ServiceConfig(name: "elevenlabs", displayName: "ElevenLabs", project: "Notes", upstreamHost: "api.elevenlabs.io", authHeader: "xi-api-key",
+      ServiceConfig(name: "elevenlabs", displayName: "ElevenLabs", project: "voiceover", upstreamHost: "api.elevenlabs.io", authHeader: "xi-api-key",
                     approval: .eachRequest, allowed: [PathRule(method: "POST", pattern: "/v1/text-to-speech/*"), PathRule(method: "GET", pattern: "/v1/voices")], maxRequestsPerHour: 30),
-      ServiceConfig(name: "anthropic", displayName: "Anthropic", project: "Notes", upstreamHost: "api.anthropic.com", authHeader: "x-api-key", approval: .window(minutes: 15)),
-      ServiceConfig(name: "supabase", displayName: "Supabase service role", project: "Notes", upstreamHost: "xyz.supabase.co", authHeader: "apikey", approval: .perProcess),
-      ServiceConfig(name: "revenuecat", displayName: "RevenueCat", project: "voiceover", upstreamHost: "api.revenuecat.com", authHeader: "Authorization", authPrefix: "Bearer "),
+      ServiceConfig(name: "anthropic", displayName: "Anthropic", project: "voiceover", upstreamHost: "api.anthropic.com", authHeader: "x-api-key", approval: .window(minutes: 15)),
+      ServiceConfig(name: "supabase", displayName: "Supabase service role", project: "voiceover", upstreamHost: "xyz.supabase.co", authHeader: "apikey", approval: .perProcess),
+      ServiceConfig(name: "revenuecat", displayName: "RevenueCat", project: "notes-app", upstreamHost: "api.revenuecat.com", authHeader: "Authorization", authPrefix: "Bearer "),
     ]
+    m.proxyState = "ready"   // previews show the normal running state
+    for i in m.services.indices { m.services[i].folder = "/Users/you/Desktop/" + m.services[i].project }
     let now = Date()
     func ev(_ ago: Double, _ svc: String, _ m: String, _ p: String, _ proc: String, _ o: ActivityEvent.Outcome, _ st: Int, _ note: String? = nil) -> ActivityEvent {
       ActivityEvent(date: now.addingTimeInterval(-ago), service: svc, method: m, path: p, process: proc, pid: 48211, outcome: o, status: st, note: note)
@@ -27,6 +29,7 @@ enum Preview {
   }
 
   static func show(_ screen: String) {
+    if let a = UserDefaults.standard.string(forKey: "kdAppearance") { NSApp.appearance = NSAppearance(named: a == "dark" ? .darkAqua : .aqua) }
     sample()
     let wm = WindowManager.shared
     switch screen {
@@ -35,21 +38,24 @@ enum Preview {
     case "setup3": wm.show("setup", title: "Setup") { SetupView(step: 2) }
     case "key":
       wm.showKeyWindow(KeyRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs.io", header: "xi-api-key",
-                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "Claude Code", cwd: NSHomeDirectory() + "/Desktop/notes-app", keyPageURL: "https://elevenlabs.io/app/settings/api-keys"))
+                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "voiceover", requester: "Claude Code", cwd: NSHomeDirectory() + "/Desktop/voiceover", keyPageURL: "https://elevenlabs.io/app/settings/api-keys"))
     case "keybad":
       wm.showKeyWindow(KeyRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs-proxy.net", header: "xi-api-key",
-                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "notes-app", requester: "Claude Code", cwd: nil, keyPageURL: "https://elevenlabs-keys.net/login"))
+                                  prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "voiceover", requester: "Claude Code", cwd: nil, keyPageURL: "https://elevenlabs-keys.net/login"))
     case "saved":
       wm.show("saved", title: "Saved") { SavedView(config: AppModel.shared.services[0], fromAgent: true) {}.sheetCard() }
-    case "add": wm.showAddKey(project: "Notes")
+    case "add": wm.showAddKey(project: "voiceover")
     case "readout":
-      wm.showReadout(project: "Notes", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
+      wm.showReadout(project: "voiceover", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
     case "restore": wm.showRestore()
-    case "exposed":
-      AppModel.shared.exposed = ["Notes": [(file: "/Users/x/Desktop/oda/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/oda/.env.local", name: "OPENAI_API_KEY")]]
+    case "project":
       wm.showMain()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "Notes") }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
+    case "exposed":
+      AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
+      wm.showMain()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
     case "access":
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .showAccess, object: nil) }
