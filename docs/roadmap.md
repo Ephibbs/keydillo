@@ -8,3 +8,4 @@ Rough sizes are Claude build hours.
 4. **Per-project "use real keys in .env" switch** (undecided), paired with a Claude Code hook that blocks reading `.env` files in those projects.
 5. **Opt-in system-wide keydillo certificate for Go and Rust**, so `kd` works for programs that only trust the macOS Keychain. Needs one admin prompt; limited to stored hosts.
 6. **Daemons under `kd`** that detach right away (pm2, tmux): keep their access after `kd` exits. See docs/kd-known-failures.md.
+7. **Keys exported in shell profiles.** Keys like `export OPENAI_API_KEY=…` in ~/.zshrc, ~/.zprofile, ~/.bashrc and similar are inherited by every program, including Claude Code. Scan them read-only, offer them in the import window (unticked), and on import swap only that line's value for a placeholder, keeping quotes and comments, with a backup and "Put my real keys back" support. No added lines or hooks. Until then keydillo doesn't offer or edit these files.

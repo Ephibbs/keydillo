@@ -89,6 +89,8 @@ public enum ImportScanner {
     return !["example", "sample", "template", "dist", "defaults", "schema"].contains { lower.contains($0) }
   }
 
+  public static var includeShellProfiles = false
+
   public static func scan(roots: [URL] = defaultRoots, maxDepth: Int = 4) -> [FileResult] {
     var results: [FileResult] = []
     var seen = Set<String>()
@@ -110,7 +112,9 @@ public enum ImportScanner {
       }
     }
     roots.forEach { walk($0, 0) }
-    for profile in shellProfiles where !seen.contains(profile.path) {
+    // Shell profiles (~/.zshrc …) aren't offered for import yet: rewriting them safely is planned for after launch
+    // (docs/roadmap.md). Until then keydillo never edits them.
+    for profile in shellProfiles where includeShellProfiles && !seen.contains(profile.path) {
       if let text = try? String(contentsOf: profile, encoding: .utf8) {
         let keys = parse(text, file: profile.path).filter { !$0.isPublic }
         if !keys.isEmpty { results.append(FileResult(path: profile.path, keys: keys)) }
