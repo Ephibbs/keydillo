@@ -217,7 +217,7 @@ struct MainWindowView: View {
       }
       Text(folder == nil ? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder)."
            : access == .perKey ? "Each key asks on its own."
-           : "\(scope == .claude ? "Claude Code" : "Anything") in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys \(access.span) after one Touch ID. \(scope == .claude ? "Your Terminal still asks. " : "")Logged in Activity.")
+           : "\(scope == .claude ? "Claude Code" : "Anything") in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys \(access.span) after one Touch ID\(access == .untilLock ? "" : ", even while the Mac is locked"). \(scope == .claude ? "Your Terminal still asks. " : "")Logged in Activity.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
     .alert("Never ask again for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
