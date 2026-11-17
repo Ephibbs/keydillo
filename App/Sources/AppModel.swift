@@ -259,6 +259,10 @@ final class AppModel {
     // Too broad to stand for one project: everything would count as "in the folder".
     let f = (folder as NSString).standardizingPath
     if f == "/" || f == NSHomeDirectory() || f == NSHomeDirectory() + "/Desktop" || f == NSHomeDirectory() + "/Documents" { return nil }
+    // Only a folder that really is a keydillo project: it holds an env file keydillo rewrote.
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: f)) ?? []
+    guard names.contains(where: { ImportScanner.isEnvFile($0)
+      && ((try? String(contentsOfFile: f + "/" + $0, encoding: .utf8))?.contains(ImportScanner.headerStart) ?? false) }) else { return nil }
     return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
   }
 

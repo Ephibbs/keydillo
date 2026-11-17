@@ -642,6 +642,7 @@ final class MitmProxy: @unchecked Sendable {
   func route(_ req: HTTPRequest, extra: Data, client c: NWConnection, host: String, caller: Int32) {
     let named = placeholderService(req)
     var upstream: NWConnection
+    var toApp = false
     var target = req.target
     if let named {
       guard let svc = services.first(where: { $0.name == named }), (svc.host.lowercased().split(separator: ":").first.map(String.init) ?? "") == host else {
@@ -651,6 +652,7 @@ final class MitmProxy: @unchecked Sendable {
       }
       target = "/\(svc.name)\(req.target)"
       upstream = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: appPort)!, using: .tcp)
+      toApp = true
     } else {
       // A stored host with no placeholder: the program read its key from somewhere keydillo doesn't manage.
       lock.lock(); let first = warned.insert(host).inserted; lock.unlock()
@@ -686,7 +688,21 @@ final class MitmProxy: @unchecked Sendable {
     // Tells the app which program actually made the request (the app checks it came from keydillo's own binary).
     if named != nil { head += "X-Keydillo-Caller: \(caller)\r\n" }
     head += "\r\n"
-    upstream.stateUpdateHandler = { st in if case .failed = st { c.cancel() } }
+    var answered = false
+    upstream.stateUpdateHandler = { st in
+      switch st {
+      case .ready: answered = true
+      case .waiting, .failed:
+        // Refused connections leave NWConnection waiting forever: answer right away instead of hanging.
+        guard !answered else { if case .failed = st { c.cancel() }; return }
+        answered = true; upstream.cancel()
+        let r = toApp ? HTTPResponse.error(503, "the keydillo app isn't running, so the key couldn't be added", code: "keydillo_not_running",
+                                           hint: "Open keydillo (it restarts by itself within a few seconds if it crashed) and try again.")
+                      : HTTPResponse.error(502, "couldn't reach \(host)")
+        c.send(content: r.serialized(), completion: .contentProcessed { _ in c.cancel() })
+      default: break
+      }
+    }
     upstream.start(queue: queue)
     upstream.send(content: Data(head.utf8) + req.body + extra, completion: .idempotent)
     pipe(c, upstream); pipe(upstream, c)

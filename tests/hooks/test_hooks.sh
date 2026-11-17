@@ -51,5 +51,27 @@ ok "kd: an outside program can't use the per-host TLS listener (${#PORTS} ports 
 wait $KDP 2>/dev/null
 unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 
+# 7. Other env file names, cd, Go/Rust, the app going away mid-run.
+mkdir -p $T/next/web $T/worker
+printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nOPENAI_API_KEY=keydillo:x\n' > $T/next/web/.env.local
+printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nKEY=keydillo:x\n' > $T/worker/.dev.vars
+ok "pre: a Next.js project (.env.local) needs kd" '[[ $(pre "npm run dev" $T/next/web) == *"exit=2"* ]]'
+ok "pre: a Workers project (.dev.vars) needs kd" '[[ $(pre "npx wrangler dev" $T/worker) == *"exit=2"* ]]'
+ok "pre: cd into a project counts" '[[ $(pre "cd web && npm run dev" $T/next) == *"kd"*"exit=2"* ]]'
+ok "pre: go run isn't told to use kd" '[[ $(pre "go run ." $T/proj) == *"exit=0"* ]]'
+ok "post: Go auth failure gets the base-URL advice" '[[ $(postc "go run ." $T/proj "401 Unauthorized: invalid api key") == *"BASE_URL"* ]]'
+ok "post: certificate error under kd gets the base-URL advice" '[[ $(postc "kd ./server" $T/proj "x509: certificate signed by unknown authority") == *"BASE_URL"* ]]'
+export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"x","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
+start=$(date +%s)
+out=$($DEV run -- curl -s --max-time 20 https://example.com/x -H "x-api-key: keydillo:ex" 2>/dev/null)
+took=$(( $(date +%s) - start ))
+ok "kd: with the app gone, a keyed call fails at once with a clear message (${took}s)" '[[ $out == *"keydillo_not_running"* && $took -lt 5 ]]'
+unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
+
+# 8. Names in the Touch ID prompt can't be borrowed.
+"$B" run --serve-for $$ >/dev/null 2>&1 & SF=$!; sleep 0.5
+ok "names: a leftover --serve-for argument doesn't borrow a session's name" '! "$B" whois $SF 2>/dev/null | grep -q "shown as: Claude Code$"'
+kill $SF 2>/dev/null
+
 print "\n$pass passed, $fail failed"
 exit $fail

@@ -10,3 +10,5 @@ It needs the keydillo Mac app, which holds the keys. If the app is missing, Clau
 ```
 
 The skill text is generated from `App/Sources/ClaudeConnector.swift` by `scripts/sync-plugin-skill.py`. Edit it there.
+
+Built keydillo from source with your own signing team? The plugin only runs a keydillo signed by team 2JARAJYAYY (the official builds). Change `TEAM` in `bin/keydillo-cli` to your team ID.

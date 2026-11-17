@@ -42,6 +42,9 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var friendlyName: String {
     if agentVerified { return "Claude Code" }
     if let agent { return "\(agent) (unverified)" }
+    // A program named like an AI tool (e.g. a file called "Claude Code") is tagged too.
+    let squashed = name.lowercased().replacingOccurrences(of: " ", with: "")
+    if ProcessLookup.agentNames.contains(where: { squashed.contains($0) }) { return "\(name) (unverified)" }
     return name
   }
 
@@ -244,7 +247,6 @@ public extension ProcessLookup {
     guard path(of: pid).hasSuffix("/bin/keydillo") || name(of: pid) == "keydillo" || name(of: pid) == "kd" else { return nil }
     guard let mine = signingTeam(nil), signingTeam(pid) == mine else { return nil }
     let args = Array(arguments(of: pid).dropFirst())
-    if let i = args.firstIndex(of: "--serve-for"), i + 1 < args.count, let owner = Int32(args[i + 1]) { return (owner, nil) }
     // kd <command> / keydillo run [--] <command>
     var rest = args
     if rest.first == "run" { rest.removeFirst() }

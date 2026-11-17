@@ -46,10 +46,22 @@ enum Hook {
                              "invalid api key", "invalid_api_key", "incorrect api key", "invalid x-api-key", "authentication_error",
                              "authenticationerror", "api key not valid", "api key is invalid", "invalid authentication", "invalid token", "invalid_request_error: invalid api"]
 
+  static let certFailures = ["x509", "certificate is not trusted", "certificate verify failed", "unknown authority",
+                              "self signed certificate", "self-signed certificate", "tsi_protocol_failure", "handshake failed"]
+
   static func postAdvice(output: String, command: String, cwd: String?) -> String? {
-    guard runsProgram(command), !usesKd(command), keydilloProject(command: command, cwd: cwd) != nil else { return nil }
+    let found = programs(command, cwd: cwd)
+    guard !found.isEmpty else { return nil }
     let lower = " " + output.lowercased() + " "
-    guard authFailures.contains(where: { lower.contains($0) }) else { return nil }
+    let authFailed = authFailures.contains(where: { lower.contains($0) })
+    if found.contains(where: { nativeRunner($0.seg) }) && (authFailed || certFailures.contains(where: { lower.contains($0) })) {
+      return "keydillo: " + baseURLAdvice
+    }
+    if usesKd(command) {
+      guard certFailures.contains(where: { lower.contains($0) }) else { return nil }
+      return "keydillo: this program doesn't trust kd's certificate (it pins certificates or uses its own trust store). " + baseURLAdvice.replacingOccurrences(of: "Go and Rust programs (and gRPC clients) don't trust kd's certificate, so kd can't help them. ", with: "")
+    }
+    guard authFailed else { return nil }
     return "keydillo: this ran without `kd` in a keydillo project, so the API got a placeholder instead of the key. Rerun it as `kd \(command.trimmingCharacters(in: .whitespaces))`. If it still fails, the program skips keydillo (Go, Docker, pinned certificates): call the API through its keydillo base URL from list_services. Don't look for the real key."
   }
 
@@ -72,46 +84,79 @@ enum Hook {
     segments(command).contains { $0.first == "kd" || ($0.first == "keydillo" && $0.dropFirst().first == "run") }
   }
 
-  static func runsProgram(_ command: String) -> Bool {
-    for seg in segments(command) {
-      guard let first = seg.first.map({ ($0 as NSString).lastPathComponent }) else { continue }
-      if runners.contains(first) || first.hasPrefix("python3.") { return true }
-      if ["npm", "pnpm", "yarn", "npx", "bunx", "uv", "poetry", "pipenv", "go", "cargo"].contains(first) {
-        if first == "npx" || first == "bunx" { return true }
-        if let verb = seg.dropFirst().first, runVerbs.contains(verb) { return true }
-        if first == "yarn", let verb = seg.dropFirst().first, !["install", "add", "remove", "upgrade", "init"].contains(verb) { return true }
-      }
-      if first.hasPrefix("./") && !first.hasSuffix(".sh") { return true }
-    }
-    return false
+  /// Languages whose programs ignore kd's certificate; for these the fix is the base URL, not kd.
+  static func nativeRunner(_ seg: [String]) -> Bool {
+    guard let first = seg.first.map({ ($0 as NSString).lastPathComponent }) else { return false }
+    return (first == "go" || first == "cargo") && ["run", "test"].contains(seg.dropFirst().first ?? "")
   }
 
-  /// The keydillo project (folder whose .env has keydillo's header) the command runs in or points into.
-  static func keydilloProject(command: String, cwd: String?) -> String? {
-    func marked(_ dir: String) -> String? {
-      var d = dir
-      while !d.isEmpty && d != "/" {
-        if let text = try? String(contentsOfFile: d + "/.env", encoding: .utf8), text.contains(ImportScanner.headerStart) { return d }
-        d = (d as NSString).deletingLastPathComponent
-      }
-      return nil
+  static func isProgram(_ seg: [String]) -> Bool {
+    guard let first = seg.first.map({ ($0 as NSString).lastPathComponent }) else { return false }
+    if runners.contains(first) || first.hasPrefix("python3.") { return true }
+    if first == "npx" || first == "bunx" { return true }
+    if ["npm", "pnpm", "yarn", "uv", "poetry", "pipenv", "go", "cargo"].contains(first) {
+      if let verb = seg.dropFirst().first, runVerbs.contains(verb) { return true }
+      if first == "yarn", let verb = seg.dropFirst().first, !["install", "add", "remove", "upgrade", "init"].contains(verb) { return true }
     }
-    if let cwd, let p = marked(cwd) { return p }
-    for seg in segments(command) {
-      for w in seg where w.contains("/") {
-        var path = w.hasPrefix("~") ? NSHomeDirectory() + w.dropFirst() : w
-        if !path.hasPrefix("/"), let cwd { path = cwd + "/" + path }
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { continue }
-        if let p = marked(isDir.boolValue ? path : (path as NSString).deletingLastPathComponent) { return p }
+    let raw = seg[0]
+    return raw.hasPrefix("./") && !raw.hasSuffix(".sh")
+  }
+
+  static func runsProgram(_ command: String) -> Bool { segments(command).contains(where: isProgram) }
+
+  /// The folder (and its parents) holds an env file keydillo has rewritten: .env, .env.local, .env.development, .dev.vars …
+  static func marked(_ dir: String) -> String? {
+    var d = dir
+    while !d.isEmpty && d != "/" {
+      let names = (try? FileManager.default.contentsOfDirectory(atPath: d)) ?? []
+      for n in names where ImportScanner.isEnvFile(n) {
+        if let text = try? String(contentsOfFile: d + "/" + n, encoding: .utf8), text.contains(ImportScanner.headerStart) { return d }
       }
+      d = (d as NSString).deletingLastPathComponent
     }
     return nil
   }
 
+  static func resolve(_ w: String, from cwd: String?) -> String {
+    var path = w.hasPrefix("~") ? NSHomeDirectory() + w.dropFirst() : w
+    if !path.hasPrefix("/"), let cwd { path = cwd + "/" + path }
+    return (path as NSString).standardizingPath
+  }
+
+  /// Each program the command runs, with the folder it runs in (following `cd`) and the keydillo project it's in
+  /// or points into, if any.
+  static func programs(_ command: String, cwd: String?) -> [(seg: [String], project: String)] {
+    var here = cwd
+    var out: [(seg: [String], project: String)] = []
+    for raw in segments(command) {
+      var seg = raw
+      if seg.first == "kd" { seg.removeFirst() }
+      if seg.first == "keydillo" && seg.dropFirst().first == "run" { seg.removeFirst(2); if seg.first == "--" { seg.removeFirst() } }
+      if seg.first == "cd" || seg.first == "pushd" {
+        here = seg.count > 1 ? resolve(seg[1], from: here) : NSHomeDirectory(); continue
+      }
+      guard isProgram(seg) else { continue }
+      if let h = here, let p = marked(h) { out.append((seg, p)); continue }
+      for w in seg where w.contains("/") {
+        let path = resolve(w, from: here)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { continue }
+        if let p = marked(isDir.boolValue ? path : (path as NSString).deletingLastPathComponent) { out.append((seg, p)); break }
+      }
+    }
+    return out
+  }
+
+  static func keydilloProject(command: String, cwd: String?) -> String? { programs(command, cwd: cwd).first?.project }
+
+  static let baseURLAdvice = "Go and Rust programs (and gRPC clients) don't trust kd's certificate, so kd can't help them. Point the program at the keydillo base URL instead: call list_services, set the matching *_BASE_URL (http://localhost:7787/<name>/...) and make the code use it with no key."
+
   /// Before a command runs: a program run in a keydillo project without `kd` would send placeholders unswapped.
   static func needsKd(_ command: String, cwd: String?) -> String? {
-    guard runsProgram(command), !usesKd(command), let project = keydilloProject(command: command, cwd: cwd) else { return nil }
+    guard !usesKd(command) else { return nil }
+    let found = programs(command, cwd: cwd)
+    guard let first = found.first(where: { !nativeRunner($0.seg) }) else { return nil }
+    let project = first.project
     return "\((project as NSString).lastPathComponent) uses keydillo placeholders for its API keys. Put `kd` in front so they're swapped for the real keys: `kd \(command.trimmingCharacters(in: .whitespaces))`. (For a command that doesn't call any API, that's harmless too.)"
   }
 

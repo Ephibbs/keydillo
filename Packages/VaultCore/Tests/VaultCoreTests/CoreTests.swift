@@ -204,6 +204,17 @@ final class ControlTests: XCTestCase {
   }
 }
 
+final class CallerNameTests: XCTestCase {
+  func testNamesCantBeBorrowed() {
+    XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
+    XCTAssertEqual(ClientProcess(pid: 1, name: "node", agent: "claude", agentPid: 2).friendlyName, "claude (unverified)")
+    var verified = ClientProcess(pid: 1, name: "node", agent: "claude", agentPid: 2)
+    verified.agentVerified = true
+    XCTAssertEqual(verified.friendlyName, "Claude Code")
+    XCTAssertEqual(ClientProcess(pid: 1, name: "python3").friendlyName, "python3")
+  }
+}
+
 final class MCPTests: XCTestCase {
   func testOpenProject() throws {
     var sent: ControlRequest?
