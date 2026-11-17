@@ -354,6 +354,16 @@ final class PutBackQuotingTests: XCTestCase {
   }
 }
 
+final class NewHostPromptTests: XCTestCase {
+  func testHostLeadsAndSharedHostingIsNoted() {
+    let r = ApprovalRequest(service: "tg", displayName: "Together", host: "evil.vercel.app", method: "GET", path: "/", client: ClientProcess(pid: 1, name: "node"))
+    XCTAssertTrue(r.newHostReason.hasPrefix("send your Together key to evil.vercel.app"))
+    XCTAssertTrue(r.newHostReason.contains("Note: anyone can host a site on vercel.app."))
+    let ok = ApprovalRequest(service: "tg", displayName: "Together", host: "api.together.xyz", method: "GET", path: "/", client: ClientProcess(pid: 1, name: "node"))
+    XCTAssertFalse(ok.newHostReason.contains("Note:"))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

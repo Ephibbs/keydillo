@@ -443,13 +443,14 @@ final class MitmProxy: @unchecked Sendable {
   /// For keys without a host yet: likely provider domains from the key's name (together → together.xyz, upstash → upstash.io).
   /// Traffic to these is looked into so the placeholder can be seen and its host approved once with Touch ID.
   static func guessedDomains(_ services: [ServiceSummary]) -> [String] {
-    // Guessing sites from key names intercepted unrelated hosts (a "github" key took over github.com and broke git),
-    // so kd only looks inside traffic to hosts a key is bound to. Keys without a site get one from the user.
-    return []
+    // Names of general developer platforms are never used to guess (a "github" key once took over github.com and broke git).
+    let platforms: Set<String> = ["github", "gitlab", "bitbucket", "google", "googleapis", "apple", "icloud", "microsoft", "azure", "amazon",
+                                  "amazonaws", "npmjs", "docker", "cloudflare", "vercel", "netlify", "heroku", "slack", "discord", "python",
+                                  "pypi", "golang", "homebrew", "brew", "jsdelivr", "unpkg", "expo", "firebase", "sentry"]
     let tlds = ["com", "ai", "io", "xyz", "co", "dev", "app", "net", "org", "cloud", "sh", "so"]
     var out = Set<String>()
     for s in services where hosts(of: s).isEmpty {
-      for t in s.hostTokens ?? [] { for tld in tlds { out.insert("\(t).\(tld)"); out.insert("\(t)cloud.\(tld)") } }
+      for t in (s.hostTokens ?? []) where !platforms.contains(t) { for tld in tlds { out.insert("\(t).\(tld)"); out.insert("\(t)cloud.\(tld)") } }
     }
     return out.sorted()
   }

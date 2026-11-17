@@ -46,7 +46,18 @@ public extension Approver {
 public extension ApprovalRequest {
   /// "keydillo is trying to send your Together key to a new site, api.together.xyz (asked by Claude Code)…"
   var newHostReason: String {
-    "send your \(displayName) key to a new site, \(host) (asked by \(client.friendlyName)). Only approve if you expect \(displayName) to be used there; keydillo will remember it"
+    let note = Self.sharedHostingSuffix(host).map { " Note: anyone can host a site on \($0)." } ?? ""
+    return "send your \(displayName) key to \(host)\n\nA new site for this key, asked for by \(client.friendlyName). keydillo will remember it.\(note)"
+  }
+
+  /// Domains where anyone can put up a site, so a host there proves nothing about who runs it.
+  static let sharedHosting = ["github.io", "vercel.app", "netlify.app", "pages.dev", "workers.dev", "herokuapp.com", "ngrok.io", "ngrok-free.app",
+                              "ngrok.app", "onrender.com", "fly.dev", "railway.app", "glitch.me", "repl.co", "replit.app", "web.app",
+                              "firebaseapp.com", "appspot.com", "azurewebsites.net", "cloudfront.net", "s3.amazonaws.com", "trycloudflare.com",
+                              "surge.sh", "deno.dev", "val.run", "loca.lt", "serveo.net"]
+  static func sharedHostingSuffix(_ host: String) -> String? {
+    let h = host.lowercased().split(separator: ":").first.map(String.init) ?? host.lowercased()
+    return sharedHosting.first { h == $0 || h.hasSuffix("." + $0) }
   }
 }
 
