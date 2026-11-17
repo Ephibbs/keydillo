@@ -9,6 +9,7 @@ import VaultCore
 @Observable
 final class ImportModel {
   var files: [ImportScanner.FileResult] = []
+  var gitTracked: Set<String> = []
   var selected: Set<String> = []
   var scanning = false
   var scanned = false
@@ -32,6 +33,8 @@ final class ImportModel {
         return keys.isEmpty ? nil : ImportScanner.FileResult(path: path, keys: keys)
       }
     }.value
+    // Which files git tracks, worked out off the main thread: running git while the window draws can crash SwiftUI.
+    gitTracked = await Task.detached { Set(found.map(\.path).filter { GitCheck.isTracked($0) }) }.value
     files = found
     let model = AppModel.shared
     // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.

@@ -12,6 +12,9 @@ struct KeydilloApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   static var termSource: DispatchSourceSignal?
   func applicationDidFinishLaunching(_ notification: Notification) {
+    if ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1", let t = UserDefaults.standard.string(forKey: "kdSelfTest") {
+      Task { @MainActor in SelfTest.run(t) }; return
+    }
     // No core dumps: a crash must never write keys held in memory to disk.
     var noCore = rlimit(rlim_cur: 0, rlim_max: 0); setrlimit(RLIMIT_CORE, &noCore)
     let preview = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1" && UserDefaults.standard.string(forKey: "kdPreview") != nil

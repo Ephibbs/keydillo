@@ -45,8 +45,74 @@ enum Preview {
     case "readout":
       wm.showReadout(project: "Notes", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
+    case "import":
+      let d = NSTemporaryDirectory() + "kd-preview-import"
+      try? FileManager.default.createDirectory(atPath: d + "/beta", withIntermediateDirectories: true)
+      try? "ACME_API_KEY=acme_FAKEpreview0123456789\nWIDGET_TOKEN=wdg_FAKEpreview0123456789\n".write(toFile: d + "/beta/.env", atomically: true, encoding: .utf8)
+      wm.show("import", title: "Import keys") { ImportView(reviewOpen: true, inSetup: false, onlyPaths: [d + "/beta/.env"]) {}.sheetCard() }
     case "popover": DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()
     }
   }
+}
+
+/// Development-only UI checks: `KEYDILLO_DEV=1 keydillo.app/Contents/MacOS/keydillo -kdSelfTest import`.
+/// Renders a real window from fixture files, reads its accessibility tree in-process, prints PASS/FAIL lines and quits.
+@MainActor
+enum SelfTest {
+  static func run(_ name: String) {
+    FileHandle.standardError.write(Data("self-test \(name) starting\n".utf8))
+    guard name == "import" else { FileHandle.standardError.write(Data("FAIL unknown self-test\n".utf8)); exit(1) }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kd-selftest-\(getpid())")
+    let a = dir.appendingPathComponent("alpha"), b = dir.appendingPathComponent("beta")
+    try? FileManager.default.createDirectory(at: a, withIntermediateDirectories: true)
+    try? FileManager.default.createDirectory(at: b, withIntermediateDirectories: true)
+    // Fake values only. alpha: a recognised API (ticked by default). beta: unrecognised keys only (nothing ticked).
+    try? "OPENAI_API_KEY=sk-proj-FAKEselftest0123456789abcdef\nPORT=3000\n".write(to: a.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+    try? "ACME_API_KEY=acme_FAKEselftest0123456789\nWIDGET_TOKEN=wdg_FAKEselftest0123456789\n".write(to: b.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+    let scenarios: [(String, [String], Int)] = [
+      ("two projects, one recognised key", [a.path + "/.env", b.path + "/.env"], 3),
+      ("only unrecognised keys", [b.path + "/.env"], 2),
+    ]
+    var failures = 0
+    func say(_ t: String) { FileHandle.standardError.write(Data((t + "\n").utf8)) }
+    func check(_ ok: Bool, _ what: String) { say((ok ? "PASS  " : "FAIL  ") + what); if !ok { failures += 1 } }
+    func next(_ i: Int) {
+      guard i < scenarios.count else {
+        try? FileManager.default.removeItem(at: dir)
+        say("\n\(failures == 0 ? "all passed" : "\(failures) failed")"); exit(failures == 0 ? 0 : 1)
+      }
+      let (label, paths, keys) = scenarios[i]
+      UIProbe.values = [:]
+      // The same window code the app uses for setup and Settings → Import.
+      let id = "selftest-\(i)"
+      WindowManager.shared.show(id, title: "Import keys") { ImportView(reviewOpen: true, inSetup: true, onlyPaths: paths) {}.sheetCard() }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+        guard let w = NSApp.windows.first(where: { $0.isVisible && $0.title == "Import keys" }), let host = w.contentView else {
+          check(false, "the import window opened"); next(i + 1); return
+        }
+        _ = host
+        let listHeight = UIProbe.values["import-list-height"] ?? 0
+        let rows = Int(UIProbe.values["import-rows"] ?? 0)
+        let primary = UIProbe.values["import-primary"] != nil
+        UIProbe.values = [:]
+        say("— \(label)")
+        check(listHeight > 60, "the list of files and keys is visible (height \(Int(listHeight)))")
+        check(rows == keys + paths.count, "a row with a checkbox for every project and key (\(rows) shown, want \(keys + paths.count))")
+        check(primary, "there's a primary import button")
+        WindowManager.shared.close(id)
+        next(i + 1)
+      }
+    }
+    next(0)
+  }
+}
+
+
+/// Measurements the UI self-test reads back (sizes and counts as actually laid out). Tiny and always on.
+@MainActor
+enum UIProbe {
+  static var values: [String: Double] = [:]
+  static func set(_ k: String, _ v: Double) { values[k] = v }
+  static func add(_ k: String, _ v: Double) { values[k, default: 0] += v }
 }

@@ -141,6 +141,9 @@ final class AppModel {
     return true
   }
 
+  static let devHarness = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1"
+    && (UserDefaults.standard.string(forKey: "kdPreview") != nil || UserDefaults.standard.string(forKey: "kdSelfTest") != nil)
+
   private init() {
     let approver = ModelApprover(model: self)
     let secrets = ProjectAwareSecrets(keychain: keychain, store: unlocks, projectOf: { [snapshot] name in snapshot.value.first { $0.name == name }?.project })
@@ -167,6 +170,9 @@ final class AppModel {
         while !self.loadServices() { try? await Task.sleep(for: .seconds(3)) }
       }
     }
+    // Development previews and UI self-tests run next to the real app: they must not take its port or control
+    // socket, or touch the user's files.
+    guard !Self.devHarness else { return }
     startProxy()
     startControl()
     ImportModel.addHeadersToTrackedFiles(port: port)

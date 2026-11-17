@@ -6,7 +6,7 @@ import VaultCore
 struct ImportView: View {
   @Environment(AppModel.self) private var model
   @State private var im = ImportModel()
-  @State private var reviewOpen = false
+  @State var reviewOpen = false
   @State private var busy = false
   let inSetup: Bool
   var onlyPaths: [String]? = nil
@@ -27,12 +27,16 @@ struct ImportView: View {
         if inSetup { StepDots(count: 4, current: 2) }
         Spacer()
         Button(im.totalCount == 0 && im.scanned ? "Continue" : "Skip") { done() }.buttonStyle(SecondaryButtonStyle())
-        if im.selectedCount > 0 {
-          Button(busy ? "Importing…" : "Import \(im.selectedCount) key\(im.selectedCount == 1 ? "" : "s")") {
+        if im.totalCount > 0 {
+          // Always there once keys are found; with nothing ticked it says so and opens the list.
+          Button(busy ? "Importing…" : im.selectedCount == 0 ? (reviewOpen ? "Tick keys to import" : "Choose keys to import") : "Import \(im.selectedCount) key\(im.selectedCount == 1 ? "" : "s")") {
+            if im.selectedCount == 0 { reviewOpen = true; return }
             busy = true
             Task { if await im.run(model: model) { done() }; busy = false }
           }
-          .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction).disabled(busy)
+          .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction).disabled(busy || (reviewOpen && im.selectedCount == 0))
+          .accessibilityIdentifier("import-primary")
+          .onAppear { UIProbe.set("import-primary", 1) }
         }
       }
       .padding(.top, 4)
@@ -43,18 +47,33 @@ struct ImportView: View {
   var summary: String {
     if im.scanning || !im.scanned { return "Looking for .env files on this Mac…" }
     if im.totalCount == 0 { return "No keys found in .env files. You can import later from Settings." }
-    return "We found \(im.totalCount) key\(im.totalCount == 1 ? "" : "s") in \(im.files.count) .env file\(im.files.count == 1 ? "" : "s"). Each folder becomes a project; keydillo locks the keys away and leaves a placeholder in each file."
+    let ready = im.selectedCount
+    let found = "We found \(im.totalCount) key\(im.totalCount == 1 ? "" : "s") in \(im.files.count) .env file\(im.files.count == 1 ? "" : "s"). Each folder becomes a project; keydillo locks the keys away and leaves a placeholder in each file."
+    if ready == im.totalCount { return found }
+    return found + " \(ready == 0 ? "None are" : "\(ready) are") ticked yet: keydillo only ticks keys for APIs it recognises. Open the list to choose the rest."
+  }
+
+  /// Room for every row, up to 320 points (then it scrolls).
+  var listHeight: CGFloat {
+    let rows = im.files.reduce(0) { $0 + $1.keys.count }
+    return min(320, CGFloat(im.files.count) * 56 + CGFloat(rows) * 31 + CGFloat(max(0, im.files.count - 1)) * 10)
   }
 
   var review: some View {
     VStack(alignment: .leading, spacing: 10) {
+      // A ScrollView inside a window that sizes to fit has no height of its own, so give it one.
       ScrollView {
         VStack(spacing: 10) {
           ForEach(im.files) { f in group(f) }
         }
       }
-      .frame(maxHeight: 300)
-      Text("Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, start it with `keydillo run`. Files tracked by git will show the change in your next commit.")
+      .frame(height: listHeight)
+      .accessibilityIdentifier("import-list")
+      .background(GeometryReader { g in
+        Color.clear.onAppear { UIProbe.set("import-list-height", g.size.height) }
+          .onChange(of: g.size.height) { _, h in UIProbe.set("import-list-height", h) }
+      })
+      Text("Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, put kd in front: kd npm run dev. Files tracked by git will show the change in your next commit.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
@@ -67,7 +86,7 @@ struct ImportView: View {
           .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import all \(f.project) keys")
         VStack(alignment: .leading, spacing: 1) {
           Text(f.path.hasPrefix(NSHomeDirectory() + "/.") && !f.path.contains("/.env") ? "Shell profile" : f.project).font(.system(size: 13, weight: .semibold))
-            + Text(GitCheck.isTracked(f.path) ? "  ·  tracked by git" : "").font(.system(size: 11)).foregroundColor(Theme.danger)
+            + Text(im.gitTracked.contains(f.path) ? "  ·  tracked by git" : "").font(.system(size: 11)).foregroundColor(Theme.danger)
           Text((f.path as NSString).abbreviatingWithTildeInPath).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.secondary)
             .lineLimit(1).truncationMode(.middle)
         }
@@ -78,6 +97,7 @@ struct ImportView: View {
         .buttonStyle(.plain).help("Show in Finder").accessibilityLabel("Show \(f.project) in Finder")
       }
       .padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 8)
+      .onAppear { UIProbe.add("import-rows", 1) }
       ForEach(f.keys) { k in
         Divider().overlay(Theme.hairline)
         HStack(spacing: 10) {
@@ -89,6 +109,7 @@ struct ImportView: View {
             .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
+        .onAppear { UIProbe.add("import-rows", 1) }
       }
     }
     .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
