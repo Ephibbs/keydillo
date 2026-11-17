@@ -41,6 +41,8 @@ struct MainWindowView: View {
       }
     }
     .frame(minWidth: 860, minHeight: 560)
+    // Marks where the draggable title bar ends.
+    .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1).allowsHitTesting(false) }
     .background(Theme.background)
     .foregroundStyle(Theme.text)
   }
