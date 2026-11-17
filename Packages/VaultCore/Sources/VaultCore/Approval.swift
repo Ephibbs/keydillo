@@ -13,7 +13,7 @@ public struct ApprovalRequest: Sendable {
   public var reason: String {
     let shortPath = path.count > 48 ? String(path.prefix(47)) + "…" : path
     // macOS shows this after '"keydillo" is trying to', so it reads: keydillo is trying to let Claude Code use your OpenAI key.
-    let via = client.agent != nil && client.name.lowercased() != client.agent?.lowercased() ? " (\(client.name))" : ""
+    let via = client.agent != nil && client.name.lowercased() != client.agent?.lowercased() && client.name != "keydillo" ? " (\(client.name))" : ""
     return "let \(client.friendlyName) use your \(displayName) key\(via): \(method) \(host)\(shortPath)"
   }
 }

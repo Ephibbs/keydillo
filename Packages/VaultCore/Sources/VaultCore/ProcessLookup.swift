@@ -100,6 +100,18 @@ public enum ProcessLookup {
       if parent <= 1 || parent == cur { break }
       cur = parent
     }
+    // Requests that come through keydillo's own proxy (`kd`, or a Claude Code session's routing) arrive from the
+    // keydillo command, not the program that made them. Name the program it serves, after checking it really is
+    // keydillo's binary (same signing team as this app). The approval still belongs to that proxy's own session.
+    if p.agent == nil, let served = servedBy(pid) {
+      if let owner = served.owner {
+        let o = describe(owner)
+        p.agent = o.agent; p.agentPid = o.agentPid
+        if p.agent == nil { p.name = o.name }
+      } else if let command = served.command {
+        p.name = command
+      }
+    }
     // The caller's Unix session (a terminal tab, an agent's shell, an app) is what an approval belongs to.
     let sid = getsid(pid)
     if sid > 1 {
@@ -156,3 +168,58 @@ public enum ProcessLookup {
   }
 }
 
+import Security
+
+public extension ProcessLookup {
+  /// The command line of `pid`.
+  static func arguments(of pid: Int32) -> [String] {
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    var size = 0
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return [] }
+    var buf = [UInt8](repeating: 0, count: size)
+    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return [] }
+    let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
+    var i = 4
+    while i < size && buf[i] != 0 { i += 1 }   // executable path
+    while i < size && buf[i] == 0 { i += 1 }   // padding
+    var args: [String] = []
+    while args.count < argc && i < size {
+      let start = i
+      while i < size && buf[i] != 0 { i += 1 }
+      args.append(String(decoding: buf[start..<i], as: UTF8.self))
+      i += 1
+    }
+    return args
+  }
+
+  /// Apple team that signed `pid` (nil for the current process when `pid` is nil), or nil if unsigned.
+  static func signingTeam(_ pid: Int32?) -> String? {
+    var code: SecCode?
+    if let pid {
+      guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid: NSNumber(value: pid)] as CFDictionary, [], &code) == errSecSuccess else { return nil }
+    } else {
+      guard SecCodeCopySelf([], &code) == errSecSuccess else { return nil }
+    }
+    guard let code, SecCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+    var info: CFDictionary?
+    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          let dict = info as? [String: Any] else { return nil }
+    return dict[kSecCodeInfoTeamIdentifier as String] as? String
+  }
+
+  /// When `pid` is keydillo's own command running `kd`/`keydillo run` or a Claude Code session's proxy, who it serves.
+  static func servedBy(_ pid: Int32) -> (owner: Int32?, command: String?)? {
+    guard path(of: pid).hasSuffix("/bin/keydillo") || name(of: pid) == "keydillo" || name(of: pid) == "kd" else { return nil }
+    guard let mine = signingTeam(nil), signingTeam(pid) == mine else { return nil }
+    let args = Array(arguments(of: pid).dropFirst())
+    if let i = args.firstIndex(of: "--serve-for"), i + 1 < args.count, let owner = Int32(args[i + 1]) { return (owner, nil) }
+    // kd <command> / keydillo run [--] <command>
+    var rest = args
+    if rest.first == "run" { rest.removeFirst() }
+    if rest.first == "--" { rest.removeFirst() }
+    guard let cmd = rest.first, !cmd.hasPrefix("-") else { return nil }
+    return (nil, (cmd as NSString).lastPathComponent)
+  }
+}

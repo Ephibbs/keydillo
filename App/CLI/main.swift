@@ -103,6 +103,13 @@ case "hook":
   default: Hook.run()
   }
 
+case "whois":
+  // Shows how keydillo names a process in approval prompts (for checking; prints no secrets).
+  guard let pid = args.first.flatMap(Int32.init) else { fail("usage: keydillo whois <pid>") }
+  let c = ProcessLookup.describe(pid)
+  print("name: \(c.name)\nagent: \(c.agent ?? "-")\nshown as: \(c.friendlyName)\nsession: \(c.rootPid)")
+  if args.contains("-v") { print("team self: \(ProcessLookup.signingTeam(nil) ?? "-") team pid: \(ProcessLookup.signingTeam(pid) ?? "-") args: \(ProcessLookup.arguments(of: pid))") }
+
 case "help", "-h", "--help":
   print(usage)
 

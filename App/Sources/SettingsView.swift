@@ -23,7 +23,7 @@ struct SettingsView: View {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
         .labelsHidden().fixedSize()
-        Text("Applies to projects without their own setting. Change a single project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        Text("\"Don't ask again\" covers any program in the project's folder, not just Claude. Applies to projects without their own setting; change one project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
