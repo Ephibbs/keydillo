@@ -43,7 +43,22 @@ Launch-time keys are handed to your program as it starts, so a command that prin
 
 ## Install
 
-A signed, notarized download is coming soon. Until then you can build it yourself.
+```sh
+brew install --cask ephibbs/keydillo/keydillo
+```
+
+Then open keydillo and choose **Connect** in its setup. That sets up Claude Code: its tools, the skill, and the check that puts `kd` in front of commands.
+
+Or [download the zip](https://github.com/Ephibbs/keydillo/releases/latest) (signed and notarized, macOS 15+), unzip it and move keydillo to Applications.
+
+**Claude Code plugin** (instead of Connect):
+
+```
+/plugin marketplace add Ephibbs/keydillo
+/plugin install keydillo@keydillo
+```
+
+**Skill only**, for other coding agents: `npx skills add Ephibbs/keydillo`. This adds the instructions but not the check before commands, so prefer Connect or the plugin for Claude Code.
 
 **Build from source** (macOS 15+, Xcode 16, [XcodeGen](https://github.com/yonaskolb/XcodeGen), an Apple Developer account):
 
@@ -56,15 +71,6 @@ open Keydillo.xcodeproj
 ```
 
 Keys are stored in a private Keychain group tied to your team, so the Mac you build on must be registered in your developer account. Builds without that group refuse to store keys.
-
-**Claude Code plugin:**
-
-```
-/plugin marketplace add Ephibbs/keydillo
-/plugin install keydillo@keydillo
-```
-
-Or click Connect in keydillo.
 
 ---
 
