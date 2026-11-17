@@ -94,6 +94,8 @@ public enum ProcessLookup {
     for _ in 0..<12 {
       let n = name(of: cur).lowercased()
       if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur }
+      // Claude Code's native installer names its binary after the version (…/claude/versions/2.1.319).
+      if p.agent == nil, path(of: cur).contains("/claude/versions/") { p.agent = "claude"; p.agentPid = cur }
       let parent = parentPid(of: cur)
       if parent <= 1 || parent == cur { break }
       cur = parent

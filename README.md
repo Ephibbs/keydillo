@@ -6,17 +6,22 @@ after Touch ID approval.
 
 Status: pre-milestone 1. See docs/decisions.md.
 
-## keydillo run
+## Using your keys
 
-`keydillo run -- <command>` starts a command with its HTTPS traffic going through a small per-run proxy.
-Requests to a stored service's host that carry a `keydillo:<name>` placeholder (as written by import or
-`request_secret`) are handed to the keydillo app, which asks for Touch ID and adds the real key.
-Everything else passes through untouched. The proxy's certificate is trusted only by that command.
+**Claude Code just works. When you run something yourself, put `kd` in front.**
 
-Tested: curl, Python `requests`, Node (proxy env support needed: Node 24+, or code that honours HTTPS_PROXY).
-Known gaps: Apple's bundled Python 3.9 `urllib` ignores `SSL_CERT_FILE` (use `requests` or a Homebrew Python);
-Node 22's built-in `fetch` ignores proxy settings; tools that pin certificates won't work. Use the base-URL
-approach (`<NAME>_BASE_URL`) for those.
+- In Claude Code (with the keydillo plugin, or after "Connect" in keydillo), every command Claude runs goes
+  through a small proxy that only that session's programs can use. When a program sends a `keydillo:<name>`
+  placeholder to its API, keydillo asks for Touch ID and swaps in the real key. Everything else passes through
+  untouched, still encrypted.
+- In your own Terminal: `kd npm run dev` (short for `keydillo run -- npm run dev`). `kd` is installed in
+  `~/.local/bin`, next to `claude`.
+- If keydillo isn't running, `kd` and Claude Code open it in the background.
+- If an API still says the key is invalid, the program skipped keydillo (see the limits below). Claude is told
+  this automatically; the fix is to call the API through its `*_BASE_URL` (`http://localhost:7787/<name>/...`).
+
+Tested with curl, Python (`requests`, `httpx`, `aiohttp`, `urllib`), Node (`fetch`, `https`, `undici`, axios),
+Bun and Deno. Results: `tests/compat/REPORT.md`.
 
 ## Credits
 
@@ -51,7 +56,7 @@ Known limits, in scope:
 What doesn't work yet (use the local base URL instead, or keep that key out of keydillo):
 - A key the API wants in the body, query or path is refused with `placeholder_misplaced` unless you turn on "Allow the key anywhere" for that key.
 - Secrets your app uses itself (webhook signing, JWT, session, encryption, database passwords, service-account files) and request-signing keys (AWS, Cloudinary) are left in your `.env`; keydillo can't stand in for them.
-- Under `keydillo run`: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
+- Under `kd` or Claude Code's routing: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
 - Some SDKs check a key's exact format at startup (Clerk, for example) and reject the placeholder.
 
 Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).

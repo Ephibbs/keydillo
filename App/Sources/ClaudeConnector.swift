@@ -65,7 +65,19 @@ enum ClaudeConnector {
 
   static var hookCommand: String { "'\(cliPath)' hook" }
 
-  /// Adds (or updates) keydillo's PreToolUse hook in ~/.claude/settings.json, keeping everything else.
+  /// keydillo's hook commands, by Claude Code event.
+  static var hookEntries: [(event: String, matcher: String?, command: String)] {
+    [("PreToolUse", "Bash|WebFetch", hookCommand), ("SessionStart", nil, hookCommand + " session-start"), ("PostToolUse", "Bash", hookCommand + " post")]
+  }
+  static func isOurs(_ entry: [String: Any]) -> Bool {
+    ((entry["hooks"] as? [[String: Any]]) ?? []).contains { h in
+      guard let c = h["command"] as? String, c.contains("keydillo") else { return false }
+      return c.hasSuffix(" hook") || c.hasSuffix(" hook session-start") || c.hasSuffix(" hook post")
+    }
+  }
+
+  /// Adds (or updates) keydillo's hooks in ~/.claude/settings.json, keeping everything else:
+  /// steering before a command, routing for the session, and an explanation when a provider rejects a placeholder.
   static func installHook() throws {
     let url = home.appendingPathComponent(".claude/settings.json")
     var root: [String: Any] = [:]
@@ -77,11 +89,13 @@ enum ClaudeConnector {
       try? d.write(to: url.appendingPathExtension("keydillo-backup"))
     }
     var hooks = root["hooks"] as? [String: Any] ?? [:]
-    var pre = (hooks["PreToolUse"] as? [[String: Any]] ?? []).filter { entry in
-      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.contains("keydillo") == true && ($0["command"] as? String)?.hasSuffix(" hook") == true }
+    for e in hookEntries {
+      var list = (hooks[e.event] as? [[String: Any]] ?? []).filter { !isOurs($0) }
+      var entry: [String: Any] = ["hooks": [["type": "command", "command": e.command, "timeout": 10]]]
+      if let m = e.matcher { entry["matcher"] = m }
+      list.append(entry)
+      hooks[e.event] = list
     }
-    pre.append(["matcher": "Bash|WebFetch", "hooks": [["type": "command", "command": hookCommand, "timeout": 5]]])
-    hooks["PreToolUse"] = pre
     root["hooks"] = hooks
     // Never touch the user's own permission rules.
     let out = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
@@ -91,9 +105,9 @@ enum ClaudeConnector {
   static func removeHook() {
     let url = home.appendingPathComponent(".claude/settings.json")
     guard let d = try? Data(contentsOf: url), var root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-          var hooks = root["hooks"] as? [String: Any], let pre = hooks["PreToolUse"] as? [[String: Any]] else { return }
-    hooks["PreToolUse"] = pre.filter { entry in
-      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.hasSuffix(" hook") == true && ($0["command"] as? String)?.contains("keydillo") == true }
+          var hooks = root["hooks"] as? [String: Any] else { return }
+    for e in ["PreToolUse", "SessionStart", "PostToolUse"] {
+      if let list = hooks[e] as? [[String: Any]] { hooks[e] = list.filter { !isOurs($0) } }
     }
     root["hooks"] = hooks
     if let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) { try? out.write(to: url, options: .atomic) }
@@ -144,7 +158,7 @@ enum ClaudeConnector {
 
   Never ask the user to paste an API key into the chat, and never read, print or log a key value.
 
-  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or run the command with `keydillo run -- <command>`.
+  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or prefix the command with `kd`. When keydillo's session hook says this session's commands are routed, placeholders are swapped automatically and you don't need either.
 
   0. Call the keydillo `status` tool whenever something keydillo-related fails.
   1. Call the keydillo `list_services` tool to see which services are already set up.
@@ -153,7 +167,7 @@ enum ClaudeConnector {
   3b. Before work that calls several of a project's APIs, or when the user says they'll be away, call `open_project` once: the user approves all of that project's keys with one Touch ID instead of one prompt per key.
   4. Call the API through the local base URL keydillo returns, e.g. `http://localhost:7787/elevenlabs/v1/...`. keydillo adds the key and the user approves with Touch ID.
   5. In code, read the base URL from an env var such as `ELEVENLABS_BASE_URL` and fall back to the real host when it's unset, so production works with a real key set in the host's settings.
-  6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly can be started with `keydillo run -- <command>`.
+  6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly work as they are in routed sessions; tell the user to start them with `kd <command>` in their own Terminal.
 
   ## When keydillo says no
 

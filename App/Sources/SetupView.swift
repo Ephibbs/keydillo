@@ -7,6 +7,7 @@ struct SetupView: View {
   @State private var changesOpen = false
   @State private var connecting = false
   @State private var connectError: String?
+  @State private var kdMissing = false
 
   let steps = 4
 
@@ -62,6 +63,15 @@ struct SetupView: View {
         }
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Claude Code just works. When you run something yourself, put kd in front:").font(.system(size: 13))
+        Text("kd npm run dev").font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.secondary)
+        if kdMissing {
+          Text("To use kd in Terminal, add this line to ~/.zshrc: \(ShellIntegration.pathLine)")
+            .font(.system(size: 12)).foregroundStyle(Theme.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .task { kdMissing = await Task.detached { !ShellIntegration.kdOnPath() }.value }
       if let connectError { Text(connectError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       footer(3) {
         HStack(spacing: 8) {

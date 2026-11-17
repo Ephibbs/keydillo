@@ -1,11 +1,45 @@
 {
-  "description": "keydillo: say when the app is missing, and stop direct calls that would send a placeholder or skip the proxy",
+  "description": "keydillo: route Claude's commands so placeholder keys get swapped, steer direct calls, explain rejected placeholders, and say when the app is missing",
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" --check-installed", "timeout": 5 } ] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" --check-installed",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "Bash|WebFetch", "hooks": [ { "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook", "timeout": 5 } ] }
+      {
+        "matcher": "Bash|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook post",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

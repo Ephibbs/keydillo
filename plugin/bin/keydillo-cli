@@ -14,6 +14,6 @@ case "$1" in
     # SessionStart output is added to Claude's context.
     echo "keydillo plugin: the keydillo Mac app isn't installed, so API keys can't be stored or used through it yet. If the user needs an API key, suggest: brew install --cask keydillo (or download it from https://github.com/Ephibbs/keydillo/releases), then open keydillo once."
     exit 0 ;;
-  hook) exit 0 ;;   # don't block anything when the app is missing
+  hook) exit 0 ;;   # don't block or route anything when the app is missing
   *) echo "keydillo app not found. Install it with: brew install --cask keydillo" >&2; exit 1 ;;
 esac

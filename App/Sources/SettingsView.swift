@@ -7,7 +7,7 @@ struct SettingsView: View {
   @State private var connectStatus: String?
   @State private var undoStatus: String?
   @State private var showUninstall = false
-  @State private var terminal = ShellIntegration.installed
+
 
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
@@ -18,7 +18,7 @@ struct SettingsView: View {
           .onChange(of: approval) { _, v in model.defaultApproval = v }
       }
       VStack(alignment: .leading, spacing: 8) {
-        Text("One Touch ID opens a project for").font(.system(size: 13, weight: .medium))
+        Text("Touch ID for projects").font(.system(size: 13, weight: .medium))
         Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { model.projectAccessDefault = $0 })) {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
@@ -26,10 +26,8 @@ struct SettingsView: View {
         Text("Applies to projects without their own setting. Change a single project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       VStack(alignment: .leading, spacing: 4) {
-        Toggle("Make keys work in my Terminal (commands inside keydillo projects)", isOn: $terminal).toggleStyle(.switch)
-          .onChange(of: terminal) { _, v in if v { try? ShellIntegration.install() } else { ShellIntegration.remove() } }
-        Text(terminal ? "Adds one line to ~/.zshrc. New Terminal windows pick it up. `kd <command>` works anywhere."
-                      : "Use `kd <command>` to run something with keydillo, or turn this on.")
+        Text("Terminal").font(.system(size: 13, weight: .medium))
+        Text("Claude Code's commands use keydillo automatically. For your own, put kd in front, e.g. kd npm run dev.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
