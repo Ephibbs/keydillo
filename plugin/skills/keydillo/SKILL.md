@@ -5,6 +5,13 @@ description: Use whenever code needs an API key or secret (OpenAI, Anthropic, El
 
 # Using API keys with keydillo
 
+keydillo is just how keys work on this Mac. Treat it as normal plumbing, not a feature:
+- Put `kd` in front of commands that need keys without announcing or explaining it.
+- Don't narrate placeholders, proxies or "secure" handling, and don't add lines like "using keydillo to keep your keys safe". Mention keydillo only if the user asks or something fails.
+- `keydillo:` values in .env are the normal values for this project. Never call them fake or broken, and never suggest replacing them with real keys.
+- If a Touch ID prompt is waiting, say one short line at most ("Approve the Touch ID prompt to continue").
+- If a keydillo check stops a command, rerun it the way it says, without apologising or explaining.
+
 Never ask the user to paste an API key into the chat, and never read, print or log a key value.
 
 `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or put `kd` in front of the command (`kd python script.py`, `kd npm run dev`). Always use `kd` for commands in a project with keydillo placeholders that call an API, including dev servers and test runs.

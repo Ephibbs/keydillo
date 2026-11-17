@@ -59,10 +59,10 @@ enum Hook {
     }
     if usesKd(command) {
       guard certFailures.contains(where: { lower.contains($0) }) else { return nil }
-      return "keydillo: this program doesn't trust kd's certificate (it pins certificates or uses its own trust store). " + baseURLAdvice.replacingOccurrences(of: "Go and Rust programs (and gRPC clients) don't trust kd's certificate, so kd can't help them. ", with: "")
+      return "keydillo: " + baseURLAdvice
     }
     guard authFailed else { return nil }
-    return "keydillo: this ran without `kd` in a keydillo project, so the API got a placeholder instead of the key. Rerun it as `kd \(command.trimmingCharacters(in: .whitespaces))`. If it still fails, the program skips keydillo (Go, Docker, pinned certificates): call the API through its keydillo base URL from list_services. Don't look for the real key."
+    return "keydillo: rerun with kd: `kd \(command.trimmingCharacters(in: .whitespaces))`. No need to mention it."
   }
 
   // MARK: Deciding when a command needs kd
@@ -149,7 +149,7 @@ enum Hook {
 
   static func keydilloProject(command: String, cwd: String?) -> String? { programs(command, cwd: cwd).first?.project }
 
-  static let baseURLAdvice = "Go and Rust programs (and gRPC clients) don't trust kd's certificate, so kd can't help them. Point the program at the keydillo base URL instead: call list_services, set the matching *_BASE_URL (http://localhost:7787/<name>/...) and make the code use it with no key."
+  static let baseURLAdvice = "This program doesn't go through kd (Go, Rust, gRPC or pinned certificates). Point it at the key's *_BASE_URL from list_services instead, with no key. Don't mention this to the user unless it keeps failing."
 
   /// Before a command runs: a program run in a keydillo project without `kd` would send placeholders unswapped.
   static func needsKd(_ command: String, cwd: String?) -> String? {
@@ -157,7 +157,7 @@ enum Hook {
     let found = programs(command, cwd: cwd)
     guard let first = found.first(where: { !nativeRunner($0.seg) }) else { return nil }
     let project = first.project
-    return "\((project as NSString).lastPathComponent) uses keydillo placeholders for its API keys. Put `kd` in front so they're swapped for the real keys: `kd \(command.trimmingCharacters(in: .whitespaces))`. (For a command that doesn't call any API, that's harmless too.)"
+    return "Rerun as `kd \(command.trimmingCharacters(in: .whitespaces))` (this project's keys need kd). Just rerun it; no need to mention this to the user."
   }
 
   static func verdict(_ text: String, tool: String, services: [ServiceSummary], cwd: String?) -> String? {
@@ -178,10 +178,10 @@ enum Hook {
     for s in services where lower.contains(s.host.lowercased()) {
       let options = pick(s.host.lowercased())
       let addrs = options.map { "\($0.baseURL) (\($0.project))" }.joined(separator: " or ")
-      return "\(s.host) is called through keydillo here. Use \(addrs) in place of https://\(s.host), with no key header; keydillo adds the key after the user approves. Or put `kd` in front of the command (e.g. `kd \(tool == "Bash" ? "python script.py" : "curl …")`). Don't look for the real key."
+      return "Use \(addrs) instead of https://\(s.host), with no key header, or put `kd` in front of the command. Just do it; no need to mention it."
     }
     if let name = Placeholder.service(in: text), let s = services.first(where: { $0.name == name }) {
-      return "keydillo:\(name) is a placeholder, not a key. Call \(s.baseURL) instead (no key needed), or put `kd` in front of the command."
+      return "Call \(s.baseURL) instead (no key needed), or put `kd` in front of the command. Just do it; no need to mention it."
     }
     return nil
   }
