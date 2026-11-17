@@ -13,6 +13,26 @@ public enum ControlRequest: Codable, Equatable {
   case openProject(OpenProjectRequest)
   /// `kd` asks for launch-time values (by key name) to put in the program's environment.
   case launchValues([String])
+  /// Asks the user to approve a change to a key or project, shown in a window and approved with Touch ID.
+  case requestChange(ChangeRequest)
+}
+
+public struct ChangeRequest: Codable, Equatable {
+  public enum Kind: String, Codable { case auth, share, rotate, moveFolder = "move_folder" }
+  public var kind: Kind
+  public var service: String?
+  public var project: String?
+  public var header: String?
+  public var prefix: String?
+  public var basicAuth: Bool?
+  public var queryParam: String?
+  public var folder: String?
+  public var why: String?
+  public init(kind: Kind, service: String? = nil, project: String? = nil, header: String? = nil, prefix: String? = nil,
+              basicAuth: Bool? = nil, queryParam: String? = nil, folder: String? = nil, why: String? = nil) {
+    self.kind = kind; self.service = service; self.project = project; self.header = header; self.prefix = prefix
+    self.basicAuth = basicAuth; self.queryParam = queryParam; self.folder = folder; self.why = why
+  }
 }
 
 public struct OpenProjectRequest: Codable, Equatable {
@@ -75,6 +95,7 @@ public enum ControlResponse: Codable, Equatable {
   case error(String)
   case opened(project: String, services: [String], span: String)
   case values([String: String])
+  case changed(String)
 }
 
 public extension ServiceConfig {
@@ -192,5 +213,18 @@ public enum Placeholder {
     guard let r = s.range(of: prefix) else { return nil }
     let name = s[r.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "-" }
     return name.isEmpty ? nil : String(name)
+  }
+}
+
+
+/// Rules for moving a project to a new folder.
+public enum ProjectFolders {
+  /// Why `new` can't be a project's folder, or nil if it can.
+  public static func problem(old: String, new: String, home: String = NSHomeDirectory()) -> String? {
+    let n = (new as NSString).standardizingPath
+    if !n.hasPrefix("/") { return "Give the new folder as an absolute path." }
+    if ["/", home, home + "/Desktop", home + "/Documents"].contains(n) { return "\(n) is too broad to be one project's folder." }
+    if !old.isEmpty, old == n || old.hasPrefix(n + "/") { return "\(n) contains the old folder; pick the project's own folder." }
+    return nil
   }
 }

@@ -73,10 +73,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
   }
 
   /// Replace an existing key (Rotate): same settings, new value.
-  func showReplaceKey(_ s: ServiceConfig) {
+  @discardableResult func showReplaceKey(_ s: ServiceConfig, requester: String? = nil) -> UUID {
     let kr = KeyRequest(service: s.name, displayName: s.displayName, host: s.upstreamHost, header: s.authHeader, prefix: s.authPrefix,
-                        envVarName: s.envVarName, project: s.project, requester: nil, cwd: s.folder, keyPageURL: s.keyPageURL ?? "")
+                        envVarName: s.envVarName, project: s.project, requester: requester, cwd: s.folder, keyPageURL: s.keyPageURL ?? "")
     showKeyWindow(kr, id: "key-\(kr.id)")
+    return kr.id
   }
 
   func showImport(only: [String]? = nil) {
@@ -84,7 +85,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
   }
 
   private func showKeyWindow(_ kr: KeyRequest, id: String) {
-    show(id, title: "Add a key") { KeyWindowView(request: kr, windowID: id) }
+    show(id, title: "Add a key", onClose: { AppModel.shared.finishKeyRequest(kr.id, saved: nil) }) { KeyWindowView(request: kr, windowID: id) }
   }
 
   func showReadout(project: String, values: [(String, String)]) {

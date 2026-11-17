@@ -45,6 +45,12 @@ enum Preview {
     case "readout":
       wm.showReadout(project: "Notes", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
+    case "change":
+      let p = ChangeProposal(title: "Change how your Anthropic key is sent", requester: "Claude Code",
+                             rows: [(label: "Header", old: "Authorization", new: "x-api-key"), (label: "Prefix", old: "Bearer ", new: "")],
+                             note: "Anthropic's API reads the key from x-api-key; requests are failing with 401.", warning: nil,
+                             touchReason: "preview") { _ in "" }
+      wm.show("change", title: p.title) { ChangeWindow(proposal: p) { _ in }.sheetCard() }
     case "import":
       let d = NSTemporaryDirectory() + "kd-preview-import"
       try? FileManager.default.createDirectory(atPath: d + "/beta", withIntermediateDirectories: true)

@@ -513,6 +513,7 @@ final class AppModel {
       // Only keydillo's own signed `kd` may receive values, and only launch-time keys, each approved like any request.
       guard ProcessLookup.isKeydilloBinary(caller.pid) else { return .error("launch-time values are only given to keydillo's own kd command") }
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read keys yet.") }
+      guard !paused else { return .error("keydillo is paused, so it isn't handing out keys. Resume it from the menu bar.") }
       let command = ProcessLookup.arguments(of: caller.pid).dropFirst().filter { $0 != "run" && $0 != "--" }.prefix(4).joined(separator: " ")
       var out: [String: String] = [:]
       for name in names {
@@ -525,6 +526,26 @@ final class AppModel {
                                     outcome: .sent, status: 0, note: "given to the program as it started"), at: 0)
       }
       return .values(out)
+    case .requestChange(let r):
+      guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't change keys yet.") }
+      let who = caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : "an unidentified program")
+      if r.kind == .rotate {
+        guard let s = r.service.flatMap(service(named:)) else { return .error("No key named \(r.service ?? "?"). Call list_services.") }
+        return await withCheckedContinuation { cont in
+          let id = WindowManager.shared.showReplaceKey(s, requester: who)
+          keyRequestWaiters[id] = cont
+        }
+      }
+      let proposal: ChangeProposal
+      do { proposal = try changeProposal(r, requester: who) } catch { return .error(error.localizedDescription) }
+      return await withCheckedContinuation { cont in
+        let wid = "change-\(proposal.id)"
+        var done = false
+        @MainActor func finish(_ resp: ControlResponse) { guard !done else { return }; done = true; WindowManager.shared.close(wid); cont.resume(returning: resp) }
+        WindowManager.shared.show(wid, title: proposal.title, floating: true, onClose: { finish(.declined) }) {
+          ChangeWindow(proposal: proposal) { finish($0) }.sheetCard()
+        }
+      }
     case .requestSecret(let r):
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read or add keys yet. Tell the user and retry after they unlock.") }
       guard ServiceConfig.isValidName(r.service) else { return .error("service must be lowercase letters, digits and dashes") }
@@ -540,6 +561,70 @@ final class AppModel {
         keyRequestWaiters[kr.id] = cont
         WindowManager.shared.showKeyWindow(kr)
       }
+    }
+  }
+
+  /// Builds the window for a requested change. Every change here needs the user's Touch ID before it's applied.
+  func changeProposal(_ r: ChangeRequest, requester: String) throws -> ChangeProposal {
+    func fail(_ m: String) -> Error { VaultError.invalidConfig(m) }
+    switch r.kind {
+    case .auth:
+      guard let s = r.service.flatMap(service(named:)) else { throw fail("No key named \(r.service ?? "?"). Call list_services.") }
+      guard !s.isLaunchTime else { throw fail("\(s.displayName) is a launch-time key; it isn't sent in requests.") }
+      var n = s
+      if let h = r.header { n.authHeader = h }
+      if let p = r.prefix { n.authPrefix = p }
+      if let b = r.basicAuth { n.basicAuth = b ? true : nil }
+      if let q = r.queryParam { n.authQueryParam = q.isEmpty ? nil : q }
+      try n.validate()
+      guard n != s else { throw fail("That's already how \(s.displayName) is sent.") }
+      let rows = [("Header", s.authHeader, n.authHeader), ("Prefix", s.authPrefix, n.authPrefix),
+                  ("Basic auth", s.basicAuth == true ? "on" : "off", n.basicAuth == true ? "on" : "off"),
+                  ("Query parameter", s.authQueryParam ?? "", n.authQueryParam ?? "")].filter { $0.1 != $0.2 }
+      return ChangeProposal(title: "Change how your \(s.displayName) key is sent", requester: requester, rows: rows.map { (label: $0.0, old: $0.1, new: $0.2) },
+                            note: r.why, warning: nil, touchReason: "change how your \(s.displayName) key is sent to \(s.upstreamHost.isEmpty ? "its site" : s.upstreamHost)") { [weak self] _ in
+        guard let self else { return "" }
+        try self.persist(self.services.map { $0.name == n.name ? n : $0 })
+        await self.engine.gate.revokeAll(service: n.name); await self.refreshGrants()
+        return "\(n.displayName) is now sent \(n.authQueryParam.map { "as ?\($0)=" } ?? (n.basicAuth == true ? "as Basic auth" : "in \(n.authPrefix)\(n.authHeader)"))."
+      }
+    case .share:
+      guard let s = r.service.flatMap(service(named:)) else { throw fail("No key named \(r.service ?? "?"). Call list_services.") }
+      guard let target = r.project?.trimmingCharacters(in: .whitespaces), !target.isEmpty, target != s.project else { throw fail("Give the other project's name.") }
+      let slug = target.lowercased().filter { $0.isLetter || $0.isNumber }
+      var name = "\(s.name)-\(slug)"; var i = 2
+      while service(named: name) != nil { name = "\(s.name)-\(slug)-\(i)"; i += 1 }
+      return ChangeProposal(title: "Use your \(s.displayName) key in \(target) too", requester: requester,
+                            rows: [(label: "Projects", old: s.project, new: "\(s.project), \(target)")],
+                            note: r.why, warning: "Programs in \(target) will be able to use this key, sent only to \(s.allHosts.isEmpty ? "its site" : s.allHosts.joined(separator: ", ")).",
+                            touchReason: "let \(target) use your \(s.displayName) key (\(s.project))") { [weak self] ctx in
+        guard let self else { return "" }
+        let value = try self.keychain.secret(for: s.name, context: ctx)
+        try self.keychain.setSecret(value, for: name, label: s.displayName)
+        var copy = s
+        copy.name = name; copy.project = target; copy.folder = self.folder(for: target)
+        try self.persist(self.services + [copy])
+        return "\(target) can now use \(s.displayName) as \(name) (base URL \(self.summary(copy).baseURL))."
+      }
+    case .moveFolder:
+      guard let project = r.project, projects.contains(project) else { throw fail("No project named \(r.project ?? "?").") }
+      guard let raw = r.folder, raw.hasPrefix("/") else { throw fail("Give the new folder as an absolute path.") }
+      let new = (raw as NSString).standardizingPath
+      var isDir: ObjCBool = false
+      guard FileManager.default.fileExists(atPath: new, isDirectory: &isDir), isDir.boolValue else { throw fail("\(new) isn't a folder on this Mac.") }
+      let old = folder(for: project) ?? ""
+      if let why = ProjectFolders.problem(old: old, new: new) { throw fail(why) }
+      let short = { (p: String) in (p as NSString).abbreviatingWithTildeInPath }
+      return ChangeProposal(title: "Move \(project) to a new folder", requester: requester, rows: [(label: "Folder", old: short(old), new: short(new))],
+                            note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Don't ask again\": programs in the new folder will use its keys without asking." : nil,
+                            touchReason: "move \(project)'s keys to \(short(new))") { [weak self] _ in
+        guard let self else { return "" }
+        try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new }; return c })
+        self.unlocks.close(project)
+        return "\(project) now lives in \(short(new)); its keys and settings are unchanged."
+      }
+    case .rotate:
+      throw fail("rotate is handled by the key window")
     }
   }
 

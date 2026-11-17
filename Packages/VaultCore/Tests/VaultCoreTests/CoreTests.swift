@@ -270,6 +270,29 @@ final class HostOnFirstUseTests: XCTestCase {
   }
 }
 
+final class ChangeRequestTests: XCTestCase {
+  func testMCPToolSendsTheChangeAndReportsTheAnswer() throws {
+    var sent: ControlRequest?
+    let mcp = MCPServer(cwd: "/tmp", send: { sent = $0; return .changed("done") })
+    XCTAssertTrue(mcp.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)!.contains("request_key_change"))
+    let out = mcp.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_key_change","arguments":{"kind":"auth","service":"openai","header":"Authorization","prefix":"Bearer "}}}"#)!
+    XCTAssertTrue(out.contains("The user approved: done"), out)
+    guard case .requestChange(let r) = sent else { return XCTFail() }
+    XCTAssertEqual(r.kind, .auth); XCTAssertEqual(r.header, "Authorization"); XCTAssertEqual(r.prefix, "Bearer ")
+    let bad = mcp.handle(line: #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"request_key_change","arguments":{"kind":"show_key"}}}"#)!
+    XCTAssertTrue(bad.contains("isError"), bad)
+  }
+
+  func testMoveFolderRules() {
+    let home = "/Users/u"
+    XCTAssertNil(ProjectFolders.problem(old: "/Users/u/Desktop/app", new: "/Users/u/code/app", home: home))
+    XCTAssertNotNil(ProjectFolders.problem(old: "/Users/u/Desktop/app", new: "/Users/u/Desktop", home: home))
+    XCTAssertNotNil(ProjectFolders.problem(old: "/Users/u/code/app", new: "/Users/u", home: home))
+    XCTAssertNotNil(ProjectFolders.problem(old: "/Users/u/code/app", new: "/Users/u/code", home: home), "a folder containing the old one")
+    XCTAssertNotNil(ProjectFolders.problem(old: "/x/app", new: "relative/path", home: home))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
