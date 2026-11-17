@@ -81,7 +81,7 @@ public final class MCPServer {
     case "initialize":
       result = ["protocolVersion": (msg["params"] as? [String: Any])?["protocolVersion"] as? String ?? "2025-06-18",
                 "capabilities": ["tools": [String: Any]()],
-                "serverInfo": ["name": "keydillo", "version": "0.1.0"]]
+                "serverInfo": ["name": "keydillo", "version": "0.1.1"]]
     case "tools/list":
       result = ["tools": Self.tools]
     case "tools/call":
