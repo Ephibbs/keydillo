@@ -64,7 +64,7 @@ struct SetupView: View {
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
       VStack(alignment: .leading, spacing: 4) {
-        Text("Claude Code just works. When you run something yourself, put kd in front:").font(.system(size: 13))
+        Text("Put kd in front of commands that use your keys. Claude does it for you.").font(.system(size: 13))
         Text("kd npm run dev").font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.secondary)
         if kdMissing {
           Text("To use kd in Terminal, add this line to ~/.zshrc: \(ShellIntegration.pathLine)")

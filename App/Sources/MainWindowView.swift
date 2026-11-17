@@ -200,10 +200,10 @@ struct MainWindowView: View {
       HStack(spacing: 8) {
         Text("Touch ID for this project").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         Menu {
-          Button("Default (\(model.projectAccessDefault.label))") { model.setAccess(project, nil) }
+          Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
           Divider()
           ForEach(ProjectAccess.allCases) { a in
-            Button(a.label) { if a == .always { confirmAlways = project } else { model.setAccess(project, a) } }
+            Button(a.label) { if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } } }
           }
         } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
           .menuStyle(.borderlessButton).fixedSize().disabled(folder == nil)
@@ -214,7 +214,7 @@ struct MainWindowView: View {
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
     .alert("Never ask again for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
-      Button("Don't ask again") { model.setAccess(project, .always); confirmAlways = nil }
+      Button("Continue with Touch ID") { Task { await model.setAccess(project, .always) }; confirmAlways = nil }
       Button("Cancel", role: .cancel) { confirmAlways = nil }
     } message: {
       Text("After one Touch ID each time keydillo starts, any program in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use \(project)'s keys until keydillo quits, even while the Mac is locked.")

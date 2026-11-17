@@ -67,7 +67,7 @@ enum ClaudeConnector {
 
   /// keydillo's hook commands, by Claude Code event.
   static var hookEntries: [(event: String, matcher: String?, command: String)] {
-    [("PreToolUse", "Bash|WebFetch", hookCommand), ("SessionStart", nil, hookCommand + " session-start"), ("PostToolUse", "Bash", hookCommand + " post")]
+    [("PreToolUse", "Bash|WebFetch", hookCommand), ("PostToolUse", "Bash", hookCommand + " post")]
   }
   static func isOurs(_ entry: [String: Any]) -> Bool {
     ((entry["hooks"] as? [[String: Any]]) ?? []).contains { h in
@@ -158,7 +158,7 @@ enum ClaudeConnector {
 
   Never ask the user to paste an API key into the chat, and never read, print or log a key value.
 
-  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or prefix the command with `kd`. When keydillo's session hook says this session's commands are routed, placeholders are swapped automatically and you don't need either.
+  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or put `kd` in front of the command (`kd python script.py`, `kd npm run dev`). Always use `kd` for commands in a project with keydillo placeholders that call an API, including dev servers and test runs.
 
   0. Call the keydillo `status` tool whenever something keydillo-related fails.
   1. Call the keydillo `list_services` tool to see which services are already set up.
@@ -167,7 +167,7 @@ enum ClaudeConnector {
   3b. Before work that calls several of a project's APIs, or when the user says they'll be away, call `open_project` once: the user approves all of that project's keys with one Touch ID instead of one prompt per key.
   4. Call the API through the local base URL keydillo returns, e.g. `http://localhost:7787/elevenlabs/v1/...`. keydillo adds the key and the user approves with Touch ID.
   5. In code, read the base URL from an env var such as `ELEVENLABS_BASE_URL` and fall back to the real host when it's unset, so production works with a real key set in the host's settings.
-  6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly work as they are in routed sessions; tell the user to start them with `kd <command>` in their own Terminal.
+  6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly must be started with `kd <command>`; tell the user to do the same in their own Terminal.
 
   ## When keydillo says no
 

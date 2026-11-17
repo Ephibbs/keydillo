@@ -133,6 +133,7 @@ final class AppModel {
     services = list
     snapshot.value = list
     if !servicesLoaded {
+      loadAccessSettings()
       servicesLoaded = true
       ImportModel.migrateFileBackups(model: self)
       ImportModel.migrateBaseURLs(model: self)
@@ -189,30 +190,54 @@ final class AppModel {
   private(set) var openProjects: [(project: String, unlock: ProjectUnlockStore.Unlock)] = []
   func refreshOpenProjects() { openProjects = unlocks.list() }
 
-  /// What new projects use, chosen in Settings. Ships as "each key's own setting".
-  var projectAccessDefault: ProjectAccess = ProjectAccess(rawValue: UserDefaults.standard.string(forKey: "projectAccessDefault") ?? "") ?? .perKey {
-    didSet { UserDefaults.standard.set(projectAccessDefault.rawValue, forKey: "projectAccessDefault") }
+  /// What projects use unless set on their own page. Ships as "each key's own setting".
+  /// Both settings live in the private Keychain group, not in preferences, so no other program can switch them,
+  /// and turning "don't ask again" on needs Touch ID.
+  private(set) var projectAccessDefault: ProjectAccess = .perKey
+  private(set) var projectAccessOverrides: [String: String] = [:]
+
+  struct AccessSettings: Codable { var defaultAccess: String; var overrides: [String: String] }
+
+  func loadAccessSettings() {
+    // Older builds kept these in preferences, where any program could change them: drop them, never trust them.
+    for k in ["projectAccessDefault", "projectAccess", "trustedProjects"] { UserDefaults.standard.removeObject(forKey: k) }
+    guard let d = keychain.setting("projectAccess"), !d.isEmpty, let s = try? JSONDecoder().decode(AccessSettings.self, from: d) else { return }
+    projectAccessDefault = ProjectAccess(rawValue: s.defaultAccess) ?? .perKey
+    projectAccessOverrides = s.overrides
   }
-  /// Per-project choices that differ from the default.
-  var projectAccessOverrides: [String: String] = AppModel.loadAccessOverrides() {
-    didSet { UserDefaults.standard.set(projectAccessOverrides, forKey: "projectAccess") }
+
+  private func saveAccessSettings() throws {
+    let d = try JSONEncoder().encode(AccessSettings(defaultAccess: projectAccessDefault.rawValue, overrides: projectAccessOverrides))
+    try keychain.setSetting("projectAccess", d)
   }
-  private static func loadAccessOverrides() -> [String: String] {
-    var o = UserDefaults.standard.dictionary(forKey: "projectAccess") as? [String: String] ?? [:]
-    // Earlier versions had a single "Don't ask for Touch ID" switch.
-    for p in UserDefaults.standard.stringArray(forKey: "trustedProjects") ?? [] where o[p] == nil { o[p] = ProjectAccess.always.rawValue }
-    UserDefaults.standard.removeObject(forKey: "trustedProjects")
-    return o
+
+  /// Changes the default for all projects. Turning on "don't ask again" needs Touch ID.
+  @discardableResult func setDefaultAccess(_ a: ProjectAccess) async -> Bool {
+    if a == .always, projectAccessDefault != .always {
+      guard await authenticate("stop asking for Touch ID in every project's folder") != nil else { return false }
+    }
+    let old = projectAccessDefault
+    projectAccessDefault = a
+    do { try saveAccessSettings() } catch { projectAccessDefault = old; return false }
+    unlocks.closeAll()
+    return true
   }
   func access(for project: String) -> ProjectAccess { projectAccessOverrides[project].flatMap(ProjectAccess.init) ?? projectAccessDefault }
   func accessOverride(for project: String) -> ProjectAccess? { projectAccessOverrides[project].flatMap(ProjectAccess.init) }
-  /// nil goes back to the default. Changing it closes the project if it's open.
-  func setAccess(_ project: String, _ access: ProjectAccess?) {
+  /// nil goes back to the default. Changing it closes the project if it's open. Turning on "don't ask again" needs Touch ID.
+  @discardableResult func setAccess(_ project: String, _ access: ProjectAccess?) async -> Bool {
+    let next = access ?? projectAccessDefault
+    if next == .always, self.access(for: project) != .always {
+      guard await authenticate("stop asking for Touch ID for programs in \(project)'s folder") != nil else { return false }
+    }
+    let old = projectAccessOverrides
     projectAccessOverrides[project] = access?.rawValue
+    do { try saveAccessSettings() } catch { projectAccessOverrides = old; return false }
     unlocks.close(project)
     let now = self.access(for: project)
     events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
                                 note: "\(project): Touch ID \(now == .perKey ? "follows each key's setting" : "isn't asked for in its folder " + now.span)"), at: 0)
+    return true
   }
   func closeProject(_ project: String) {
     unlocks.close(project)
@@ -225,6 +250,9 @@ final class AppModel {
   }
   func inFolder(_ cwd: String?, of project: String) -> String? {
     guard let folder = folder(for: project), let cwd else { return nil }
+    // Too broad to stand for one project: everything would count as "in the folder".
+    let f = (folder as NSString).standardizingPath
+    if f == "/" || f == NSHomeDirectory() || f == NSHomeDirectory() + "/Desktop" || f == NSHomeDirectory() + "/Documents" { return nil }
     return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
   }
 
@@ -302,6 +330,9 @@ final class AppModel {
     guard !trimmed.isEmpty else { throw VaultError.invalidConfig("Paste the key first") }
     guard await authenticate("save your \(config.displayName) key") != nil else { return false }
     try keychain.setSecret(Data(trimmed.utf8), for: config.name, label: config.displayName)
+    // A rotated key must not keep using the old value held in memory for an open project.
+    if let old = service(named: config.name) { unlocks.close(old.project) }
+    unlocks.close(config.project)
     try persist(services.filter { $0.name != config.name } + [config])
     clearRejected(config.name)
     return true
@@ -323,6 +354,7 @@ final class AppModel {
   }
 
   func delete(_ name: String) {
+    if let s = service(named: name) { unlocks.close(s.project) }
     keychain.deleteSecret(name)
     try? persist(services.filter { $0.name != name })
     Task { await engine.gate.revokeAll(service: name); await refreshGrants() }
@@ -426,13 +458,17 @@ final class AppModel {
       let list = keys.map(\.displayName).joined(separator: ", ")
       let ctx = LAContext(); ctx.localizedCancelTitle = "Deny"
       if access == .perKey {
-        // No project window: approve each key for this caller's session only.
+        // No project window: approve the keys for this caller's session only. Keys set to ask every time keep asking.
         guard caller.identified else { return .error("keydillo couldn't identify the caller, so it can't approve keys in advance.") }
-        let reason = "let \(who) use \(name)'s keys (\(list)) for this session"
+        let grouped = keys.filter { if case .eachRequest = $0.approval { return false }; return true }
+        let skipped = keys.filter { if case .eachRequest = $0.approval { return true }; return false }
+        guard !grouped.isEmpty else { return .error("Every key in \(name) is set to ask each time, so there's nothing to approve in advance.") }
+        let reason = "let \(who) use \(name)'s keys (\(grouped.map(\.displayName).joined(separator: ", "))) until this \(who) session ends"
         guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
-        for k in keys { await engine.gate.grantWindow(service: k.name, minutes: 24 * 60, context: ctx, client: caller) }
+        for k in grouped { await engine.gate.grantWindow(service: k.name, minutes: 12 * 60, context: ctx, client: caller) }
         await refreshGrants()
-        return .opened(project: name, services: keys.map(\.name), span: "for this session")
+        let note = skipped.isEmpty ? "" : " (\(skipped.map(\.name).joined(separator: ", ")) still ask every time)"
+        return .opened(project: name, services: grouped.map(\.name), span: "for this session" + note)
       }
       guard let folder = folder(for: name) else { return .error("keydillo doesn't know \(name)'s folder yet, so it can't open it for that folder.") }
       let reason = "let programs in \((folder as NSString).abbreviatingWithTildeInPath) use \(name)'s keys (\(list)) \(access.span)"

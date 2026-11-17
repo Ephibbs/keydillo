@@ -157,11 +157,12 @@ public final class ProxyEngine: @unchecked Sendable {
       for (k, v) in req.headers {
         let lk = k.lowercased()
         if keepUpgrade && (lk == "upgrade" || lk == "connection") { out.append((k, v)); continue }
-        if Self.hopByHop.contains(lk) { continue }
+        if Self.hopByHop.contains(lk) || lk == "accept-encoding" || lk == "x-keydillo-caller" { continue }
         if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization") { continue }
         if let extra = svc.extraHeaders, extra.keys.contains(where: { $0.lowercased() == lk }) { continue }
         out.append((k, anywhere ? sub.apply(v, urlEncoded: false) : v))
       }
+      out.append(("Accept-Encoding", "identity"))
       if usesHeader { out.append((svc.authHeader, keyValue)) }
       for (k, template) in svc.extraHeaders ?? [:] { out.append((k, template.replacingOccurrences(of: "{key}", with: raw))) }
       return out

@@ -19,7 +19,7 @@ struct SettingsView: View {
       }
       VStack(alignment: .leading, spacing: 8) {
         Text("Touch ID for projects").font(.system(size: 13, weight: .medium))
-        Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { model.projectAccessDefault = $0 })) {
+        Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { v in Task { await model.setDefaultAccess(v) } })) {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
         .labelsHidden().fixedSize()
@@ -27,7 +27,7 @@ struct SettingsView: View {
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
-        Text("Claude Code's commands use keydillo automatically. For your own, put kd in front, e.g. kd npm run dev.")
+        Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Claude does it for you.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)

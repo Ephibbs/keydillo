@@ -34,12 +34,15 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
     return "\(pid)|\(startTime)"
   }
 
-  /// The app a person would name: "Claude Code" for the claude CLI, else the agent or program name.
+  /// True when the agent is Claude Code as signed by Anthropic (set by `describe`).
+  public var agentVerified = false
+
+  /// What the approval prompt calls the caller. "Claude Code" only when Anthropic's signature checks out;
+  /// anything else is shown by its file name, so a program can't borrow a trusted name by renaming itself.
   public var friendlyName: String {
-    let raw = (agent ?? name).lowercased()
-    let names: [(String, String)] = [("claude", "Claude Code"), ("codex", "Codex"), ("cursor", "Cursor"), ("aider", "Aider"), ("goose", "Goose"),
-                                     ("gemini", "Gemini CLI"), ("opencode", "OpenCode"), ("windsurf", "Windsurf"), ("copilot", "Copilot")]
-    return names.first { raw == $0.0 || raw.hasPrefix($0.0 + "-") || raw.hasPrefix($0.0 + ".") }?.1 ?? (agent ?? name)
+    if agentVerified { return "Claude Code" }
+    if let agent { return "\(agent) (unverified)" }
+    return name
   }
 
   public var displayName: String {
@@ -55,6 +58,11 @@ public enum ProcessLookup {
   static let agentNames = ["claude", "codex", "cursor", "aider", "goose", "gemini", "opencode", "windsurf", "copilot"]
 
   /// `clientPort` is the client's local port (our remote port).
+  /// True when the connection from `clientPort` to `serverPort` was opened by this process itself.
+  public static func isOwnConnection(from clientPort: UInt16, to serverPort: UInt16) -> Bool {
+    owns(pid: getpid(), localPort: clientPort, remotePort: serverPort)
+  }
+
   public static func process(connectedFrom clientPort: UInt16, to serverPort: UInt16) -> ClientProcess {
     let ownPid = getpid()
     let count = proc_listallpids(nil, 0)
@@ -100,13 +108,16 @@ public enum ProcessLookup {
       if parent <= 1 || parent == cur { break }
       cur = parent
     }
+    if let a = p.agentPid, (p.agent ?? "").lowercased().hasPrefix("claude") {
+      p.agentVerified = signingTeam(a) == anthropicTeam
+    }
     // Requests that come through keydillo's own proxy (`kd`, or a Claude Code session's routing) arrive from the
     // keydillo command, not the program that made them. Name the program it serves, after checking it really is
     // keydillo's binary (same signing team as this app). The approval still belongs to that proxy's own session.
     if p.agent == nil, let served = servedBy(pid) {
       if let owner = served.owner {
         let o = describe(owner)
-        p.agent = o.agent; p.agentPid = o.agentPid
+        p.agent = o.agent; p.agentPid = o.agentPid; p.agentVerified = o.agentVerified
         if p.agent == nil { p.name = o.name }
       } else if let command = served.command {
         p.name = command
@@ -162,7 +173,16 @@ public enum ProcessLookup {
   }
 
   static func parentPid(of pid: Int32) -> Int32 { Int32(bsdInfo(pid)?.pbi_ppid ?? 0) }
-  static func startTime(of pid: Int32) -> UInt64 {
+  /// Every process id on the Mac.
+  public static func allPids() -> [Int32] {
+    let n = proc_listallpids(nil, 0)
+    guard n > 0 else { return [] }
+    var buf = [Int32](repeating: 0, count: Int(n) + 64)
+    let got = proc_listallpids(&buf, Int32(buf.count * MemoryLayout<Int32>.size))
+    return Array(buf.prefix(Int(max(got, 0)))).filter { $0 > 0 }
+  }
+
+  public static func startTime(of pid: Int32) -> UInt64 {
     guard let i = bsdInfo(pid) else { return 0 }
     return i.pbi_start_tvsec * 1_000_000 + i.pbi_start_tvusec
   }
@@ -171,6 +191,9 @@ public enum ProcessLookup {
 import Security
 
 public extension ProcessLookup {
+  /// Anthropic's Apple team ID, which signs Claude Code.
+  static let anthropicTeam = "Q6L2SF6YDW"
+
   /// The command line of `pid`.
   static func arguments(of pid: Int32) -> [String] {
     var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
@@ -207,6 +230,13 @@ public extension ProcessLookup {
     guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
           let dict = info as? [String: Any] else { return nil }
     return dict[kSecCodeInfoTeamIdentifier as String] as? String
+  }
+
+  /// True when `pid` runs keydillo's own command-line binary, signed by the same team as this process.
+  static func isKeydilloBinary(_ pid: Int32) -> Bool {
+    guard pid > 0, path(of: pid).hasSuffix("/bin/keydillo") else { return false }
+    guard let mine = signingTeam(nil) else { return false }
+    return signingTeam(pid) == mine
   }
 
   /// When `pid` is keydillo's own command running `kd`/`keydillo run` or a Claude Code session's proxy, who it serves.

@@ -1,5 +1,5 @@
 {
-  "description": "keydillo: route Claude's commands so placeholder keys get swapped, steer direct calls, explain rejected placeholders, and say when the app is missing",
+  "description": "keydillo: steer Claude to kd, explain rejected placeholders, and say when the app is missing",
   "hooks": {
     "SessionStart": [
       {
@@ -8,11 +8,6 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" --check-installed",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/bin/keydillo-cli\" hook session-start",
-            "timeout": 10
           }
         ]
       }

@@ -1,19 +1,25 @@
 #!/bin/sh
-# Finds the keydillo command inside the installed app and runs it. The plugin ships no binary of its own.
-found=$(mdfind "kMDItemCFBundleIdentifier == 'com.studiokillswitch.keydillo'" 2>/dev/null | grep -v '/.Trash/' | head -1)
-for app in "/Applications/keydillo.app" "$HOME/Applications/keydillo.app" "$found"; do
-  [ -n "$app" ] || continue
-  cli="$app/Contents/Resources/bin/keydillo"
-  if [ -x "$cli" ]; then
-    [ "$1" = "--check-installed" ] && exit 0
-    exec "$cli" "$@"
-  fi
+# Runs the keydillo command from the installed keydillo app. The plugin ships no binary of its own.
+# Only fixed locations are used, and the binary must be signed by keydillo's developer team.
+TEAM=2JARAJYAYY
+verified() { codesign --verify --strict -R="anchor apple generic and certificate leaf[subject.OU] = \"$TEAM\"" "$1" >/dev/null 2>&1; }
+cli=""
+for c in "/Applications/keydillo.app/Contents/Resources/bin/keydillo" "$HOME/Applications/keydillo.app/Contents/Resources/bin/keydillo"; do
+  [ -x "$c" ] && { cli="$c"; break; }
 done
+# The link keydillo itself keeps in ~/.local/bin (covers development builds).
+if [ -z "$cli" ] && [ -L "$HOME/.local/bin/keydillo" ]; then
+  t=$(readlink "$HOME/.local/bin/keydillo"); case "$t" in */keydillo.app/Contents/Resources/bin/keydillo) [ -x "$t" ] && cli="$t";; esac
+fi
+if [ -n "$cli" ] && verified "$cli"; then
+  [ "$1" = "--check-installed" ] && exit 0
+  exec "$cli" "$@"
+fi
 case "$1" in
   --check-installed)
     # SessionStart output is added to Claude's context.
-    echo "keydillo plugin: the keydillo Mac app isn't installed, so API keys can't be stored or used through it yet. If the user needs an API key, suggest: brew install --cask keydillo (or download it from https://github.com/Ephibbs/keydillo/releases), then open keydillo once."
+    echo "keydillo plugin: the keydillo Mac app isn't installed, so API keys can't be stored or used through it yet. If the user needs an API key, point them to https://github.com/Ephibbs/keydillo to install it, then open keydillo once."
     exit 0 ;;
-  hook) exit 0 ;;   # don't block or route anything when the app is missing
-  *) echo "keydillo app not found. Install it with: brew install --cask keydillo" >&2; exit 1 ;;
+  hook) exit 0 ;;   # don't block anything when the app is missing
+  *) echo "keydillo app not found. Install it from https://github.com/Ephibbs/keydillo" >&2; exit 1 ;;
 esac

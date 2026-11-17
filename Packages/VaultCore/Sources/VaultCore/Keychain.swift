@@ -133,6 +133,32 @@ public final class KeychainBackend: ConfigPersistence {
     return try? JSONDecoder().decode([ServiceConfig].self, from: d)
   }
 
+  /// Small settings kept next to the rules in the private Keychain group, so other programs can't change them.
+  /// nil when unreadable (e.g. the Mac is locked); empty Data when not set yet.
+  public func setting(_ account: String) -> Data? {
+    var q = base(service: Self.configService, account: account)
+    q[kSecReturnData as String] = true
+    var out: CFTypeRef?
+    let status = SecItemCopyMatching(q as CFDictionary, &out)
+    if status == errSecItemNotFound { return Data() }
+    guard status == errSecSuccess else { return nil }
+    return out as? Data ?? Data()
+  }
+
+  public func setSetting(_ account: String, _ data: Data) throws {
+    let q = base(service: Self.configService, account: account)
+    let s = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if s == errSecItemNotFound {
+      var add = q
+      add[kSecValueData as String] = data
+      add[kSecAttrLabel as String] = "keydillo: settings"
+      let a = SecItemAdd(add as CFDictionary, nil)
+      guard a == errSecSuccess else { throw VaultError.keychain(a) }
+    } else if s != errSecSuccess {
+      throw VaultError.keychain(s)
+    }
+  }
+
   public func save(_ services: [ServiceConfig]) throws {
     let data = try JSONEncoder().encode(services)
     let q = base(service: Self.configService, account: Self.configAccount)

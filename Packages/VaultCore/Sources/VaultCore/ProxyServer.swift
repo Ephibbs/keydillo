@@ -67,7 +67,13 @@ public final class ProxyServer: @unchecked Sendable {
       case .complete(let req, _):
         var clientPort: UInt16 = 0
         if case .hostPort(_, let p) = c.endpoint { clientPort = p.rawValue }
-        let client = self.identify(clientPort, self.port)
+        var client = self.identify(clientPort, self.port)
+        // A request forwarded by `kd` names the program that really made it. Believe that only from keydillo's own
+        // signed binary, and only for one of its own child processes.
+        if let v = req.headers.first(where: { $0.0.lowercased() == "x-keydillo-caller" })?.1, let pid = Int32(v.trimmingCharacters(in: .whitespaces)),
+           pid > 0, ProcessLookup.isKeydilloBinary(client.pid), ProcessLookup.isDescendant(pid, of: client.pid) {
+          client = ProcessLookup.describe(pid)
+        }
         let head = req.method == "HEAD"
         Task { await self.engine.serve(req, client: client, sink: ConnectionSink(c, queue: self.queue, noBody: head)) }
       }

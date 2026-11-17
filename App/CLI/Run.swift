@@ -163,7 +163,7 @@ enum Runner {
   }()
   static var caKey: URL { runDir.appendingPathComponent("ca.key") }
   static var caPem: URL { runDir.appendingPathComponent("ca.pem") }
-  static var roots: URL { support.appendingPathComponent("roots.pem") }   // public root certificates only
+  static var roots: URL { runDir.appendingPathComponent("roots.pem") }   // public roots, rebuilt each run in the private run folder
 
   /// A fresh certificate authority for this run only, limited to the stored hosts, never reused.
   static func ensureCA(hosts: [String]) throws {
@@ -174,11 +174,12 @@ enum Runner {
     let names = (hosts.isEmpty ? ["invalid"] : hosts).map { "permitted;DNS:\($0)" }.joined(separator: ",")
     let (s1, _) = sh(["/usr/bin/openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", caKey.path])
     chmod(caKey.path, 0o600)
-    let (s2, _) = sh(["/usr/bin/openssl", "req", "-x509", "-new", "-key", caKey.path, "-sha256", "-days", "2",
+    let (s2, _) = sh(["/usr/bin/openssl", "req", "-x509", "-new", "-key", caKey.path, "-sha256", "-days", "30",
                       "-subj", "/CN=keydillo run \(getpid()) (this command only)", "-out", caPem.path,
                       "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0", "-addext", "keyUsage=critical,keyCertSign,cRLSign",
                       "-addext", "nameConstraints=critical,\(names)"])
     guard s1 == 0, s2 == 0 else { throw VaultError.invalidConfig("couldn't create the keydillo run certificate (openssl failed)") }
+    try? fm.removeItem(at: support.appendingPathComponent("roots.pem"))   // older builds kept a shared, writable copy
     if !fm.fileExists(atPath: roots.path) {
       let (_, sys) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/System/Library/Keychains/SystemRootCertificates.keychain"])
       // Roots an admin or MDM installed (corporate TLS inspection such as Zscaler) live in the System keychain.
@@ -222,79 +223,37 @@ enum Runner {
     child.arguments = command
     child.environment = env
     child.terminationHandler = { p in
-      cleanup()
-      exit(p.terminationStatus)
+      // Programs the command started in the background (daemons, nohup, pm2) keep their keys and network
+      // until they exit too.
+      proxy.scanDescendants()
+      let status = p.terminationStatus
+      let wait = DispatchSource.makeTimerSource(queue: .main)
+      wait.schedule(deadline: .now(), repeating: 2)
+      wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
+      wait.resume()
+      Runner.keepAlive = wait
     }
     signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
     do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
     proxy.childPid = child.processIdentifier
+    let scan = DispatchSource.makeTimerSource(queue: .global())
+    scan.schedule(deadline: .now() + 1, repeating: 2)
+    scan.setEventHandler { proxy.scanDescendants() }
+    scan.resume()
+    Runner.scanner = scan
     dispatchMain()
   }
 
-  /// Variables `prepare()` sets. The shell and Claude Code hooks export exactly these.
-  static let routedVars = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy",
-                           "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
-                           "AWS_CA_BUNDLE", "KEYDILLO_RUN", "KEYDILLO_RUN_MAP", "KEYDILLO_RUN_PORT", "NODE_OPTIONS", "KEYDILLO_CA", "PYTHONPATH"]
-
-  static var sessionsDir: URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/sessions", isDirectory: true)
-  }
-
-  /// Export lines that route a shell's (or a Claude Code session's) commands through a proxy that only `owner`
-  /// and its descendants may use. Starts that proxy in the background the first time; it exits with `owner`.
-  static func shellEnv(owner: Int32) -> String? {
-    let fm = FileManager.default
-    try? fm.createDirectory(at: sessionsDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    let envFile = sessionsDir.appendingPathComponent("\(owner).env"), pidFile = sessionsDir.appendingPathComponent("\(owner).pid")
-    func current() -> String? {
-      guard let pidText = try? String(contentsOf: pidFile, encoding: .utf8), let srv = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)),
-            kill(srv, 0) == 0, let text = try? String(contentsOf: envFile, encoding: .utf8) else { return nil }
-      return text
-    }
-    if let t = current() { return t }
-    try? fm.removeItem(at: envFile); try? fm.removeItem(at: pidFile)
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: ProcessLookup.path(of: getpid()))
-    p.arguments = ["run", "--serve-for", String(owner)]
-    p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
-    do { try p.run() } catch { return nil }
-    for _ in 0..<60 { if let t = current() { return t }; usleep(50_000) }
-    return nil
-  }
-
-  /// The background proxy behind `shellEnv`. Serves only `owner`'s descendants and exits when `owner` does.
-  static func serve(owner: Int32) -> Never {
-    setsid()   // not part of the terminal's job control: Ctrl-C on a command doesn't stop it
-    signal(SIGINT, SIG_IGN); signal(SIGHUP, SIG_IGN)
-    let (proxy, env) = prepare()
-    proxy.childPid = owner
-    let env0 = ProcessInfo.processInfo.environment
-    var lines: [String] = []
-    for k in routedVars {
-      if let v = env[k] { lines.append("export \(k)='\(v.replacingOccurrences(of: "'", with: "'\\''"))'") }
-      else if env0[k] != nil { lines.append("unset \(k)") }
-    }
-    let envFile = sessionsDir.appendingPathComponent("\(owner).env"), pidFile = sessionsDir.appendingPathComponent("\(owner).pid")
-    func cleanupAll() { cleanup(); try? FileManager.default.removeItem(at: envFile); try? FileManager.default.removeItem(at: pidFile) }
-    FileManager.default.createFile(atPath: envFile.path, contents: Data((lines.joined(separator: "\n") + "\n").utf8), attributes: [.posixPermissions: 0o600])
-    FileManager.default.createFile(atPath: pidFile.path, contents: Data(String(getpid()).utf8), attributes: [.posixPermissions: 0o600])
-    signal(SIGTERM, SIG_IGN)
-    let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-    term.setEventHandler { cleanupAll(); exit(0) }; term.resume()
-    let timer = DispatchSource.makeTimerSource(queue: .main)
-    timer.schedule(deadline: .now() + 2, repeating: 2)
-    timer.setEventHandler { if kill(owner, 0) != 0 && errno == ESRCH { cleanupAll(); exit(0) } }
-    timer.resume()
-    dispatchMain()
-  }
-
-  /// Starts this run's proxy and works out the environment that routes a command through it.
   /// The app's services, opening keydillo in the background first if it isn't running.
   static func appServices() -> [ServiceSummary]? {
     if case .services(let s)? = try? ControlSocket.send(.listServices) { return s }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    p.arguments = ["-g", "-b", "com.studiokillswitch.keydillo"]
+    // The app this command belongs to (…/keydillo.app/Contents/Resources/bin/keydillo), not whichever copy Spotlight finds.
+    let me = URL(fileURLWithPath: ProcessLookup.path(of: getpid()))
+    let app = me.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    guard app.pathExtension == "app" else { return nil }
+    p.arguments = ["-g", app.path]
     p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
     try? p.run(); p.waitUntilExit()
     for _ in 0..<40 {
@@ -303,6 +262,9 @@ enum Runner {
     }
     return nil
   }
+
+  static var keepAlive: DispatchSourceTimer?
+  static var scanner: DispatchSourceTimer?
 
   /// Keeps the proxy alive for the life of the process (its callbacks only hold it weakly).
   static var active: MitmProxy?
@@ -438,6 +400,32 @@ final class MitmProxy: @unchecked Sendable {
     return p
   }
 
+  /// Processes started by the command that we've seen (pid -> start time). They keep access after they detach
+  /// (daemons, nohup, pm2), and the proxy stays up while any of them is alive.
+  var known: [Int32: UInt64] = [:]
+
+  func allowed(_ pid: Int32) -> Bool {
+    if ProcessLookup.isDescendant(pid, of: childPid) { remember(pid); return true }
+    lock.lock(); let ks = known; lock.unlock()
+    for (k, start) in ks where ProcessLookup.startTime(of: k) == start && ProcessLookup.isDescendant(pid, of: k) { remember(pid); return true }
+    return false
+  }
+
+  func remember(_ pid: Int32) {
+    let st = ProcessLookup.startTime(of: pid)
+    lock.lock(); known[pid] = st; lock.unlock()
+  }
+
+  /// Records every current descendant of the command, so ones that later detach keep working.
+  func scanDescendants() {
+    for pid in ProcessLookup.allPids() where pid != childPid && ProcessLookup.isDescendant(pid, of: childPid) { remember(pid) }
+  }
+
+  var anyKnownAlive: Bool {
+    lock.lock(); let ks = known; lock.unlock()
+    return ks.contains { ProcessLookup.startTime(of: $0.key) == $0.value }
+  }
+
   /// Set once the command starts. Only it and its descendants may use this run's proxy.
   var childPid: Int32 = 0
   var listenPort: UInt16 = 0
@@ -445,28 +433,46 @@ final class MitmProxy: @unchecked Sendable {
   func acceptClient(_ c: NWConnection) {
     if case .hostPort(_, let p) = c.endpoint {
       let peer = ProcessLookup.process(connectedFrom: p.rawValue, to: listenPort)
-      guard childPid > 0, peer.pid > 0, ProcessLookup.isDescendant(peer.pid, of: childPid) else {
+      guard childPid > 0, peer.pid > 0, allowed(peer.pid) else {
         c.start(queue: queue)
         reply(c, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); return
       }
+      c.start(queue: queue)
+      readHead(c, Data(), caller: peer.pid)
+      return
     }
     c.start(queue: queue)
-    readHead(c, Data())
+    reply(c, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
   }
 
-  func readHead(_ c: NWConnection, _ buf: Data) {
+  /// Which program each of our own connections to a per-host TLS listener was opened for (by local port).
+  var callerByPort: [UInt16: Int32] = [:]
+
+  func readHead(_ c: NWConnection, _ buf: Data, caller: Int32) {
     c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] d, _, done, err in
       guard let self else { return }
       var b = buf; if let d { b.append(d) }
       guard let end = b.range(of: Data("\r\n\r\n".utf8)) else {
-        if done || err != nil { c.cancel() } else { self.readHead(c, b) }
+        if done || err != nil { c.cancel() } else { self.readHead(c, b, caller: caller) }
         return
       }
       let head = String(decoding: b[..<end.lowerBound], as: UTF8.self)
       let rest = b[end.upperBound...]
       let parts = head.split(separator: " ")
-      guard parts.count >= 2, parts[0] == "CONNECT" else {
-        self.reply(c, "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); return
+      guard parts.count >= 2 else {
+        self.reply(c, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); return
+      }
+      if parts[0] != "CONNECT" {
+        // A plain http:// request (absolute URL). Read it whole, then send it on.
+        switch HTTPParser.parse(b) {
+        case .incomplete:
+          if done || err != nil { c.cancel() } else { self.readHead(c, b, caller: caller) }
+        case .invalid(let status, let reason):
+          c.send(content: HTTPResponse.error(status, reason).serialized(), completion: .contentProcessed { _ in c.cancel() })
+        case .complete(let req, let consumed):
+          self.forwardPlain(req, extra: b.suffix(from: b.startIndex + consumed), client: c, caller: caller)
+        }
+        return
       }
       let target = String(parts[1])
       let host = String(target.split(separator: ":").first ?? "").lowercased()
@@ -486,11 +492,23 @@ final class MitmProxy: @unchecked Sendable {
         }
         let (h, p) = self.hosts.contains(host) ? ("127.0.0.1", try self.tlsPort(for: host)) : (host, port)
         let upstream = NWConnection(host: NWEndpoint.Host(h), port: NWEndpoint.Port(rawValue: p)!, using: .tcp)
+        let intercepted = self.hosts.contains(host)
+        upstream.stateUpdateHandler = { [weak self] st in
+          guard case .ready = st, intercepted, let self,
+                case .hostPort(_, let local)? = upstream.currentPath?.localEndpoint else { return }
+          self.lock.lock(); self.callerByPort[local.rawValue] = caller; self.lock.unlock()
+          c.send(content: Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8), completion: .contentProcessed { _ in
+            if !rest.isEmpty { upstream.send(content: rest, completion: .idempotent) }
+            self.pipe(c, upstream); self.pipe(upstream, c)
+          })
+        }
         upstream.start(queue: self.queue)
-        c.send(content: Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8), completion: .contentProcessed { _ in
-          if !rest.isEmpty { upstream.send(content: rest, completion: .idempotent) }
-          self.pipe(c, upstream); self.pipe(upstream, c)
-        })
+        if !intercepted {
+          c.send(content: Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8), completion: .contentProcessed { _ in
+            if !rest.isEmpty { upstream.send(content: rest, completion: .idempotent) }
+            self.pipe(c, upstream); self.pipe(upstream, c)
+          })
+        }
       } catch {
         FileHandle.standardError.write(Data("keydillo run: couldn't intercept \(host): \(error.localizedDescription)\n".utf8))
         self.reply(c, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
@@ -521,7 +539,25 @@ final class MitmProxy: @unchecked Sendable {
     let l = try NWListener(using: params)
     let ready = DispatchSemaphore(value: 0)
     l.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
-    l.newConnectionHandler = { [weak self] c in c.start(queue: self!.queue); self?.serve(c, host: host, buf: Data()) }
+    l.newConnectionHandler = { [weak self] c in
+      guard let self else { c.cancel(); return }
+      // Only this proxy itself may connect here (it forwards CONNECTs it has already checked). Anyone else is refused.
+      guard case .hostPort(_, let peerPort) = c.endpoint, let me = self.tlsListeners[host] ?? l.port?.rawValue,
+            ProcessLookup.isOwnConnection(from: peerPort.rawValue, to: me) else {
+        if ProcessInfo.processInfo.environment["KEYDILLO_DEBUG"] != nil {
+          FileHandle.standardError.write(Data("keydillo run: refused a direct connection to the \(host) listener\n".utf8))
+        }
+        c.cancel(); return
+      }
+      // Our side may not have recorded who this connection is for yet: wait briefly.
+      func attempt(_ tries: Int) {
+        self.lock.lock(); let caller = self.callerByPort.removeValue(forKey: peerPort.rawValue); self.lock.unlock()
+        if let caller { c.start(queue: self.queue); self.serve(c, host: host, buf: Data(), caller: caller); return }
+        if tries <= 0 { c.cancel(); return }
+        self.queue.asyncAfter(deadline: .now() + .milliseconds(10)) { attempt(tries - 1) }
+      }
+      attempt(100)
+    }
     l.start(queue: listenerQueue)   // not `queue`: we may be called from it, and we wait for .ready below
     _ = ready.wait(timeout: .now() + 5)
     guard let p = l.port?.rawValue else { throw VaultError.invalidConfig("tls listener failed") }
@@ -530,19 +566,56 @@ final class MitmProxy: @unchecked Sendable {
   }
 
   /// Decrypted HTTP/1.1 from the client for `host`.
-  func serve(_ c: NWConnection, host: String, buf: Data) {
+  func serve(_ c: NWConnection, host: String, buf: Data, caller: Int32) {
     c.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] d, _, done, err in
       guard let self else { return }
       var b = buf; if let d { b.append(d) }
       switch HTTPParser.parse(b) {
       case .incomplete:
-        if done || err != nil { c.cancel() } else { self.serve(c, host: host, buf: b) }
+        if done || err != nil { c.cancel() } else { self.serve(c, host: host, buf: b, caller: caller) }
       case .invalid(let status, let reason):
         c.send(content: HTTPResponse.error(status, reason).serialized(), completion: .contentProcessed { _ in c.cancel() })
       case .complete(let req, let consumed):
-        self.route(req, extra: b.suffix(from: b.startIndex + consumed), client: c, host: host)
+        self.route(req, extra: b.suffix(from: b.startIndex + consumed), client: c, host: host, caller: caller)
       }
     }
+  }
+
+  /// A plain http:// request through the proxy: keyed ones go to the app, everything else straight to its server.
+  func forwardPlain(_ req: HTTPRequest, extra: Data, client c: NWConnection, caller: Int32) {
+    guard let u = URL(string: req.target), u.scheme?.lowercased() == "http", let host = u.host?.lowercased() else {
+      c.send(content: HTTPResponse.error(400, "expected an absolute http:// URL").serialized(), completion: .contentProcessed { _ in c.cancel() }); return
+    }
+    var path = u.path.isEmpty ? "/" : u.path
+    if let q = u.query { path += "?" + q }
+    var origin = req; origin.target = path
+    if placeholderService(origin) != nil {
+      route(origin, extra: extra, client: c, host: host, caller: caller); return
+    }
+    let port = UInt16(u.port ?? 80)
+    let dial = host == "0.0.0.0" ? "127.0.0.1" : host
+    let upstream = NWConnection(host: NWEndpoint.Host(dial), port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+    var head = "\(req.method) \(path) HTTP/1.1\r\nHost: \(u.port.map { "\(host):\($0)" } ?? host)\r\n"
+    for (k, v) in req.headers where !["host", "proxy-connection", "proxy-authorization", "connection", "keep-alive", "transfer-encoding", "content-length"].contains(k.lowercased()) {
+      head += "\(k): \(v)\r\n"
+    }
+    if !req.body.isEmpty { head += "Content-Length: \(req.body.count)\r\n" }
+    head += "Connection: close\r\n\r\n"
+    var answered = false
+    upstream.stateUpdateHandler = { st in
+      switch st {
+      case .failed(let e), .waiting(let e):
+        guard !answered else { return }; answered = true
+        upstream.cancel()
+        c.send(content: HTTPResponse.error(502, "keydillo couldn't reach \(host):\(port) (\(e.localizedDescription))").serialized(),
+               completion: .contentProcessed { _ in c.cancel() })
+      case .ready: answered = true
+      default: break
+      }
+    }
+    upstream.start(queue: queue)
+    upstream.send(content: Data(head.utf8) + req.body + extra, completion: .idempotent)
+    pipe(c, upstream); pipe(upstream, c)
   }
 
   /// The service whose placeholder appears anywhere in the request: headers (incl. client-built Basic auth),
@@ -566,7 +639,7 @@ final class MitmProxy: @unchecked Sendable {
   var warned = Set<String>()
 
   /// Sends the request on as raw HTTP and pipes the answer back as it arrives (streaming, websockets).
-  func route(_ req: HTTPRequest, extra: Data, client c: NWConnection, host: String) {
+  func route(_ req: HTTPRequest, extra: Data, client c: NWConnection, host: String, caller: Int32) {
     let named = placeholderService(req)
     var upstream: NWConnection
     var target = req.target
@@ -594,15 +667,24 @@ final class MitmProxy: @unchecked Sendable {
       }
       upstream = NWConnection(host: NWEndpoint.Host(host), port: 443, using: .tls)
     }
+    let upgrade = req.headers.contains { $0.0.lowercased() == "upgrade" }
     var head = "\(req.method) \(target) HTTP/1.1\r\nHost: \(named != nil ? "localhost" : host)\r\n"
     var hasLength = false
     for (k, v) in req.headers {
       let lk = k.lowercased()
-      if ["host", "proxy-connection", "proxy-authorization", "transfer-encoding"].contains(lk) { continue }
+      if ["host", "proxy-connection", "proxy-authorization", "transfer-encoding", "x-keydillo-caller"].contains(lk) { continue }
+      if !upgrade && (lk == "connection" || lk == "keep-alive") { continue }
+      // Ask for uncompressed replies so keydillo can scrub any echoed key.
+      if lk == "accept-encoding" { continue }
       if lk == "content-length" { hasLength = true; head += "Content-Length: \(req.body.count)\r\n"; continue }
       head += "\(k): \(v)\r\n"
     }
     if !hasLength && !req.body.isEmpty { head += "Content-Length: \(req.body.count)\r\n" }
+    head += "Accept-Encoding: identity\r\n"
+    // One request per connection: the client opens a new one for its next request, which keydillo checks again.
+    if !upgrade { head += "Connection: close\r\n" }
+    // Tells the app which program actually made the request (the app checks it came from keydillo's own binary).
+    if named != nil { head += "X-Keydillo-Caller: \(caller)\r\n" }
     head += "\r\n"
     upstream.stateUpdateHandler = { st in if case .failed = st { c.cancel() } }
     upstream.start(queue: queue)

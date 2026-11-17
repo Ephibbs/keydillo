@@ -237,8 +237,8 @@ public enum ImportScanner {
   public static func header(port: UInt16) -> [String] {
     [headerStart,
      "# Values starting with \"keydillo:\" are placeholders, not real keys. keydillo swaps in the real",
-     "# key when a program sends one to its API. Claude Code just works. When you run something",
-     "# yourself, put kd in front: kd npm run dev",
+     "# key when a program sends one to its API. Put kd in front of commands that use these keys:",
+     "# kd npm run dev. Claude Code does this for you.",
      "# If an API still says the key is invalid, the program skipped keydillo: call its *_BASE_URL",
      "# (http://localhost:\(port)/...) instead. Never paste real keys here. AI agents: use the keydillo tools.",
      headerEnd]

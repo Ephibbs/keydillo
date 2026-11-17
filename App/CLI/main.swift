@@ -81,24 +81,12 @@ case "env":
   s.placeholderEnvLines.forEach { print($0) }
 
 case "run":
-  // Used by the Claude Code session hook: print export lines that route this shell's commands, starting its proxy if needed.
-  if args.first == "--shell-env", args.count > 1, let owner = Int32(args[1]) {
-    if ProcessInfo.processInfo.environment["KEYDILLO_RUN"] == "1" { exit(0) }   // already routed
-    guard let lines = Runner.shellEnv(owner: owner) else {
-      FileHandle.standardError.write(Data("keydillo: not routing this command: the keydillo app isn't running. Open keydillo, or use the base URL.\n".utf8))
-      exit(1)
-    }
-    print(lines, terminator: ""); exit(0)
-  }
-  if args.first == "--serve-for", args.count > 1, let owner = Int32(args[1]) { Runner.serve(owner: owner) }
   if args.first == "--" { args.removeFirst() }
   Runner.run(args)
 
 case "hook":
-  // Claude Code hooks. No argument: PreToolUse (steer direct calls). session-start: route Claude's commands.
-  // post: explain a provider rejecting a placeholder.
+  // Claude Code hooks. No argument: PreToolUse (steer direct calls to `kd`). post: explain a rejected placeholder.
   switch args.first {
-  case "session-start": Hook.sessionStart()
   case "post": Hook.post()
   default: Hook.run()
   }

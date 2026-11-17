@@ -298,9 +298,15 @@ enum HostCheck {
   }
 
   /// True when an agent-supplied key page is on the same site as the key's API host or the provider's known domains.
+  /// Domains shared by many customers: a page there isn't the provider's just because it's on the same domain.
+  static let sharedHosting = ["googleapis.com", "supabase.co", "amazonaws.com", "cloudfront.net", "vercel.app", "netlify.app",
+                              "herokuapp.com", "github.io", "pages.dev", "workers.dev", "appspot.com", "web.app", "firebaseapp.com",
+                              "azurewebsites.net", "onrender.com", "fly.dev", "railway.app"]
+
   static func keyPageRelated(_ page: URL, service: String, apiHost: String) -> Bool {
     guard let h = page.host?.lowercased() else { return false }
-    var allowed = [site(apiHost)] + (domains(service) ?? [])
+    let apiSite = site(apiHost)
+    var allowed = (sharedHosting.contains(apiSite) ? [] : [apiSite]) + (domains(service) ?? []).filter { !sharedHosting.contains($0) }
     if let extra = extraKeyPageDomains.first(where: { service.lowercased().contains($0.key) })?.value { allowed += extra }
     return allowed.contains { !$0.isEmpty && (h == $0 || h.hasSuffix("." + $0)) }
   }

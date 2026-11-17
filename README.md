@@ -8,17 +8,18 @@ Status: pre-milestone 1. See docs/decisions.md.
 
 ## Using your keys
 
-**Claude Code just works. When you run something yourself, put `kd` in front.**
+**Put `kd` in front of commands that use your keys. Claude does it for you.**
 
-- In Claude Code (with the keydillo plugin, or after "Connect" in keydillo), every command Claude runs goes
-  through a small proxy that only that session's programs can use. When a program sends a `keydillo:<name>`
-  placeholder to its API, keydillo asks for Touch ID and swaps in the real key. Everything else passes through
-  untouched, still encrypted.
-- In your own Terminal: `kd npm run dev` (short for `keydillo run -- npm run dev`). `kd` is installed in
-  `~/.local/bin`, next to `claude`.
-- If keydillo isn't running, `kd` and Claude Code open it in the background.
+- `kd npm run dev` (short for `keydillo run -- npm run dev`) runs the command with its HTTPS going through a
+  small proxy that only that command and its child processes can use. When a program sends a
+  `keydillo:<name>` placeholder to its API, keydillo asks for Touch ID and swaps in the real key. Everything
+  else passes through untouched, still encrypted. `kd` is installed in `~/.local/bin`, next to `claude`.
+- Claude Code (with the keydillo plugin, or after "Connect" in keydillo) is told to put `kd` in front of
+  commands that call APIs. Nothing is routed without `kd`.
+- If keydillo isn't running, `kd` opens it in the background.
 - If an API still says the key is invalid, the program skipped keydillo (see the limits below). Claude is told
-  this automatically; the fix is to call the API through its `*_BASE_URL` (`http://localhost:7787/<name>/...`).
+  this right after the command; the fix is to call the API through its `*_BASE_URL`
+  (`http://localhost:7787/<name>/...`).
 
 Tested with curl, Python (`requests`, `httpx`, `aiohttp`, `urllib`), Node (`fetch`, `https`, `undici`, axios),
 Bun and Deno. Results: `tests/compat/REPORT.md`.
@@ -51,12 +52,16 @@ Known limits, in scope:
 - Response scrubbing is best effort: keydillo removes the forms of the key it produced itself (raw, Basic, base64, percent-encoded), but can't catch a provider that transforms a key in other ways. That's why each key is only ever placed in its one configured spot unless you opt in.
 - The Claude Code hook is guidance that steers agents to keydillo, not a security barrier.
 - Builds without a private Keychain access group refuse to store keys.
-- While the Mac is locked keydillo can't read keys; requests get a clear "Mac is locked" reply until you unlock.
+- While the Mac is locked, keys can't be read from the Keychain and requests get a clear "Mac is locked" reply,
+  except for projects set to "Don't ask again": after one Touch ID those keys are held in keydillo's memory
+  (locked into RAM, zeroed when dropped) and keep working while the Mac is locked, until keydillo quits.
+- "Don't ask again" trusts programs by their working folder. Any program you run that changes into that folder
+  can use the project's keys without a prompt. Use it only for projects whose keys can't cost much.
 
 What doesn't work yet (use the local base URL instead, or keep that key out of keydillo):
 - A key the API wants in the body, query or path is refused with `placeholder_misplaced` unless you turn on "Allow the key anywhere" for that key.
 - Secrets your app uses itself (webhook signing, JWT, session, encryption, database passwords, service-account files) and request-signing keys (AWS, Cloudinary) are left in your `.env`; keydillo can't stand in for them.
-- Under `kd` or Claude Code's routing: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
+- Under `kd`: programs started with a cleaned environment, Go and Rust programs (they ignore the extra certificate), gRPC, Next.js edge middleware, Python run with `-I`, and Docker containers started with `--env-file`. In Docker, use `http://host.docker.internal:7787/<name>` as the base URL.
 - Some SDKs check a key's exact format at startup (Clerk, for example) and reject the placeholder.
 
 Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
