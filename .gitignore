@@ -3,3 +3,7 @@ DerivedData/
 *.xcodeproj/
 .DS_Store
 xcuserdata/
+.build/
+**/.build/
+node_modules/
+.venv/

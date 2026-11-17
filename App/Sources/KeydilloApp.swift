@@ -12,7 +12,7 @@ struct KeydilloApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
   static var termSource: DispatchSourceSignal?
   func applicationDidFinishLaunching(_ notification: Notification) {
-    let preview = UserDefaults.standard.string(forKey: "kdPreview") != nil
+    let preview = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1" && UserDefaults.standard.string(forKey: "kdPreview") != nil
     func others() -> [NSRunningApplication] {
       NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
         .filter { $0.processIdentifier != getpid() }
@@ -42,7 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     MainActor.assumeIsolated {
       AppModel.shared.noteUncleanExit()
       StatusItem.shared = StatusItem()
-      if let screen = UserDefaults.standard.string(forKey: "kdPreview") { Preview.show(screen); return }
+      // Screenshot previews with sample data: development only (`open --env KEYDILLO_DEV=1 … --args -kdPreview main`).
+      if ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1", let screen = UserDefaults.standard.string(forKey: "kdPreview") { Preview.show(screen); return }
       if !AppModel.shared.setupDone { WindowManager.shared.showSetup() }
     }
   }

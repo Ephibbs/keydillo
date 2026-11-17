@@ -369,6 +369,10 @@ final class SecurityTests: XCTestCase {
       XCTAssertTrue(String(decoding: resp.body, as: UTF8.self).contains("placeholder_misplaced"))
     }
     XCTAssertEqual(approver.calls, 0, "refused before asking for Touch ID")
+    for t in ["/h/public/.%2e/secret", "/h/public/%2e./secret", "/h/public/%2e%2E/secret", "/h/a%2Fb", "/h/x/../y"] {
+      let r = await engine.handle(req(t), client: c)
+      XCTAssertEqual(r.status, 400, t)
+    }
     let okResp = await engine.handle(req("/h/v1/x", [("x-api-key", "keydillo:h")]), client: c)
     XCTAssertEqual(okResp.status, 200)
     let anyResp = await engine.handle(req("/any/v1/x", body: "{\"k\":\"keydillo:any\"}"), client: c)

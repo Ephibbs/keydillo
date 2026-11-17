@@ -139,8 +139,20 @@ final class ConnectionSink: ResponseSink, @unchecked Sendable {
           client.send(content: b, completion: .idempotent)
           Self.pipe(client, up); Self.pipe(up, client)
         } else {
-          // Not a websocket after all: pass it back scrubbed, then close.
-          client.send(content: redact(b), completion: .contentProcessed { _ in client.cancel(); up.cancel() })
+          // Not a websocket after all: read the whole response (by Content-Length, or until close), pass it back scrubbed, close.
+          let headText = String(decoding: b[..<end.lowerBound], as: UTF8.self).lowercased()
+          let length = headText.split(separator: "\r\n").first { $0.hasPrefix("content-length:") }
+            .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) }
+          let bodyStart = end.upperBound - b.startIndex
+          func finish(_ all: Data) { client.send(content: redact(all), completion: .contentProcessed { _ in client.cancel(); up.cancel() }) }
+          func readBody(_ acc: Data) {
+            if let length, acc.count - bodyStart >= length { return finish(acc) }
+            up.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { d, _, done, err in
+              var a = acc; if let d { a.append(d) }
+              if done || err != nil || a.count > 50_000_000 { finish(a) } else { readBody(a) }
+            }
+          }
+          readBody(b)
         }
       }
     }

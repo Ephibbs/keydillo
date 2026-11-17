@@ -26,6 +26,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     w.isReleasedWhenClosed = false
     if let size { w.setContentSize(size) }
     if floating { w.level = .floating }
+    // Windows that can show a key value can't be screen-captured or recorded.
+    if id == "readout" || id == "main" || id.hasPrefix("key-") { w.sharingType = .none }
     w.delegate = self
     w.identifier = NSUserInterfaceItemIdentifier(id)
     w.center()

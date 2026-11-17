@@ -10,8 +10,6 @@ enum Runner {
   static var support: URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/ca", isDirectory: true)
   }
-  static var caKey: URL { support.appendingPathComponent("ca.key") }
-  static var caPem: URL { support.appendingPathComponent("ca.pem") }
   static var bundle: URL { support.appendingPathComponent("bundle.pem") }
   static var shims: URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/run", isDirectory: true)
@@ -43,7 +41,10 @@ enum Runner {
       globalThis.fetch = function (input, init) {
         try {
           const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : input && input.url);
-          const hdrs = headerString((init && init.headers) || (input && input.headers));
+          let hdrs = headerString((init && init.headers) || (input && input.headers));
+          const body = init && init.body;
+          if (typeof body === 'string') hdrs += ' ' + body;
+          else if (body && typeof body.toString === 'function' && (body instanceof URLSearchParams)) hdrs += ' ' + body.toString();
           const to = url && route(url, hdrs);
           if (to) {
             if (typeof input === 'object' && !(input instanceof URL) && input.url) return orig(new Request(to, input), init);
@@ -73,6 +74,11 @@ enum Runner {
       };
     }
     wrap('request'); wrap('get');
+    // undici.request() (discord.js and others) ignores both fetch and https: point the app's own undici at the env proxy.
+    try {
+      const u = require(require.resolve('undici', { paths: [process.cwd()] }));
+      if (u.EnvHttpProxyAgent && u.setGlobalDispatcher) u.setGlobalDispatcher(new u.EnvHttpProxyAgent());
+    } catch (e) {}
   })();
   """#
 
@@ -91,6 +97,32 @@ enum Runner {
           return c
       ssl.create_default_context = _kd_ctx
       ssl._create_default_https_context = _kd_ctx
+  # aiohttp ignores HTTPS_PROXY unless trust_env=True; default it on, once aiohttp is imported.
+  import sys as _kd_sys
+  class _KdAiohttpHook:
+      def find_spec(self, name, path=None, target=None):
+          if name != "aiohttp.client":
+              return None
+          import importlib.machinery
+          for finder in _kd_sys.meta_path:
+              if finder is self:
+                  continue
+              spec = getattr(finder, "find_spec", lambda *a: None)(name, path, target)
+              if spec and spec.loader:
+                  orig_exec = spec.loader.exec_module
+                  def exec_module(module, _orig=orig_exec):
+                      _orig(module)
+                      cls = getattr(module, "ClientSession", None)
+                      if cls is not None:
+                          _init = cls.__init__
+                          def __init__(self, *a, **k):
+                              k.setdefault("trust_env", True)
+                              _init(self, *a, **k)
+                          cls.__init__ = __init__
+                  spec.loader.exec_module = exec_module
+                  return spec
+          return None
+  _kd_sys.meta_path.insert(0, _KdAiohttpHook())
   # Keep any other sitecustomize the user had.
   import importlib.util, sys
   _kd_here = os.path.dirname(os.path.abspath(__file__))
@@ -123,35 +155,44 @@ enum Runner {
     return (p.terminationStatus, data)
   }
 
-  /// A local certificate authority trusted only by commands started with `keydillo run`.
-  static func ensureCA() throws {
+  /// This run's private folder (0700), deleted when the command exits. Holds the per-run CA.
+  static let runDir: URL = {
+    let d = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-run-\(getpid())-\(UUID().uuidString.prefix(8))", isDirectory: true)
+    try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    return d
+  }()
+  static var caKey: URL { runDir.appendingPathComponent("ca.key") }
+  static var caPem: URL { runDir.appendingPathComponent("ca.pem") }
+  static var roots: URL { support.appendingPathComponent("roots.pem") }   // public root certificates only
+
+  /// A fresh certificate authority for this run only, limited to the stored hosts, never reused.
+  static func ensureCA(hosts: [String]) throws {
     let fm = FileManager.default
     try fm.createDirectory(at: support, withIntermediateDirectories: true)
-    chmod(support.path, 0o700)
-    if !fm.fileExists(atPath: caPem.path) || !fm.fileExists(atPath: caKey.path) {
-      let (s1, _) = sh(["/usr/bin/openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", caKey.path])
-      chmod(caKey.path, 0o600)
-      let (s2, _) = sh(["/usr/bin/openssl", "req", "-x509", "-new", "-key", caKey.path, "-sha256", "-days", "3650",
-                        "-subj", "/CN=keydillo local CA (keydillo run only)", "-out", caPem.path,
-                        "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign"])
-      guard s1 == 0, s2 == 0 else { throw VaultError.invalidConfig("couldn't create the keydillo run certificate (openssl failed)") }
-      try? fm.removeItem(at: bundle)
-    }
-    if !fm.fileExists(atPath: bundle.path) {
-      let (_, roots) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/System/Library/Keychains/SystemRootCertificates.keychain"])
+    try? fm.removeItem(at: support.appendingPathComponent("ca.key"))   // older builds kept one long-lived CA
+    try? fm.removeItem(at: support.appendingPathComponent("bundle.pem"))
+    let names = (hosts.isEmpty ? ["invalid"] : hosts).map { "permitted;DNS:\($0)" }.joined(separator: ",")
+    let (s1, _) = sh(["/usr/bin/openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", caKey.path])
+    chmod(caKey.path, 0o600)
+    let (s2, _) = sh(["/usr/bin/openssl", "req", "-x509", "-new", "-key", caKey.path, "-sha256", "-days", "2",
+                      "-subj", "/CN=keydillo run \(getpid()) (this command only)", "-out", caPem.path,
+                      "-addext", "basicConstraints=critical,CA:TRUE,pathlen:0", "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                      "-addext", "nameConstraints=critical,\(names)"])
+    guard s1 == 0, s2 == 0 else { throw VaultError.invalidConfig("couldn't create the keydillo run certificate (openssl failed)") }
+    if !fm.fileExists(atPath: roots.path) {
+      let (_, sys) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/System/Library/Keychains/SystemRootCertificates.keychain"])
       // Roots an admin or MDM installed (corporate TLS inspection such as Zscaler) live in the System keychain.
       let (_, admin) = sh(["/usr/bin/security", "find-certificate", "-a", "-p", "/Library/Keychains/System.keychain"])
-      // keydillo's CA goes first: some older TLS libraries stop reading a bundle at the first cert they can't parse.
-      var data = try Data(contentsOf: caPem)
-      data.append(roots); data.append(admin)
-      try data.write(to: bundle)
+      try (sys + admin).write(to: roots)
     }
   }
 
+  static func cleanup() { try? FileManager.default.removeItem(at: runDir) }
+
   /// Leaf certificate for `host`, signed by the CA, loaded in memory only.
   static func identity(for host: String) throws -> SecIdentity {
-    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let dir = runDir.appendingPathComponent("leaf-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     defer { try? FileManager.default.removeItem(at: dir) }
     let key = dir.appendingPathComponent("leaf.key").path, csr = dir.appendingPathComponent("leaf.csr").path
     let pem = dir.appendingPathComponent("leaf.pem").path, ext = dir.appendingPathComponent("ext.cnf").path
@@ -177,7 +218,9 @@ enum Runner {
     guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
     var services: [ServiceSummary]
     let env0 = ProcessInfo.processInfo.environment
-    if let json = env0["KEYDILLO_TEST_SERVICES"], let d = json.data(using: .utf8),
+    // Test hooks work only in the standalone dev build, never in the copy shipped inside keydillo.app.
+    let shipped = ProcessLookup.path(of: getpid()).contains(".app/Contents/")
+    if !shipped, let json = env0["KEYDILLO_TEST_SERVICES"], let d = json.data(using: .utf8),
        let s = try? JSONDecoder().decode([ServiceSummary].self, from: d) {
       services = s   // testing hook: which hosts to intercept (keys still only come from the app)
     } else {
@@ -186,8 +229,8 @@ enum Runner {
       default: fail("keydillo isn't running. Open the keydillo app first.")
       }
     }
-    do { try ensureCA() } catch { fail(error.localizedDescription) }
-    let appPort = env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) } ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
+    do { try ensureCA(hosts: services.map { $0.host.lowercased().split(separator: ":").first.map(String.init) ?? $0.host }) } catch { fail(error.localizedDescription) }
+    let appPort = (shipped ? nil : env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) }) ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
     let upstreamProxy = UpstreamProxy.fromEnvironment(env0)
     if let up = upstreamProxy {
       FileHandle.standardError.write(Data("keydillo run: also sending traffic through your proxy at \(up.host):\(up.port). Requests to other sites go through it as before. Requests keydillo signs go through the keydillo app, which uses your Mac's proxy settings; a debugging proxy there (Charles, Proxyman, mitmproxy) can see the real key.\n".utf8))
@@ -204,9 +247,10 @@ enum Runner {
     env["ALL_PROXY"] = nil; env["all_proxy"] = nil
     env["NODE_USE_ENV_PROXY"] = "1"
     // Per-run CA files: keydillo's CA plus whatever the user already trusted (corporate roots, their own bundles).
-    let runBundle = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-ca-\(getpid()).pem")
-    let runExtra = FileManager.default.temporaryDirectory.appendingPathComponent("keydillo-extra-\(getpid()).pem")
-    var bundleData = (try? Data(contentsOf: bundle)) ?? Data()
+    let runBundle = runDir.appendingPathComponent("bundle.pem")
+    let runExtra = runDir.appendingPathComponent("extra.pem")
+    // keydillo's CA goes first: some older TLS libraries stop reading a bundle at the first cert they can't parse.
+    var bundleData = ((try? Data(contentsOf: caPem)) ?? Data()) + ((try? Data(contentsOf: roots)) ?? Data())
     var extraData = (try? Data(contentsOf: caPem)) ?? Data()
     for k in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "AWS_CA_BUNDLE"] {
       if let path = env0[k], let d = try? Data(contentsOf: URL(fileURLWithPath: path)) { bundleData.append(d); extraData.append(d) }
@@ -230,11 +274,12 @@ enum Runner {
     child.arguments = command
     child.environment = env
     child.terminationHandler = { p in
-      try? FileManager.default.removeItem(at: runBundle); try? FileManager.default.removeItem(at: runExtra)
+      cleanup()
       exit(p.terminationStatus)
     }
-    signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in exit(143) }
+    signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
     do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
+    proxy.childPid = child.processIdentifier
     dispatchMain()
   }
 }
@@ -310,10 +355,22 @@ final class MitmProxy: @unchecked Sendable {
     l.start(queue: queue)
     _ = ready.wait(timeout: .now() + 5)
     guard let p = l.port?.rawValue else { throw VaultError.invalidConfig("no port") }
+    listenPort = p
     return p
   }
 
+  /// Set once the command starts. Only it and its descendants may use this run's proxy.
+  var childPid: Int32 = 0
+  var listenPort: UInt16 = 0
+
   func acceptClient(_ c: NWConnection) {
+    if case .hostPort(_, let p) = c.endpoint {
+      let peer = ProcessLookup.process(connectedFrom: p.rawValue, to: listenPort)
+      guard childPid > 0, peer.pid > 0, ProcessLookup.isDescendant(peer.pid, of: childPid) else {
+        c.start(queue: queue)
+        reply(c, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"); return
+      }
+    }
     c.start(queue: queue)
     readHead(c, Data())
   }
@@ -403,29 +460,79 @@ final class MitmProxy: @unchecked Sendable {
         if done || err != nil { c.cancel() } else { self.serve(c, host: host, buf: b) }
       case .invalid(let status, let reason):
         c.send(content: HTTPResponse.error(status, reason).serialized(), completion: .contentProcessed { _ in c.cancel() })
-      case .complete(let req, _):
-        Task {
-          let resp = await self.forward(req, host: host)
-          c.send(content: resp.serialized(), completion: .contentProcessed { _ in c.cancel() })
-        }
+      case .complete(let req, let consumed):
+        self.route(req, extra: b.suffix(from: b.startIndex + consumed), client: c, host: host)
       }
     }
   }
 
-  func forward(_ req: HTTPRequest, host: String) async -> HTTPResponse {
-    // A placeholder anywhere in the headers names the service; it must belong to this host.
-    let named = req.headers.lazy.compactMap { Placeholder.service(in: $0.1) }.first
-    let urlString: String
-    if let named {
-      guard let svc = services.first(where: { $0.name == named }), svc.host.lowercased() == host else {
-        return .error(403, "the placeholder for '\(named)' was sent to \(host), which isn't that key's host", code: "host_not_allowed",
-                      hint: "Use the host keydillo stores for \(named), or check which env var your code reads.")
-      }
-      urlString = "http://127.0.0.1:\(appPort)/\(svc.name)\(req.target)"
-    } else {
-      urlString = "https://\(host)\(req.target)"
+  /// The service whose placeholder appears anywhere in the request: headers (incl. client-built Basic auth),
+  /// path, query or body. The app then decides whether that spot is allowed for the key.
+  func placeholderService(_ req: HTTPRequest) -> String? {
+    for (k, v) in req.headers {
+      if let n = Placeholder.service(in: v) { return n }
+      if k.lowercased() == "authorization", v.lowercased().hasPrefix("basic "),
+         let d = Data(base64Encoded: String(v.dropFirst(6)).trimmingCharacters(in: .whitespaces)),
+         let n = Placeholder.service(in: String(decoding: d, as: UTF8.self)) { return n }
     }
-    guard let url = URL(string: urlString) else { return .error(400, "bad path", code: "bad_path") }
+    let target = req.target.replacingOccurrences(of: "%3A", with: ":").replacingOccurrences(of: "%3a", with: ":")
+    if let n = Placeholder.service(in: target) { return n }
+    if req.body.range(of: Data("keydillo".utf8)) != nil {
+      let text = String(decoding: req.body, as: UTF8.self).replacingOccurrences(of: "%3A", with: ":").replacingOccurrences(of: "%3a", with: ":")
+      if let n = Placeholder.service(in: text) { return n }
+    }
+    return nil
+  }
+
+  var warned = Set<String>()
+
+  /// Sends the request on as raw HTTP and pipes the answer back as it arrives (streaming, websockets).
+  func route(_ req: HTTPRequest, extra: Data, client c: NWConnection, host: String) {
+    let named = placeholderService(req)
+    var upstream: NWConnection
+    var target = req.target
+    if let named {
+      guard let svc = services.first(where: { $0.name == named }), (svc.host.lowercased().split(separator: ":").first.map(String.init) ?? "") == host else {
+        let r = HTTPResponse.error(403, "the placeholder for '\(named)' was sent to \(host), which isn't that key's host", code: "host_not_allowed",
+                                   hint: "Use the host keydillo stores for \(named), or check which env var your code reads.")
+        c.send(content: r.serialized(), completion: .contentProcessed { _ in c.cancel() }); return
+      }
+      target = "/\(svc.name)\(req.target)"
+      upstream = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: appPort)!, using: .tcp)
+    } else {
+      // A stored host with no placeholder: the program read its key from somewhere keydillo doesn't manage.
+      lock.lock(); let first = warned.insert(host).inserted; lock.unlock()
+      if first {
+        FileHandle.standardError.write(Data("keydillo run: a request to \(host) carried no keydillo placeholder, so it was sent as is. If it fails with 401, the program read its key from somewhere else (another env var, a config file, a different process).\n".utf8))
+      }
+      if let up = upstreamProxy, !up.bypasses(host) {
+        // Through the user's own proxy: use URLSession, which knows how to tunnel.
+        Task {
+          let resp = await self.forwardViaSession(req, host: host)
+          c.send(content: resp.serialized(), completion: .contentProcessed { _ in c.cancel() })
+        }
+        return
+      }
+      upstream = NWConnection(host: NWEndpoint.Host(host), port: 443, using: .tls)
+    }
+    var head = "\(req.method) \(target) HTTP/1.1\r\nHost: \(named != nil ? "localhost" : host)\r\n"
+    var hasLength = false
+    for (k, v) in req.headers {
+      let lk = k.lowercased()
+      if ["host", "proxy-connection", "proxy-authorization", "transfer-encoding"].contains(lk) { continue }
+      if lk == "content-length" { hasLength = true; head += "Content-Length: \(req.body.count)\r\n"; continue }
+      head += "\(k): \(v)\r\n"
+    }
+    if !hasLength && !req.body.isEmpty { head += "Content-Length: \(req.body.count)\r\n" }
+    head += "\r\n"
+    upstream.stateUpdateHandler = { st in if case .failed = st { c.cancel() } }
+    upstream.start(queue: queue)
+    upstream.send(content: Data(head.utf8) + req.body + extra, completion: .idempotent)
+    pipe(c, upstream); pipe(upstream, c)
+  }
+
+  func forwardViaSession(_ req: HTTPRequest, host: String) async -> HTTPResponse {
+    guard let url = URL(string: "https://\(host)\(req.target)") else { return .error(400, "bad path", code: "bad_path") }
     var out = URLRequest(url: url)
     out.httpMethod = req.method
     for (k, v) in req.headers where !["host", "content-length", "connection", "proxy-connection", "transfer-encoding"].contains(k.lowercased()) {
@@ -433,7 +540,7 @@ final class MitmProxy: @unchecked Sendable {
     }
     if !req.body.isEmpty { out.httpBody = req.body }
     do {
-      let (data, resp) = try await (named != nil ? appSession : session).data(for: out)
+      let (data, resp) = try await session.data(for: out)
       guard let http = resp as? HTTPURLResponse else { return .error(502, "bad response", code: "upstream_failed") }
       let headers = http.allHeaderFields.compactMap { k, v -> (String, String)? in
         guard let k = k as? String, let v = v as? String else { return nil }
@@ -441,9 +548,7 @@ final class MitmProxy: @unchecked Sendable {
       }
       return HTTPResponse(status: http.statusCode, headers: headers, body: data)
     } catch {
-      let refused = (error as NSError).code == NSURLErrorCannotConnectToHost
-      return .error(502, refused ? "the keydillo app isn't answering (restarting?)" : "request failed: \(error.localizedDescription)",
-                    code: refused ? "keydillo_unavailable" : "upstream_failed", hint: refused ? "Retry in a few seconds." : nil)
+      return .error(502, "request failed: \(error.localizedDescription)", code: "upstream_failed")
     }
   }
 }

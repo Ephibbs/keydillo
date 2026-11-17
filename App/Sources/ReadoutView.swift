@@ -50,7 +50,7 @@ struct ReadoutView: View {
 
   func copy() {
     let pb = NSPasteboard.general
-    pb.clearContents()
+    pb.prepareForNewContents(with: .currentHostOnly)   // keep keys off Universal Clipboard
     pb.setString(text, forType: .string)
     // Mark as concealed so clipboard managers that respect it skip this.
     pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))

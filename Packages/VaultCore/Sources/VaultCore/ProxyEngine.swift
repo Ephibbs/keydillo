@@ -87,10 +87,14 @@ public final class ProxyEngine: @unchecked Sendable {
       log(.blocked, 409, "not set up")
       return await sink.respond(.error(409, "\(name) is stored but has no host or header yet", code: "needs_setup", hint: "Ask the user to finish setting up \(name) in keydillo, or call request_secret with the API's host and header."))
     }
-    guard !pathOnly.contains("/../"), !pathOnly.hasSuffix("/.."), !pathOnly.contains("%2e%2e"), !pathOnly.contains("%2E%2E") else {
+    // Decode once and refuse dot segments and encoded slashes, so path rules can't be stepped around.
+    let decodedPath = upstreamPath.removingPercentEncoding ?? upstreamPath
+    let lowered = upstreamPath.lowercased()
+    guard !decodedPath.split(separator: "/", omittingEmptySubsequences: false).contains(where: { $0 == "." || $0 == ".." }),
+          !lowered.contains("%2f"), !lowered.contains("%5c"), !decodedPath.contains("\\") else {
       log(.blocked, 400, "path traversal"); return await sink.respond(.error(400, "path not allowed", code: "bad_path"))
     }
-    guard svc.permits(method: req.method, path: upstreamPath) else {
+    guard svc.permits(method: req.method, path: decodedPath) else {
       log(.blocked, 403, "path not allowed")
       return await sink.respond(.error(403, "\(req.method) \(upstreamPath) isn't allowed for \(name)", code: "path_not_allowed", hint: "Tell the user which path you need; they can allow it in keydillo. Don't try another route."))
     }
@@ -224,12 +228,15 @@ public final class ProxyEngine: @unchecked Sendable {
 
   static func browserBlockReason(_ req: HTTPRequest) -> String? {
     let localHosts = ["localhost", "127.0.0.1", "[::1]"]
-    if let host = req.header("Host") {
-      let name = host.hasPrefix("[") ? String(host.prefix { $0 != "]" }) + "]" : String(host.split(separator: ":").first ?? "")
-      if !localHosts.contains(name.lowercased()) { return "requests must be addressed to localhost (got Host: \(host))" }
-    }
-    if let origin = req.header("Origin"), !localHosts.contains(where: { origin.lowercased().hasPrefix("http://\($0)") }) {
-      return "requests from web pages (\(origin)) aren't allowed"
+    guard let host = req.header("Host") else { return "requests must include a Host header" }
+    let name = (host.hasPrefix("[") ? String(host.prefix { $0 != "]" }) + "]" : String(host.split(separator: ":").first ?? "")).lowercased()
+    // Docker containers reach the Mac as host.docker.internal; allowed only for non-browser requests.
+    let dockerHost = name == "host.docker.internal" && req.header("Origin") == nil
+    if !localHosts.contains(name) && !dockerHost { return "requests must be addressed to localhost (got Host: \(host))" }
+    if let origin = req.header("Origin") {
+      let oh = URL(string: origin)?.host?.lowercased()
+      let local = oh.map { ["localhost", "127.0.0.1", "::1", "[::1]"].contains($0) } ?? false
+      if !local { return "requests from web pages (\(origin)) aren't allowed" }
     }
     if let site = req.header("Sec-Fetch-Site")?.lowercased(), site == "cross-site" || site == "same-site" {
       return "requests from web pages aren't allowed"

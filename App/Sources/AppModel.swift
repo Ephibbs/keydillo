@@ -300,7 +300,8 @@ final class AppModel {
 
   func copyConcealed(_ text: String) {
     let pb = NSPasteboard.general
-    pb.clearContents()
+    // This Mac only: keep keys off Universal Clipboard.
+    pb.prepareForNewContents(with: .currentHostOnly)
     pb.setString(text, forType: .string)
     pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
     let change = pb.changeCount
