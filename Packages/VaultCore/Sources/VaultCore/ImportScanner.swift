@@ -236,10 +236,11 @@ public enum ImportScanner {
   public static let headerEnd = "# --- end keydillo ---"
   public static func header(port: UInt16) -> [String] {
     [headerStart,
-     "# Secrets in this file are managed by keydillo. Values starting with \"keydillo:\" are",
-     "# placeholders, not real keys. To call an API, use its *_BASE_URL (http://localhost:\(port)/...)",
-     "# with no key, or run commands with: keydillo run -- <command>",
-     "# Never paste real keys here. AI agents: use the keydillo tools (status, list_services).",
+     "# Values starting with \"keydillo:\" are placeholders, not real keys. keydillo swaps in the real",
+     "# key when a program sends one to its API. Claude Code (and your Terminal, if turned on in",
+     "# keydillo Settings) does this automatically for commands in this folder. Elsewhere: kd <command>",
+     "# If an API still says the key is invalid, the program skipped keydillo: call its *_BASE_URL",
+     "# (http://localhost:\(port)/...) instead. Never paste real keys here. AI agents: use the keydillo tools.",
      headerEnd]
   }
 

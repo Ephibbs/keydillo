@@ -216,6 +216,83 @@ enum Runner {
 
   static func run(_ command: [String]) -> Never {
     guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
+    let (proxy, env) = prepare()
+    let child = Process()
+    child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    child.arguments = command
+    child.environment = env
+    child.terminationHandler = { p in
+      cleanup()
+      exit(p.terminationStatus)
+    }
+    signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
+    do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
+    proxy.childPid = child.processIdentifier
+    dispatchMain()
+  }
+
+  /// Variables `prepare()` sets. The shell and Claude Code hooks export exactly these.
+  static let routedVars = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy",
+                           "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                           "AWS_CA_BUNDLE", "KEYDILLO_RUN", "KEYDILLO_RUN_MAP", "KEYDILLO_RUN_PORT", "NODE_OPTIONS", "KEYDILLO_CA", "PYTHONPATH"]
+
+  static var sessionsDir: URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/sessions", isDirectory: true)
+  }
+
+  /// Export lines that route a shell's (or a Claude Code session's) commands through a proxy that only `owner`
+  /// and its descendants may use. Starts that proxy in the background the first time; it exits with `owner`.
+  static func shellEnv(owner: Int32) -> String? {
+    let fm = FileManager.default
+    try? fm.createDirectory(at: sessionsDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let envFile = sessionsDir.appendingPathComponent("\(owner).env"), pidFile = sessionsDir.appendingPathComponent("\(owner).pid")
+    func current() -> String? {
+      guard let pidText = try? String(contentsOf: pidFile, encoding: .utf8), let srv = Int32(pidText.trimmingCharacters(in: .whitespacesAndNewlines)),
+            kill(srv, 0) == 0, let text = try? String(contentsOf: envFile, encoding: .utf8) else { return nil }
+      return text
+    }
+    if let t = current() { return t }
+    try? fm.removeItem(at: envFile); try? fm.removeItem(at: pidFile)
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: ProcessLookup.path(of: getpid()))
+    p.arguments = ["run", "--serve-for", String(owner)]
+    p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+    do { try p.run() } catch { return nil }
+    for _ in 0..<60 { if let t = current() { return t }; usleep(50_000) }
+    return nil
+  }
+
+  /// The background proxy behind `shellEnv`. Serves only `owner`'s descendants and exits when `owner` does.
+  static func serve(owner: Int32) -> Never {
+    setsid()   // not part of the terminal's job control: Ctrl-C on a command doesn't stop it
+    signal(SIGINT, SIG_IGN); signal(SIGHUP, SIG_IGN)
+    let (proxy, env) = prepare()
+    proxy.childPid = owner
+    let env0 = ProcessInfo.processInfo.environment
+    var lines: [String] = []
+    for k in routedVars {
+      if let v = env[k] { lines.append("export \(k)='\(v.replacingOccurrences(of: "'", with: "'\\''"))'") }
+      else if env0[k] != nil { lines.append("unset \(k)") }
+    }
+    let envFile = sessionsDir.appendingPathComponent("\(owner).env"), pidFile = sessionsDir.appendingPathComponent("\(owner).pid")
+    func cleanupAll() { cleanup(); try? FileManager.default.removeItem(at: envFile); try? FileManager.default.removeItem(at: pidFile) }
+    FileManager.default.createFile(atPath: envFile.path, contents: Data((lines.joined(separator: "\n") + "\n").utf8), attributes: [.posixPermissions: 0o600])
+    FileManager.default.createFile(atPath: pidFile.path, contents: Data(String(getpid()).utf8), attributes: [.posixPermissions: 0o600])
+    signal(SIGTERM, SIG_IGN)
+    let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+    term.setEventHandler { cleanupAll(); exit(0) }; term.resume()
+    let timer = DispatchSource.makeTimerSource(queue: .main)
+    timer.schedule(deadline: .now() + 2, repeating: 2)
+    timer.setEventHandler { if kill(owner, 0) != 0 && errno == ESRCH { cleanupAll(); exit(0) } }
+    timer.resume()
+    dispatchMain()
+  }
+
+  /// Starts this run's proxy and works out the environment that routes a command through it.
+  /// Keeps the proxy alive for the life of the process (its callbacks only hold it weakly).
+  static var active: MitmProxy?
+
+  static func prepare() -> (MitmProxy, [String: String]) {
     var services: [ServiceSummary]
     let env0 = ProcessInfo.processInfo.environment
     // Test hooks work only in the standalone dev build, never in the copy shipped inside keydillo.app.
@@ -269,18 +346,8 @@ enum Runner {
     env["KEYDILLO_CA"] = runExtra.path
     env["PYTHONPATH"] = shims.path + (env0["PYTHONPATH"].map { ":" + $0 } ?? "")
 
-    let child = Process()
-    child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    child.arguments = command
-    child.environment = env
-    child.terminationHandler = { p in
-      cleanup()
-      exit(p.terminationStatus)
-    }
-    signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
-    do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
-    proxy.childPid = child.processIdentifier
-    dispatchMain()
+    active = proxy
+    return (proxy, env)
   }
 }
 

@@ -18,7 +18,7 @@ struct SettingsView: View {
           .onChange(of: approval) { _, v in model.defaultApproval = v }
       }
       VStack(alignment: .leading, spacing: 8) {
-        Text("One Touch ID opens a project for").font(.system(size: 13, weight: .medium))
+        Text("Touch ID for projects").font(.system(size: 13, weight: .medium))
         Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { model.projectAccessDefault = $0 })) {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }

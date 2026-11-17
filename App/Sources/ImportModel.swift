@@ -239,11 +239,19 @@ final class ImportModel {
   }
 
   /// Files imported before the explanatory header existed get it once.
+  /// Adds keydillo's header to tracked .env files, or updates an older version of it in place.
   static func addHeadersToTrackedFiles(port: UInt16) {
+    let header = ImportScanner.header(port: port)
     for path in trackedFiles {
-      guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.contains(Placeholder.prefix),
-            !text.contains(ImportScanner.headerStart) else { continue }
-      try? (ImportScanner.header(port: port).joined(separator: "\n") + "\n" + text).write(toFile: path, atomically: true, encoding: .utf8)
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.contains(Placeholder.prefix) else { continue }
+      var lines = text.components(separatedBy: "\n")
+      if let a = lines.firstIndex(of: ImportScanner.headerStart), let b = lines[a...].firstIndex(of: ImportScanner.headerEnd) {
+        guard Array(lines[a...b]) != header else { continue }
+        lines.replaceSubrange(a...b, with: header)
+      } else {
+        lines.insert(contentsOf: header, at: 0)
+      }
+      try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
     }
   }
 

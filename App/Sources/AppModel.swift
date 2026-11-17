@@ -145,9 +145,6 @@ final class AppModel {
     let secrets = ProjectAwareSecrets(keychain: keychain, store: unlocks, projectOf: { [snapshot] name in snapshot.value.first { $0.name == name }?.project })
     engine = ProxyEngine(services: { [snapshot] in snapshot.value }, secrets: secrets, approver: approver)
     unlocks.onChange = { [weak self] in self?.refreshOpenProjects() }
-    DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-      self?.unlocks.closeAll { $0.access == .untilLock }
-    }
     Task { @MainActor in   // drop expired projects from the menu bar
       while true { try? await Task.sleep(for: .seconds(30)); self.refreshOpenProjects() }
     }
@@ -174,6 +171,7 @@ final class AppModel {
     ImportModel.addHeadersToTrackedFiles(port: port)
     ImportModel.migratePlaceholders()
     ClaudeConnector.refreshSkillIfInstalled()
+    ShellIntegration.refreshLinks()
     Task { @MainActor in
       while true {
         let paths = ImportModel.trackedFiles
@@ -206,24 +204,6 @@ final class AppModel {
     UserDefaults.standard.removeObject(forKey: "trustedProjects")
     return o
   }
-  /// Who an open project covers. Defaults to Claude Code only; the Terminal and other programs keep asking.
-  var projectScopes: [String: String] = UserDefaults.standard.dictionary(forKey: "projectScope") as? [String: String] ?? [:] {
-    didSet { UserDefaults.standard.set(projectScopes, forKey: "projectScope") }
-  }
-  func scope(for project: String) -> ProjectScope { projectScopes[project].flatMap(ProjectScope.init) ?? .claude }
-  func setScope(_ project: String, _ scope: ProjectScope) {
-    projectScopes[project] = scope.rawValue
-    events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
-                                note: "\(project) now covers \(scope.label.lowercased())"), at: 0)
-  }
-  /// Whether a caller falls under an open project's scope.
-  func covered(_ client: ClientProcess, by project: String) -> Bool {
-    switch scope(for: project) {
-    case .any: return true
-    case .claude: return client.agent.map { $0.lowercased().hasPrefix("claude") } == true && ProcessLookup.isSignedClaude(pid: client.agentPid)
-    }
-  }
-
   func access(for project: String) -> ProjectAccess { projectAccessOverrides[project].flatMap(ProjectAccess.init) ?? projectAccessDefault }
   func accessOverride(for project: String) -> ProjectAccess? { projectAccessOverrides[project].flatMap(ProjectAccess.init) }
   /// nil goes back to the default. Changing it closes the project if it's open.
@@ -232,7 +212,7 @@ final class AppModel {
     unlocks.close(project)
     let now = self.access(for: project)
     events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
-                                note: "\(project): Touch ID \(now == .perKey ? "follows each key's setting" : "covers the folder " + now.span)"), at: 0)
+                                note: "\(project): Touch ID \(now == .perKey ? "follows each key's setting" : "isn't asked for in its folder " + now.span)"), at: 0)
   }
   func closeProject(_ project: String) {
     unlocks.close(project)
@@ -455,7 +435,7 @@ final class AppModel {
         return .opened(project: name, services: keys.map(\.name), span: "for this session")
       }
       guard let folder = folder(for: name) else { return .error("keydillo doesn't know \(name)'s folder yet, so it can't open it for that folder.") }
-      let reason = "let \(scope(for: name) == .any ? "programs in" : "Claude Code in") \((folder as NSString).abbreviatingWithTildeInPath) use \(name)'s keys (\(list)) \(access.span)"
+      let reason = "let programs in \((folder as NSString).abbreviatingWithTildeInPath) use \(name)'s keys (\(list)) \(access.span)"
       guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
       unlocks.open(name, access: access, folder: folder, context: ctx, keys: keys.map(\.name), keychain: keychain)
       events.insert(ActivityEvent(date: Date(), service: name, method: "", path: "", process: who, pid: caller.pid, outcome: .sent, status: 0,
@@ -500,6 +480,8 @@ final class AppModel {
       if r == "Cancelled." { return "Cancelled. Nothing was removed." }
     }
     ClaudeConnector.disconnect()
+    ShellIntegration.remove()
+    try? FileManager.default.removeItem(at: ShellIntegration.binDir)
     try? await Self.agent.unregister()
     if deleteKeys {
       for s in services { keychain.deleteSecret(s.name) }
@@ -558,7 +540,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
     let open = await MainActor.run { () -> (project: String, folder: String, access: ProjectAccess, names: String)? in
       guard let m = model, let svc = m.service(named: request.service) else { return nil }
       let access = m.access(for: svc.project)
-      guard access != .perKey, let folder = m.inFolder(request.client.cwd, of: svc.project), m.covered(request.client, by: svc.project) else { return nil }
+      guard access != .perKey, let folder = m.inFolder(request.client.cwd, of: svc.project) else { return nil }
       return (svc.project, folder, access, m.services.filter { $0.project == svc.project }.map(\.displayName).joined(separator: ", "))
     }
     if let open {
@@ -569,8 +551,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
       if Self.screenLocked { return .unavailable("the Mac is locked and \(open.project) isn't open. The user can open it with one Touch ID before leaving the Mac") }
       let ctx = LAContext()
       ctx.localizedCancelTitle = "Deny"
-      let whom = await MainActor.run { model?.scope(for: open.project) == .any ? "programs in" : "Claude Code in" } ?? "Claude Code in"
-      let reason = "let \(whom) \((open.folder as NSString).abbreviatingWithTildeInPath) use \(open.project)'s keys (\(open.names)) \(open.access.span)"
+      let reason = "let programs in \((open.folder as NSString).abbreviatingWithTildeInPath) use \(open.project)'s keys (\(open.names)) \(open.access.span)"
       do {
         guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) else { return .denied }
         let keys = await MainActor.run { model?.services.filter { $0.project == open.project }.map(\.name) ?? [] }

@@ -7,6 +7,7 @@ struct SetupView: View {
   @State private var changesOpen = false
   @State private var connecting = false
   @State private var connectError: String?
+  @State private var terminalToo = true
 
   let steps = 4
 
@@ -62,6 +63,14 @@ struct SetupView: View {
         }
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
+      Toggle(isOn: $terminalToo) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Make keys work in my Terminal too").font(.system(size: 13))
+          Text("Commands you run inside a keydillo project get the same key swap. Nothing else in the Terminal is touched.")
+            .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .toggleStyle(.checkbox)
       if let connectError { Text(connectError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       footer(3) {
         HStack(spacing: 8) {
@@ -109,6 +118,7 @@ struct SetupView: View {
   }
 
   func finish() {
+    if terminalToo { try? ShellIntegration.install() }
     model.setupDone = true
     model.openAtLogin = true   // start at login and restart after a crash; can be turned off in Settings
     WindowManager.shared.close("setup")

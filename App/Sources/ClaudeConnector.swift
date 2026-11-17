@@ -65,7 +65,19 @@ enum ClaudeConnector {
 
   static var hookCommand: String { "'\(cliPath)' hook" }
 
-  /// Adds (or updates) keydillo's PreToolUse hook in ~/.claude/settings.json, keeping everything else.
+  /// keydillo's hook commands, by Claude Code event.
+  static var hookEntries: [(event: String, matcher: String?, command: String)] {
+    [("PreToolUse", "Bash|WebFetch", hookCommand), ("SessionStart", nil, hookCommand + " session-start"), ("PostToolUse", "Bash", hookCommand + " post")]
+  }
+  static func isOurs(_ entry: [String: Any]) -> Bool {
+    ((entry["hooks"] as? [[String: Any]]) ?? []).contains { h in
+      guard let c = h["command"] as? String, c.contains("keydillo") else { return false }
+      return c.hasSuffix(" hook") || c.hasSuffix(" hook session-start") || c.hasSuffix(" hook post")
+    }
+  }
+
+  /// Adds (or updates) keydillo's hooks in ~/.claude/settings.json, keeping everything else:
+  /// steering before a command, routing for the session, and an explanation when a provider rejects a placeholder.
   static func installHook() throws {
     let url = home.appendingPathComponent(".claude/settings.json")
     var root: [String: Any] = [:]
@@ -77,11 +89,13 @@ enum ClaudeConnector {
       try? d.write(to: url.appendingPathExtension("keydillo-backup"))
     }
     var hooks = root["hooks"] as? [String: Any] ?? [:]
-    var pre = (hooks["PreToolUse"] as? [[String: Any]] ?? []).filter { entry in
-      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.contains("keydillo") == true && ($0["command"] as? String)?.hasSuffix(" hook") == true }
+    for e in hookEntries {
+      var list = (hooks[e.event] as? [[String: Any]] ?? []).filter { !isOurs($0) }
+      var entry: [String: Any] = ["hooks": [["type": "command", "command": e.command, "timeout": 10]]]
+      if let m = e.matcher { entry["matcher"] = m }
+      list.append(entry)
+      hooks[e.event] = list
     }
-    pre.append(["matcher": "Bash|WebFetch", "hooks": [["type": "command", "command": hookCommand, "timeout": 5]]])
-    hooks["PreToolUse"] = pre
     root["hooks"] = hooks
     // Never touch the user's own permission rules.
     let out = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
@@ -91,9 +105,9 @@ enum ClaudeConnector {
   static func removeHook() {
     let url = home.appendingPathComponent(".claude/settings.json")
     guard let d = try? Data(contentsOf: url), var root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-          var hooks = root["hooks"] as? [String: Any], let pre = hooks["PreToolUse"] as? [[String: Any]] else { return }
-    hooks["PreToolUse"] = pre.filter { entry in
-      !((entry["hooks"] as? [[String: Any]]) ?? []).contains { ($0["command"] as? String)?.hasSuffix(" hook") == true && ($0["command"] as? String)?.contains("keydillo") == true }
+          var hooks = root["hooks"] as? [String: Any] else { return }
+    for e in ["PreToolUse", "SessionStart", "PostToolUse"] {
+      if let list = hooks[e] as? [[String: Any]] { hooks[e] = list.filter { !isOurs($0) } }
     }
     root["hooks"] = hooks
     if let out = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) { try? out.write(to: url, options: .atomic) }
