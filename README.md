@@ -1,10 +1,68 @@
-# keydillo
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/wordmark-white.svg">
+    <img src="docs/assets/wordmark.svg" alt="keydillo" width="260">
+  </picture>
+</p>
 
-A macOS menu-bar app that lets AI coding agents use API keys without seeing them.
-Keys live in the Keychain; agents call a localhost proxy that injects auth headers
-after Touch ID approval.
+<p align="center">Let AI use your keys without seeing them.</p>
 
-Status: pre-milestone 1. See docs/decisions.md.
+<p align="center"><a href="https://ephibbs.github.io/keydillo-site/">Website</a> · <a href="#install">Install</a> · <a href="SECURITY.md">Security</a> · <a href="docs/roadmap.md">Roadmap</a></p>
+
+keydillo is a free, open-source Mac menu-bar app. Your API keys stay in the Keychain, behind Touch ID. Claude Code and your programs only get placeholders, and keydillo adds the real key on the way out, only to that key's host.
+
+No account, no cloud, no telemetry. MIT licensed.
+
+## How it works
+
+1. Install keydillo and connect Claude.
+2. Import your `.env`. Keys become placeholders.
+3. Ask Claude to run it. It adds `kd`.
+4. Approve with Touch ID.
+5. The real API key goes out. Claude never sees it.
+
+The rule: **put `kd` in front. Claude does it for you.**
+
+```sh
+kd npm run dev
+```
+
+## What it protects
+
+| Protects | Doesn't protect |
+|---|---|
+| API keys out of prompts, transcripts and `.env` files | Launch-time keys (database URLs, JWT and encryption secrets) once your app is running |
+| Keys at rest, behind Touch ID | What an agent does with access you approve |
+| Keys sent to the wrong host | Copies made before you installed it |
+
+Launch-time keys are handed to your program as it starts, so a command that prints its environment could show them. A local database proxy that keeps passwords out of the program is first on the [roadmap](docs/roadmap.md). Where `kd` can fail today: [docs/kd-known-failures.md](docs/kd-known-failures.md).
+
+## Install
+
+A signed, notarized download is coming soon. Until then you can build it yourself.
+
+**Build from source** (macOS 15+, Xcode 16, [XcodeGen](https://github.com/yonaskolb/XcodeGen), an Apple Developer account):
+
+```sh
+git clone https://github.com/Ephibbs/keydillo
+cd keydillo/App
+# set DEVELOPMENT_TEAM in project.yml to your team ID
+xcodegen
+open Keydillo.xcodeproj
+```
+
+Keys are stored in a private Keychain group tied to your team, so the Mac you build on must be registered in your developer account. Builds without that group refuse to store keys.
+
+**Claude Code plugin:**
+
+```
+/plugin marketplace add Ephibbs/keydillo
+/plugin install keydillo@keydillo
+```
+
+Or click Connect in keydillo.
+
+---
 
 ## Using your keys
 
