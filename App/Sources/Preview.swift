@@ -82,8 +82,22 @@ enum Preview {
 /// Renders a real window from fixture files, reads its accessibility tree in-process, prints PASS/FAIL lines and quits.
 @MainActor
 enum SelfTest {
+  /// The first-run "Connect" step against a throwaway home: run with HOME and CFFIXED_USER_HOME set to a temp folder.
+  static func connect() {
+    let home = ClaudeConnector.home.path
+    guard home.hasPrefix("/private/tmp/") || home.hasPrefix("/tmp/") || home.contains("/T/") else {
+      FileHandle.standardError.write(Data("FAIL refusing to touch a real home (\(home))\n".utf8)); exit(1)
+    }
+    Task {
+      let err = await ClaudeConnector.connect()
+      FileHandle.standardError.write(Data(((err.map { "FAIL connect: \($0)" } ?? "PASS connect") + "\n").utf8))
+      exit(err == nil ? 0 : 1)
+    }
+  }
+
   static func run(_ name: String) {
     FileHandle.standardError.write(Data("self-test \(name) starting\n".utf8))
+    if name == "connect" { connect(); return }
     guard name == "import" else { FileHandle.standardError.write(Data("FAIL unknown self-test\n".utf8)); exit(1) }
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kd-selftest-\(getpid())")
     let a = dir.appendingPathComponent("alpha"), b = dir.appendingPathComponent("beta")

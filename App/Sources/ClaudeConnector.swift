@@ -35,9 +35,18 @@ enum ClaudeConnector {
     }
   }
 
+  /// Where `claude` is. Its installer puts it in ~/.local/bin and adds that to ~/.zshrc, which a login shell
+  /// (`zsh -lc`) doesn't read, so look in the usual places first and fall back to the login shell's PATH.
+  static var claudeCommand: String {
+    let candidates = [".local/bin/claude", ".claude/local/claude"].map { home.appendingPathComponent($0).path }
+      + ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+    if let found = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) { return "'\(found)'" }
+    return "claude"
+  }
+
   static func registerMCP() throws {
-    // Use the user's login shell so `claude` is found on their PATH.
-    let cmd = "claude mcp remove --scope user keydillo >/dev/null 2>&1; claude mcp add --scope user keydillo -- '\(cliPath)' mcp"
+    let claude = claudeCommand
+    let cmd = "\(claude) mcp remove --scope user keydillo >/dev/null 2>&1; \(claude) mcp add --scope user keydillo -- '\(cliPath)' mcp"
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
     p.arguments = ["-lc", cmd]
@@ -117,7 +126,7 @@ enum ClaudeConnector {
     removeHook()
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    p.arguments = ["-lc", "claude mcp remove --scope user keydillo >/dev/null 2>&1"]
+    p.arguments = ["-lc", "\(claudeCommand) mcp remove --scope user keydillo >/dev/null 2>&1"]
     try? p.run(); p.waitUntilExit()
     try? FileManager.default.removeItem(at: skillURL.deletingLastPathComponent())
   }
@@ -166,6 +175,8 @@ enum ClaudeConnector {
   Never ask the user to paste an API key into the chat, and never read, print or log a key value.
 
   `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or put `kd` in front of the command (`kd python script.py`, `kd npm run dev`). Always use `kd` for commands in a project with keydillo placeholders that call an API, including dev servers and test runs.
+
+  If there are no keydillo tools and `kd` isn't found, the keydillo app isn't installed. Tell the user once, in one line: install it with `brew install --cask ephibbs/keydillo/keydillo` (or from github.com/Ephibbs/keydillo), open it once, and choose Connect. Until then, don't work around it by asking for keys.
 
   0. Call the keydillo `status` tool whenever something keydillo-related fails.
   1. Call the keydillo `list_services` tool to see which services are already set up.
