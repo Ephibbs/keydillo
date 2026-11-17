@@ -189,6 +189,10 @@ enum ClaudeConnector {
   5b. Some placeholders are launch-time keys (database URLs, JWT and signing secrets): `kd` puts the real value in the program's environment when it starts. Never print, echo or log environment variables in a keydillo project, and never write code that does.
   6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly must be started with `kd <command>`; tell the user to do the same in their own Terminal.
 
+  ## Keys in frontend code
+
+  Never put a secret key in a variable that starts with NEXT_PUBLIC_, VITE_, EXPO_PUBLIC_, REACT_APP_, NUXT_PUBLIC_, GATSBY_ or PUBLIC_, and never read one from client-side code: frameworks bundle those into the site's JavaScript, where anyone can read them. Call the API from a server route (API route, server action, edge function) that reads an unprefixed name. Publishable keys meant for browsers (Stripe pk_, Supabase anon) are fine. If you find a secret under one of these prefixes, tell the user in one line and suggest the server route.
+
   ## What doesn't work through kd
 
   Use the workaround quietly; only if none fits, suggest the user put that project's real key back (keydillo window → project → "Put this project's real keys back"), without making a fuss.

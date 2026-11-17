@@ -328,6 +328,8 @@ final class AppModel {
   /// Real secrets sitting in each project's env files (put back, left unticked, or written over a placeholder),
   /// minus ones the user chose to keep in the file. Shown as a warning on the project.
   var exposed: [String: [(file: String, name: String)]] = [:]
+  /// Secret keys under browser prefixes (NEXT_PUBLIC_, VITE_, …) in each project's env files.
+  var inFrontend: [String: [(file: String, name: String)]] = [:]
   var keptInFile: Set<String> {
     get { Set(UserDefaults.standard.stringArray(forKey: "keptInFile") ?? []) }
     set { UserDefaults.standard.set(Array(newValue), forKey: "keptInFile"); Task { await checkRealKeys() } }
@@ -346,21 +348,24 @@ final class AppModel {
     var folders: [String: String] = [:]   // folder -> project
     for s in services { if let f = s.folder, f != NSHomeDirectory() { folders[f] = s.project } }
     let kept = keptInFile
-    let found = await Task.detached { () -> [String: [(file: String, name: String)]] in
+    let (found, frontend) = await Task.detached { () -> ([String: [(file: String, name: String)]], [String: [(file: String, name: String)]]) in
       var out: [String: [(file: String, name: String)]] = [:]
+      var front: [String: [(file: String, name: String)]] = [:]
       for (folder, project) in folders {
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).filter(ImportScanner.isEnvFile)
         for n in names {
           let path = folder + "/" + n
           guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-          for k in ImportScanner.parse(text, file: path) where !k.isPublic && k.localOnly == nil && !kept.contains(path + "#" + k.name) {
-            out[project, default: []].append((path, k.name))
+          for k in ImportScanner.parse(text, file: path) {
+            if k.inFrontend { front[project, default: []].append((path, k.name)); continue }
+            if !k.isPublic && k.localOnly == nil && !kept.contains(path + "#" + k.name) { out[project, default: []].append((path, k.name)) }
           }
         }
       }
-      return out
+      return (out, front)
     }.value
     exposed = found
+    inFrontend = frontend
   }
 
   /// Re-checks tracked .env files for keys keydillo manages that hold real values again.

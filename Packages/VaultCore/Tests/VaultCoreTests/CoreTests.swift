@@ -445,6 +445,33 @@ final class ExistingBaseURLTests: XCTestCase {
   }
 }
 
+final class FrontendExposureTests: XCTestCase {
+  func testSecretsUnderBrowserPrefixesAreFlagged() {
+    let env = """
+    NEXT_PUBLIC_OPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123
+    VITE_STRIPE_SECRET_KEY=\("sk_" + "live_")FAKE0123456789abcdef0123
+    EXPO_PUBLIC_ANTHROPIC_API_KEY=FAKEantkey0123456789abcdef
+    REACT_APP_GITHUB_TOKEN=ghp_FAKE0123456789abcdef0123
+    GATSBY_ADMIN_PASSWORD=FAKEpassword0123456789
+    NUXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.FAKEsig
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_FAKE0123456789abcdef0123
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.FAKEsig
+    NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaFAKE0123456789abcdef0123
+    NEXT_PUBLIC_OPENAI_API_KEY_2=keydillo:openai
+    OPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123
+    """
+    let found = Dictionary(uniqueKeysWithValues: ImportScanner.parse(env, file: "/p/.env").map { ($0.name, $0) })
+    for n in ["NEXT_PUBLIC_OPENAI_API_KEY", "VITE_STRIPE_SECRET_KEY", "EXPO_PUBLIC_ANTHROPIC_API_KEY", "REACT_APP_GITHUB_TOKEN", "GATSBY_ADMIN_PASSWORD", "NUXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"] {
+      XCTAssertEqual(found[n]?.inFrontend, true, n)
+    }
+    for n in ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY", "OPENAI_API_KEY"] {
+      XCTAssertNotEqual(found[n]?.inFrontend, true, n)
+    }
+    XCTAssertNotEqual(found["NEXT_PUBLIC_OPENAI_API_KEY_2"]?.inFrontend, true, "placeholders aren't keys")
+    XCTAssertTrue(ImportScanner.frontendNote("VITE_X_KEY").contains("VITE_"))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

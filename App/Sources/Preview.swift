@@ -52,6 +52,10 @@ enum Preview {
     case "project":
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
+    case "frontend":
+      AppModel.shared.inFrontend = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env.local", name: "NEXT_PUBLIC_OPENAI_API_KEY")]]
+      wm.showMain()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
     case "exposed":
       AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
       wm.showMain()

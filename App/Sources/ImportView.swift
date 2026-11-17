@@ -105,9 +105,9 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.isPublic)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          Text(k.localOnly != nil ? "Not fully hidden: kd gives it to the app" : (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use")))
-            .font(.system(size: 12)).foregroundStyle(k.localOnly != nil ? Theme.danger : Theme.secondary).lineLimit(1)
-            .help(k.localOnly != nil ? "Used by your app itself (\(k.localOnly!)). kd gives it to the program when it starts, after Touch ID each time. Anything started with kd in this project can read it." : "")
+          Text(k.inFrontend ? "In frontend code: anyone can read it" : (k.localOnly != nil ? "Not fully hidden: kd gives it to the app" : (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use"))))
+            .font(.system(size: 12)).foregroundStyle(k.localOnly != nil || k.inFrontend ? Theme.danger : Theme.secondary).lineLimit(1)
+            .help(k.inFrontend ? ImportScanner.frontendNote(k.name) : (k.localOnly != nil ? "Used by your app itself (\(k.localOnly!)). kd gives it to the program when it starts, after Touch ID each time. Anything started with kd in this project can read it." : ""))
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .onAppear { UIProbe.add("import-rows", 1) }

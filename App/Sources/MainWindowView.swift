@@ -162,6 +162,7 @@ struct MainWindowView: View {
 
       if let project {
         if let ex = model.exposed[project], !ex.isEmpty { exposedCard(project, ex).padding(.horizontal, 16).padding(.bottom, 10) }
+        if let fe = model.inFrontend[project], !fe.isEmpty { frontendCard(fe).padding(.horizontal, 16).padding(.bottom, 10) }
         trustRow(project).padding(.horizontal, 16).padding(.bottom, 10)
       }
 
@@ -246,6 +247,23 @@ struct MainWindowView: View {
         }
         .buttonStyle(SmallPrimaryStyle()).disabled(securing)
         if let secureStatus { Text(secureStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary) }
+      }
+    }
+    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+    .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+  }
+
+  func frontendCard(_ fe: [(file: String, name: String)]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("\(fe.count) secret key\(fe.count == 1 ? " is" : "s are") built into your frontend").font(.system(size: 13, weight: .semibold))
+      Text("Note: names starting with NEXT_PUBLIC_, VITE_ and similar are bundled into your site's JavaScript, so anyone can read them in production. Rename \(fe.count == 1 ? "it" : "them") without the prefix and call the API from a server route instead.")
+        .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      ForEach(fe.indices, id: \.self) { i in
+        HStack(spacing: 8) {
+          Text(fe[i].name).font(.system(size: 12, design: .monospaced))
+          Text((fe[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary)
+          Spacer()
+        }
       }
     }
     .padding(12).frame(maxWidth: .infinity, alignment: .leading)

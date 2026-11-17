@@ -57,6 +57,8 @@ public enum ImportScanner {
     /// Used by the app itself (signing, encryption, sessions) or signs requests (AWS): a proxy can't put it back,
     /// so it's never imported as a placeholder. Holds the reason shown in the review.
     public var localOnly: String? = nil
+    /// A secret whose name makes web frameworks bundle it into browser code (NEXT_PUBLIC_, VITE_, …).
+    public var inFrontend: Bool { ImportScanner.exposedToBrowser(name: name, value: value) }
     /// Format prefix kept in the placeholder so startup checks like `startsWith("sk-")` still pass.
     public var keyPrefix: String { ImportScanner.formatPrefix(value) }
     public static func == (a: Found, b: Found) -> Bool { a.id == b.id && a.value == b.value }
@@ -171,6 +173,31 @@ public enum ImportScanner {
       } else { current.append(ch); if current.count > 6 { break } }
     }
     return out
+  }
+
+  /// Name prefixes that web frameworks copy into the JavaScript they send to browsers.
+  public static let browserPrefixes = ["NEXT_PUBLIC_", "NUXT_PUBLIC_", "EXPO_PUBLIC_", "REACT_APP_", "GATSBY_", "VITE_", "PUBLIC_"]
+  public static func browserPrefix(_ name: String) -> String? {
+    let n = name.uppercased()
+    return browserPrefixes.first { n.hasPrefix($0) }
+  }
+  static let secretValuePrefixes = ["sk-", "sk_live_", "sk_test_", "rk_live_", "rk_test_", "whsec_", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-", "glpat-", "re_", "phx_", "AKIA"]
+
+  /// True for a real secret under a browser prefix: anyone can read it in the deployed site's JavaScript.
+  /// Keys meant for browsers (Stripe pk_, Supabase anon, Firebase and Maps keys, "publishable") don't count.
+  public static func exposedToBrowser(name: String, value: String) -> Bool {
+    guard let prefix = browserPrefix(name), value.count >= 12, !Placeholder.isPlaceholder(value), !value.contains("://") else { return false }
+    let bare = String(name.uppercased().dropFirst(prefix.count))
+    if isPublicValue(name: bare, value: value, fileVars: []) { return false }
+    if secretValuePrefixes.contains(where: { value.hasPrefix($0) }) { return true }
+    if value.hasPrefix("eyJ") { return jwtRole(value) == "service_role" }
+    if ["PUBLISHABLE", "ANON", "PUBLIC", "MAPS", "FIREBASE", "MEASUREMENT", "SITE_KEY", "CLIENT_ID", "DSN"].contains(where: { bare.contains($0) }) { return false }
+    return service(for: bare) != nil || ["SECRET", "PRIVATE", "PASSWORD", "SERVICE_ROLE"].contains { bare.contains($0) }
+  }
+
+  /// Plain explanation for a secret under a browser prefix.
+  public static func frontendNote(_ name: String) -> String {
+    "Names starting with \(browserPrefix(name) ?? "this prefix") are built into your site's JavaScript, so anyone can read this key in production. Rename it without the prefix and call the API from a server route instead."
   }
 
   static let publicMarkers = ["PUBLIC", "NEXT_PUBLIC_", "EXPO_PUBLIC_", "VITE_", "REACT_APP_", "PUBLISHABLE", "ANON"]
