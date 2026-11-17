@@ -58,7 +58,7 @@ final class ProjectUnlockStore: @unchecked Sendable {
     var opened: Date
     var expires: Date?
     var folder: String
-    var secrets: [String: Data] = [:]
+    var secrets: [String: SecureBuffer] = [:]
   }
   private var unlocks: [String: Unlock] = [:]
   private let lock = NSLock()
@@ -73,8 +73,8 @@ final class ProjectUnlockStore: @unchecked Sendable {
 
   /// Opens a project and reads its keys into memory right away, so they keep working if the Mac locks.
   func open(_ project: String, access: ProjectAccess, folder: String, context: LAContext, keys: [String] = [], keychain: KeychainBackend? = nil) {
-    var secrets: [String: Data] = [:]
-    if let keychain { for k in keys { if let d = try? keychain.secret(for: k, context: context) { secrets[k] = d } } }
+    var secrets: [String: SecureBuffer] = [:]
+    if let keychain { for k in keys { if let d = try? keychain.secret(for: k, context: context) { secrets[k] = SecureBuffer(d) } } }
     lock.lock()
     unlocks[project] = Unlock(context: context, access: access, opened: Date(), expires: access.duration.map { Date().addingTimeInterval($0) },
                               folder: folder, secrets: secrets)
@@ -95,12 +95,12 @@ final class ProjectUnlockStore: @unchecked Sendable {
   func cached(_ project: String, service: String) -> Data? {
     lock.lock(); defer { lock.unlock() }
     guard let u = unlocks[project], u.expires.map({ $0 > Date() }) ?? true else { return nil }
-    return u.secrets[service]
+    return u.secrets[service]?.data
   }
 
   func remember(_ project: String, service: String, secret: Data) {
     lock.lock(); defer { lock.unlock() }
-    unlocks[project]?.secrets[service] = secret
+    unlocks[project]?.secrets[service] = SecureBuffer(secret)
   }
 
   /// Open projects, soonest to expire first. Expired ones are dropped.
@@ -126,5 +126,28 @@ final class ProjectAwareSecrets: SecretProvider, @unchecked Sendable {
     let d = try keychain.secret(for: name, context: context ?? open.context)
     store.remember(project, service: name, secret: d)
     return d
+  }
+}
+
+
+/// A key held in memory while its project is open: locked into RAM (never written to swap) and
+/// overwritten with zeros as soon as it's dropped.
+final class SecureBuffer: @unchecked Sendable {
+  private let ptr: UnsafeMutableRawPointer
+  private let count: Int
+  private let length: Int
+  init(_ d: Data) {
+    length = d.count
+    count = max(d.count, 1)
+    ptr = UnsafeMutableRawPointer.allocate(byteCount: count, alignment: 16)
+    mlock(ptr, count)
+    d.withUnsafeBytes { if let b = $0.baseAddress { ptr.copyMemory(from: b, byteCount: d.count) } }
+  }
+  /// A short-lived copy for one request.
+  var data: Data { Data(bytes: ptr, count: length) }
+  deinit {
+    memset_s(ptr, count, 0, count)
+    munlock(ptr, count)
+    ptr.deallocate()
   }
 }
