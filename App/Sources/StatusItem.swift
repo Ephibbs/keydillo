@@ -18,6 +18,18 @@ final class StatusItem: NSObject {
     item.button?.action = #selector(toggle)
     popover.behavior = .transient
     popover.contentViewController = NSHostingController(rootView: PopoverView().environment(AppModel.shared))
+    trackState()
+  }
+
+  /// Dims the menu-bar armadillo whenever the proxy isn't running (paused, port taken), so it's visible without opening it.
+  func trackState() {
+    let model = AppModel.shared
+    let off = withObservationTracking { !model.proxyRunning } onChange: { [weak self] in
+      DispatchQueue.main.async { self?.trackState() }
+    }
+    item.button?.appearsDisabled = off
+    item.button?.toolTip = off ? "keydillo is off (\(model.proxyState))" : "keydillo"
+    item.button?.image?.accessibilityDescription = off ? "keydillo, off" : "keydillo"
   }
 
   @objc func toggle() {
