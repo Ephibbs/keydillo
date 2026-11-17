@@ -33,18 +33,18 @@ kd npm run dev
 
 ## What keydillo protects against, and what it doesn't
 
-| | Situation | Notes |
+| | | Notes |
 |---|---|---|
-| ✅ | An AI agent reads your `.env` | It finds `keydillo:<name>` placeholders, not keys. |
-| ✅ | A key gets committed to GitHub | Only the placeholder is in the file. |
-| ✅ | A key ends up in a chat, transcript or log | Agents never get the value, and keydillo scrubs it from responses. |
-| ✅ | Another app tries to read your Keychain | Keys sit in a private Keychain group only keydillo's signed app can open, behind Touch ID. |
-| ✅ | A program sends a key to the wrong site | Each key goes only to its own host. A new host needs your Touch ID. |
-| ✅ | A web page calls the local proxy | Cross-site browser requests are refused. |
-| ⚠️ | An agent reads a launch-time key (database URL, JWT secret) | It's hidden from files, but the program you start with `kd` gets the real value and could print it. A database proxy is on the [roadmap](docs/roadmap.md). |
-| ❌ | A program you approved misuses the key | keydillo guards the key, not what's done with it at the provider. |
-| ❌ | A key ships in your deployed frontend code | keydillo works on your Mac, not in production. |
-| ❌ | A copy from before you installed keydillo leaks | Old `.env` files, shell and git history. Rotate those keys. |
+| ✅ | AI agents never see your real keys | Your `.env` only holds `keydillo:<name>` placeholders. |
+| ✅ | Committing `.env` to GitHub leaks nothing | Only the placeholder is in the file. |
+| ✅ | Keys stay out of chats, transcripts and logs | Agents never get the value, and keydillo scrubs it from responses. |
+| ✅ | Other apps can't read your keys from the Keychain | They sit in a private Keychain group only keydillo's signed app can open, behind Touch ID. |
+| ✅ | Keys only go to their own site | Sending one to a new host needs your Touch ID. |
+| ✅ | Web pages can't use your keys through the proxy | Cross-site browser requests are refused. |
+| ⚠️ | Launch-time keys are hidden from files, but the program you start can read them | Database URLs, JWT secrets and the like. A database proxy is on the [roadmap](docs/roadmap.md). |
+| ❌ | Doesn't stop a program you approved from misusing the key | keydillo guards the key, not what's done with it at the provider. |
+| ❌ | Doesn't protect keys in deployed frontend code | keydillo works on your Mac, not in production. |
+| ❌ | Doesn't protect copies made before you installed it | Old `.env` files, shell and git history. Rotate those keys. |
 
 Good to know:
 - Your Mac's login password can stand in for Touch ID, so anyone who knows it can approve.
