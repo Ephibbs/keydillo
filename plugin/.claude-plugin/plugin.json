@@ -1,6 +1,6 @@
 {
   "name": "keydillo",
-  "description": "Use API keys without seeing them: a skill, keydillo's MCP tools and a guard hook. Needs the keydillo Mac app (brew install --cask keydillo).",
+  "description": "Use API keys without seeing them: a skill, keydillo's MCP tools and a guard hook. Needs the keydillo Mac app (github.com/Ephibbs/keydillo).",
   "author": { "name": "Studio Killswitch" },
   "homepage": "https://github.com/Ephibbs/keydillo",
   "license": "MIT",
