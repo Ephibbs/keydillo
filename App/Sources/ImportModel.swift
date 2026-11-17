@@ -280,8 +280,14 @@ final class ImportModel {
   /// Adds keydillo's header to tracked .env files, or updates an older version of it in place.
   static func addHeadersToTrackedFiles(port: UInt16) {
     let header = ImportScanner.header(port: port)
+    // Files whose keys were all put back keep no keydillo lines (an older put-back left them behind).
     for path in trackedFiles {
-      guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.contains(Placeholder.prefix) else { continue }
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.contains(ImportScanner.headerStart),
+            !ImportScanner.hasPlaceholders(text) else { continue }
+      try? ImportScanner.stripKeydilloLines(text).write(toFile: path, atomically: true, encoding: .utf8)
+    }
+    for path in trackedFiles {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8), ImportScanner.hasPlaceholders(text) else { continue }
       var lines = text.components(separatedBy: "\n")
       if let a = lines.firstIndex(of: ImportScanner.headerStart), let b = lines[a...].firstIndex(of: ImportScanner.headerEnd) {
         guard Array(lines[a...b]) != header else { continue }
@@ -322,6 +328,7 @@ final class ImportModel {
       guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
       var lines = text.components(separatedBy: "\n")
       var changed = false
+      var restoredBaseEnvs: [String] = []
       for (i, line) in lines.enumerated() {
         guard let service = Placeholder.service(in: line), project == nil || model.service(named: service)?.project == project,
               key == nil || service == key,
@@ -332,12 +339,12 @@ final class ImportModel {
         }
         let name = String(line[..<eq]).replacingOccurrences(of: "export ", with: "").trimmingCharacters(in: .whitespaces)
         lines[i] = String(line[...eq]) + ImportScanner.envValueText(String(decoding: value, as: UTF8.self), original: originalText[path]?[name])
+        if let s = model.service(named: service) { restoredBaseEnvs.append(model.summary(s).baseURLEnvName) }
         changed = true
       }
       if changed {
-        let joined = lines.joined(separator: "\n")
-        // Keep keydillo's header while other projects' placeholders remain in the file.
-        text = joined.contains(Placeholder.prefix) ? joined : ImportScanner.stripKeydilloLines(joined)
+        // Remove keydillo's header and added lines once nothing in the file is locked away any more.
+        text = ImportScanner.afterPutBack(lines.joined(separator: "\n"), droppingAdded: Set(restoredBaseEnvs))
         if (try? text.write(toFile: path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
       }
     }

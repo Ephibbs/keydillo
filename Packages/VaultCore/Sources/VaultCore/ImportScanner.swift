@@ -322,4 +322,25 @@ public enum ImportScanner {
     if let hash = t.range(of: " #") { return String(t[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
     return t
   }
+
+  /// True when some line still holds a keydillo placeholder (comments, like the header's own text, don't count).
+  public static func hasPlaceholders(_ text: String) -> Bool {
+    text.components(separatedBy: "\n").contains { line in assignment(line).map { Placeholder.isPlaceholder($0.1) } ?? false }
+  }
+
+  /// After real values are written back: once no placeholders are left, remove keydillo's header and the
+  /// base-URL lines it added, so the file is as it was before import. Lines the user wrote stay.
+  public static func afterPutBack(_ text: String, droppingAdded names: Set<String> = []) -> String {
+    if !hasPlaceholders(text) { return stripKeydilloLines(text) }
+    guard !names.isEmpty else { return text }
+    // Some keys are still locked away: keep the header, drop only the added base-URL lines for keys put back.
+    var out: [String] = []; var inAdded = false
+    for line in text.components(separatedBy: "\n") {
+      if line.hasPrefix("# Added by keydillo") { inAdded = true; out.append(line); continue }
+      if inAdded, line.isEmpty { inAdded = false }
+      if inAdded, let (n, _) = assignment(line), names.contains(n) { continue }
+      out.append(line)
+    }
+    return out.joined(separator: "\n")
+  }
 }

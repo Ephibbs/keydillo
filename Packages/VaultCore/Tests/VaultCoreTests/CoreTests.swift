@@ -390,6 +390,29 @@ final class LaunchPlaceholderTests: XCTestCase {
   }
 }
 
+final class PutBackCleanupTests: XCTestCase {
+  func testHeaderAndAddedLinesGoOnceNothingIsLocked() {
+    let original = "# my app\nMY_BASE_URL=https://example.com\nELEVENLABS_API_KEY=sk_FAKEreal0123456789abcdef\n"
+    let imported = ImportScanner.rewrite(original, replacements: ["ELEVENLABS_API_KEY": (service: "elevenlabs", baseURL: "http://localhost:7787/elevenlabs", baseURLEnvName: "ELEVENLABS_BASE_URL")])
+    XCTAssertTrue(imported.contains(ImportScanner.headerStart) && imported.contains("ELEVENLABS_BASE_URL="))
+    let putBack = imported.components(separatedBy: "\n").map { $0.hasPrefix("ELEVENLABS_API_KEY=") ? "ELEVENLABS_API_KEY=sk_FAKEreal0123456789abcdef" : $0 }.joined(separator: "\n")
+    let cleaned = ImportScanner.afterPutBack(putBack, droppingAdded: ["ELEVENLABS_BASE_URL"])
+    XCTAssertFalse(cleaned.contains("keydillo"), cleaned)
+    XCTAssertFalse(cleaned.contains("ELEVENLABS_BASE_URL"))
+    XCTAssertTrue(cleaned.contains("MY_BASE_URL=https://example.com"), "the user's own lines stay")
+  }
+
+  func testHeaderStaysWhileOtherKeysAreLocked() {
+    let text = ImportScanner.rewrite("A_API_KEY=sk_FAKEa0123456789abcdef\nB_API_KEY=sk_FAKEb0123456789abcdef\n",
+      replacements: ["A_API_KEY": (service: "a", baseURL: "http://localhost:7787/a", baseURLEnvName: "A_BASE_URL"),
+                     "B_API_KEY": (service: "b", baseURL: "http://localhost:7787/b", baseURLEnvName: "B_BASE_URL")])
+    let partly = text.components(separatedBy: "\n").map { $0.hasPrefix("A_API_KEY=") ? "A_API_KEY=sk_FAKEa0123456789abcdef" : $0 }.joined(separator: "\n")
+    let cleaned = ImportScanner.afterPutBack(partly, droppingAdded: ["A_BASE_URL"])
+    XCTAssertTrue(cleaned.contains(ImportScanner.headerStart))
+    XCTAssertFalse(cleaned.contains("A_BASE_URL")); XCTAssertTrue(cleaned.contains("B_BASE_URL"))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
