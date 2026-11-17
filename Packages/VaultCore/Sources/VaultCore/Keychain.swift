@@ -102,12 +102,12 @@ public final class KeychainBackend: ConfigPersistence {
   }
 
   /// Account names stored under a service (no values, no prompt).
-  public func accounts(service: String) -> [String] {
+  public func accounts(service: String, context: LAContext? = nil) -> [String] {
     var q = base(service: service, account: "")
     q.removeValue(forKey: kSecAttrAccount as String)
     q[kSecReturnAttributes as String] = true
     q[kSecMatchLimit as String] = kSecMatchLimitAll
-    let ctx = LAContext(); ctx.interactionNotAllowed = true
+    let ctx = context ?? { let c = LAContext(); c.interactionNotAllowed = true; return c }()
     q[kSecUseAuthenticationContext as String] = ctx
     var out: CFTypeRef?
     guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }

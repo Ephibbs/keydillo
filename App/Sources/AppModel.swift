@@ -298,7 +298,8 @@ final class AppModel {
     }
     guard !bad.isEmpty else { return "All \(services.count) keys are fine." }
     // Backups, newest first; take the newest real (non-placeholder) value for the key's env var in its folder.
-    let backups: [ImportModel.Backup] = keychain.accounts(service: ImportModel.backupService).compactMap { a in
+    let accounts = keychain.accounts(service: ImportModel.backupService, context: ctx)
+    let backups: [ImportModel.Backup] = accounts.compactMap { a in
       guard let d = try? keychain.secret(for: a, context: ctx, service: ImportModel.backupService) else { return nil }
       return try? JSONDecoder().decode(ImportModel.Backup.self, from: d)
     }.sorted { $0.date > $1.date }
@@ -317,6 +318,7 @@ final class AppModel {
     unlocks.closeAll()
     var out = fixed.isEmpty ? "" : "Repaired: \(fixed.joined(separator: ", ")). "
     if !lost.isEmpty { out += "No real value found for: \(lost.joined(separator: ", ")); replace these in keydillo." }
+    out += " (Checked \(backups.count) of \(accounts.count) import backups" + (backups.isEmpty ? "" : ", oldest \(backups.last!.date.formatted(date: .abbreviated, time: .shortened))") + ".)"
     events.insert(ActivityEvent(date: Date(), service: "keydillo", method: "", path: "", process: "keydillo", pid: getpid(), outcome: .sent, status: 0, note: out), at: 0)
     return out
   }
