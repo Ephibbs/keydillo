@@ -83,9 +83,9 @@ struct MainWindowView: View {
         }
       }
       VStack(alignment: .leading, spacing: 2) {
-        if !model.exposed.isEmpty {
+        if !model.realKeys.files.isEmpty {
           VStack(alignment: .leading, spacing: 6) {
-            Text("⚠︎ Real keys in \(model.exposed.count) project\(model.exposed.count == 1 ? "" : "s")").font(.system(size: 12)).foregroundStyle(Theme.danger)
+            Text("⚠︎ " + model.realKeysText).font(.system(size: 12)).foregroundStyle(Theme.danger)
             Button("Secure all") { Task { _ = await model.secureAll() } }.buttonStyle(SmallButtonStyle())
           }
           .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 10)

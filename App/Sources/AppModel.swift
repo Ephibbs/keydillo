@@ -337,11 +337,28 @@ final class AppModel {
 
   /// Every file in every project that still holds real keys, secured in one import (one Touch ID).
   func secureAll() async -> String? {
-    let files = Array(Set(exposed.values.flatMap { $0.map(\.file) }))
+    let files = realKeys.files
     guard !files.isEmpty else { return nil }
     let r = await ImportModel.secure(model: self, files: files)
     await checkRealKeys()
     return r
+  }
+
+  /// One count for every place that warns about real keys: project .env files holding real keys,
+  /// plus files where real values replaced keydillo's placeholders.
+  var realKeys: (projects: [String], files: [String]) {
+    var files = Set(exposed.values.flatMap { $0.map(\.file) }).union(realKeyFiles)
+    var projects = Set(exposed.keys)
+    for f in realKeyFiles {
+      let dir = (f as NSString).deletingLastPathComponent
+      projects.insert(services.first { $0.folder == dir }?.project ?? (dir as NSString).lastPathComponent)
+    }
+    files = files.filter { !$0.isEmpty }
+    return (projects.sorted(), files.sorted())
+  }
+  var realKeysText: String {
+    let r = realKeys
+    return "Real keys in \(r.projects.count) project\(r.projects.count == 1 ? "" : "s") (\(r.files.count) file\(r.files.count == 1 ? "" : "s"))"
   }
 
   func checkExposed() async {

@@ -77,6 +77,7 @@ enum Preview {
       wm.show("import", title: "Import keys") { ImportView(reviewOpen: true, inSetup: false, onlyPaths: [d + "/beta/.env"]) {}.sheetCard() }
     case "popover":
       AppModel.shared.realKeyFiles = ["/Users/x/Desktop/voiceover/.env", "/Users/x/Desktop/notes-app/.env"]
+      AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
       DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()
     }

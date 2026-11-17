@@ -25,7 +25,7 @@ struct PopoverView: View {
           .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)
       }
       if let c = model.portConflict { portCard(c) }
-      if !model.realKeyFiles.isEmpty {
+      if !model.realKeys.files.isEmpty {
         if dismissedRealKeys == realKeysSignature { realKeysLine } else { realKeysCard }
       }
       ForEach(model.pending) { p in pendingCard(p) }
@@ -67,19 +67,10 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 6)
       } else if model.pending.isEmpty && model.openProjects.isEmpty {
-        Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") locked. Nothing has access right now.")
+        Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") in keydillo. Nothing has access right now.")
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
       }
 
-      if !model.exposed.isEmpty {
-        Button { Task { _ = await model.secureAll() } } label: {
-          HStack(spacing: 4) {
-            Text("⚠︎ Real keys in \(model.exposed.count) project\(model.exposed.count == 1 ? "" : "s") ·").foregroundStyle(Theme.danger)
-            Text("Secure all").underline()
-          }.font(.system(size: 12))
-        }
-        .buttonStyle(.plain).padding(.horizontal, 16).padding(.bottom, 6)
-      }
       if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
         let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
         Button {
@@ -112,39 +103,41 @@ struct PopoverView: View {
     .task { await model.refreshGrants() }
   }
 
-  /// Hidden until the set of files changes.
+  /// The card shrinks to one line when hidden, until the set of files changes. It never goes away while real keys remain.
   @AppStorage("dismissedRealKeys") private var dismissedRealKeys = ""
-  var realKeysSignature: String { model.realKeyFiles.sorted().joined(separator: "|") }
-  var realKeysTitle: String {
-    let names = model.realKeyFiles.map { (($0 as NSString).deletingLastPathComponent as NSString).lastPathComponent }
-    return "Real keys are back in \(names.count == 1 ? names[0] + "'s .env" : "\(names.count) .env files")"
-  }
+  @State private var securing = false
+  var realKeysSignature: String { model.realKeys.files.joined(separator: "|") }
+
+  var secureButtonTitle: String { securing ? "Securing…" : "Secure all" }
+  func secureAll() { securing = true; Task { _ = await model.secureAll(); securing = false } }
 
   var realKeysLine: some View {
-    Button { StatusItem.shared?.close(); WindowManager.shared.showImport(only: model.realKeyFiles) } label: {
+    Button { secureAll() } label: {
       HStack(spacing: 4) {
-        Text(realKeysTitle + " ·").foregroundStyle(Theme.secondary)
-        Text("Review").underline()
+        Text("⚠︎ " + model.realKeysText + " ·").foregroundStyle(Theme.danger)
+        Text(secureButtonTitle).underline()
       }
       .font(.system(size: 12))
     }
-    .buttonStyle(.plain).padding(.horizontal, 16).padding(.bottom, 10)
+    .buttonStyle(.plain).disabled(securing).padding(.horizontal, 16).padding(.bottom, 10)
   }
 
   var realKeysCard: some View {
     VStack(alignment: .leading, spacing: 10) {
       VStack(alignment: .leading, spacing: 3) {
         HStack(alignment: .top) {
-          Text(realKeysTitle).font(.system(size: 14, weight: .semibold))
+          Text(model.realKeysText).font(.system(size: 14, weight: .semibold))
           Spacer()
           Button { dismissedRealKeys = realKeysSignature } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
-            .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Hide. It comes back if other files change.").accessibilityLabel("Hide")
+            .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Shrink to one line. It opens again if other files change.").accessibilityLabel("Shrink")
         }
-        Text("Something wrote real values over the placeholders (for example `vercel env pull`). Lock them away again?")
+        Text("Any program can read keys in .env files, including AI tools. Keep them there only for tools keydillo doesn't support yet.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
-      Button("Review and re-import") { StatusItem.shared?.close(); WindowManager.shared.showImport(only: model.realKeyFiles) }
-        .buttonStyle(SmallPrimaryStyle())
+      HStack(spacing: 8) {
+        Button(secureButtonTitle) { secureAll() }.buttonStyle(SmallPrimaryStyle()).disabled(securing)
+        Button("Review") { StatusItem.shared?.close(); WindowManager.shared.showImport(only: model.realKeys.files) }.buttonStyle(SmallButtonStyle())
+      }
     }
     .padding(14)
     .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
