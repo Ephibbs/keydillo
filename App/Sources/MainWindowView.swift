@@ -403,7 +403,7 @@ struct KeyDetailView: View {
       Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
         row(config.isLaunchTime ? "How it's used" : "Sent only to") {
           if config.isLaunchTime {
-            Text("Given to the app when it starts with kd. The running program can see it, so a command that prints its environment could reveal it.")
+            Text("Note: kd gives this to the program as it starts, after Touch ID each time. Anything started with kd in this project can read it.")
               .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
           } else if editing {
             FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true)

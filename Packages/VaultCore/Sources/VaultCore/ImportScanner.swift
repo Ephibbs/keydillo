@@ -269,14 +269,15 @@ public enum ImportScanner {
 
   /// Replaces imported values with placeholders and adds base-URL lines. Returns the new file text.
   public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787,
-                             prefixes: [String: String] = [:]) -> String {
+                             prefixes: [String: String] = [:], launchNames: Set<String> = []) -> String {
     var lines = text.components(separatedBy: "\n")
     if !lines.contains(headerStart) { lines = header(port: port) + lines }
     var added: [String] = []
     for (i, raw) in lines.enumerated() {
       guard let (name, _) = assignment(raw), let r = replacements[name] else { continue }
       let exported = raw.trimmingCharacters(in: .whitespaces).hasPrefix("export ")
-      lines[i] = (exported ? "export " : "") + "\(name)=\(prefixes[name] ?? "")\(Placeholder.value(for: r.service))"
+      let placeholder = launchNames.contains(name) ? Placeholder.launchValue(for: r.service) : Placeholder.value(for: r.service)
+      lines[i] = (exported ? "export " : "") + "\(name)=\(prefixes[name] ?? "")\(placeholder)"
       if let base = r.baseURL, let envName = r.baseURLEnvName,
          !lines.contains(where: { assignment($0)?.0 == envName }), !added.contains(where: { $0.hasPrefix(envName + "=") }) {
         added.append("\(envName)=\(base)")

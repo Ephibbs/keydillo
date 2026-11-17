@@ -364,6 +364,22 @@ final class NewHostPromptTests: XCTestCase {
   }
 }
 
+final class LaunchPlaceholderTests: XCTestCase {
+  func testLaunchTimePlaceholdersAreRandomAndStillRecognised() {
+    let a = Placeholder.launchValue(for: "jwt-secret"), b = Placeholder.launchValue(for: "jwt-secret")
+    XCTAssertNotEqual(a, b)
+    XCTAssertEqual(Placeholder.service(in: a), "jwt-secret")
+    XCTAssertTrue(Placeholder.isRandomLaunchValue(a))
+    XCTAssertFalse(Placeholder.isRandomLaunchValue(Placeholder.value(for: "jwt-secret")))
+    let text = ImportScanner.rewrite("JWT_SECRET=FAKEjwtvalue0123456789abcdef\nOPENAI_API_KEY=sk-proj-FAKE0123456789abcdef0123\n",
+      replacements: ["JWT_SECRET": (service: "jwt-secret", baseURL: nil, baseURLEnvName: nil), "OPENAI_API_KEY": (service: "openai", baseURL: nil, baseURLEnvName: nil)],
+      launchNames: ["JWT_SECRET"])
+    let jwt = text.components(separatedBy: "\n").first { $0.hasPrefix("JWT_SECRET=") }!
+    XCTAssertTrue(Placeholder.isRandomLaunchValue(String(jwt.dropFirst("JWT_SECRET=".count))), jwt)
+    XCTAssertTrue(text.contains("OPENAI_API_KEY=" + Placeholder.value(for: "openai")))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

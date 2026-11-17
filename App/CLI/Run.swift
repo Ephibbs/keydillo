@@ -292,11 +292,13 @@ enum Runner {
   /// KEY=VALUE lines from the env files of the keydillo project at or above `dir`.
   static func projectEnvEntries(from dir: String) -> [(String, String)] {
     var d = dir
+    var all: [(String, String)] = []
+    // Every keydillo env file from here up to /, so a monorepo's root .env counts as well as the package's own.
     while !d.isEmpty && d != "/" {
       let names = ((try? FileManager.default.contentsOfDirectory(atPath: d)) ?? []).filter(ImportScanner.isEnvFile)
       let texts = names.compactMap { try? String(contentsOfFile: d + "/" + $0, encoding: .utf8) }
       if texts.contains(where: { $0.contains(ImportScanner.headerStart) }) {
-        return texts.flatMap { t in
+        all += texts.flatMap { t in
           t.components(separatedBy: "\n").compactMap { line -> (String, String)? in
             var l = line.trimmingCharacters(in: .whitespaces)
             if l.hasPrefix("#") || !l.contains("=") { return nil }
@@ -309,7 +311,7 @@ enum Runner {
       }
       d = (d as NSString).deletingLastPathComponent
     }
-    return []
+    return all
   }
 
   static var keepAlive: DispatchSourceTimer?

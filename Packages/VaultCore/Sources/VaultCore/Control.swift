@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Darwin
 
 /// Messages between the keydillo CLI / MCP server and the app, over a Unix socket.
@@ -209,6 +210,19 @@ public enum Placeholder {
   /// Self-explaining, so a person who sends it to the real API sees why it failed.
   public static let hint = "start-with-keydillo-run"
   public static func value(for service: String) -> String { prefix + service + ":" + hint }
+  /// For launch-time keys: an unguessable tail, so if a program ever runs without the real value it gets a random
+  /// secret, never a public string someone could use (for example to forge a token signed with it).
+  public static func launchValue(for service: String) -> String {
+    var bytes = [UInt8](repeating: 0, count: 24)
+    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    return prefix + service + ":" + bytes.map { String(format: "%02x", $0) }.joined()
+  }
+  /// True for a launch-time placeholder written by `launchValue`.
+  public static func isRandomLaunchValue(_ v: String) -> Bool {
+    guard let r = v.range(of: prefix) else { return false }
+    let rest = v[r.upperBound...].split(separator: ":")
+    return rest.count == 2 && rest[1].count == 48 && rest[1].allSatisfy { $0.isHexDigit }
+  }
   /// True for any keydillo placeholder, including ones with a kept format prefix (sk_keydillo:openai:…) or URL-encoded.
   public static func isPlaceholder(_ value: String) -> Bool {
     let v = value.replacingOccurrences(of: "%3A", with: ":").replacingOccurrences(of: "%3a", with: ":")

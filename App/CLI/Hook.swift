@@ -56,6 +56,9 @@ enum Hook {
   }
 
   static func postAdvice(output: String, command: String, cwd: String?) -> String? {
+    if let r = output.range(of: #"keydillo:[a-z0-9-]+:[0-9a-f]{48}"#, options: .regularExpression), let svc = Placeholder.service(in: String(output[r])) {
+      return "keydillo: the program got the placeholder for \(svc) instead of its value. Start it with `kd`, and check it doesn't reload .env with override or start workers with a clean environment. Don't print environment variables."
+    }
     let found = programs(command, cwd: cwd)
     guard !found.isEmpty else { return nil }
     let lower = " " + output.lowercased() + " "

@@ -144,6 +144,7 @@ final class AppModel {
       }
       ImportModel.migrateFileBackups(model: self)
       ImportModel.migrateBaseURLs(model: self)
+      if !Self.devHarness { ImportModel.randomizeLaunchPlaceholders(model: self) }
     }
     return true
   }
@@ -614,13 +615,17 @@ final class AppModel {
       // Only keydillo's own signed `kd` may receive values, and only launch-time keys, each approved like any request.
       guard ProcessLookup.isKeydilloBinary(caller.pid) else { return .error("launch-time values are only given to keydillo's own kd command") }
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read keys yet.") }
-      let command = ProcessLookup.arguments(of: caller.pid).dropFirst().filter { $0 != "run" && $0 != "--" }.prefix(4).joined(separator: " ")
+      let command = ProcessLookup.arguments(of: caller.pid).dropFirst().filter { $0 != "run" && $0 != "--" }.joined(separator: " ")
+      let keys = names.compactMap(service(named:)).filter(\.isLaunchTime)
+      guard !keys.isEmpty else { return .values([:]) }
+      // Always a fresh Touch ID that names the command: these values end up readable inside the program.
+      if ModelApprover.screenLocked { return .error("The Mac is locked; launch-time keys need Touch ID.") }
+      let reason = "give \(keys.map(\.displayName).joined(separator: ", ")) to: \(command)\n\nAnything this command runs can read \(keys.count == 1 ? "it" : "them")."
+      guard let ctx = await authenticate(reason) else { return .values([:]) }
       var out: [String: String] = [:]
-      for name in names {
-        guard let svc = service(named: name), svc.isLaunchTime else { continue }
-        let ask = ApprovalRequest(service: name, displayName: svc.displayName, host: "", method: "START", path: command, client: caller)
-        guard case .approved(let ctx) = await engine.gate.authorize(svc, ask),
-              let d = try? secretReader.secret(for: name, context: ctx) else { continue }
+      for svc in keys {
+        let name = svc.name
+        guard let d = try? keychain.secret(for: name, context: ctx) else { continue }
         out[name] = String(decoding: d, as: UTF8.self)
         events.insert(ActivityEvent(date: Date(), service: name, method: "START", path: command, process: caller.displayName, pid: caller.pid,
                                     outcome: .sent, status: 0, note: "given to the program as it started"), at: 0)

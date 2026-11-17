@@ -115,5 +115,15 @@ ok "quit: kd says keydillo was quit and doesn't reopen it" '[[ $out == *"keydill
 rm -f "$QM"; launchctl kickstart gui/$(id -u)/com.studiokillswitch.keydillo.agent 2>/dev/null; sleep 3
 ok "quit: once keydillo is open again, kd works" '"$B" run -- true 2>/dev/null'
 
+# 12. Launch-time keys in a monorepo, and the check for a program that ended up with the placeholder.
+mkdir -p $T/mono/packages/web
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nDATABASE_URL=keydillo:db-url:0123456789abcdef0123456789abcdef0123456789abcdef\n' > $T/mono/.env
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nPORT=3000\n' > $T/mono/packages/web/.env
+export KEYDILLO_TEST_SERVICES='[{"name":"db-url","displayName":"DB","project":"t","host":"","baseURL":"x","envVarName":"DATABASE_URL","baseURLEnvName":"X","launchTime":true}]'
+export KEYDILLO_TEST_LAUNCH_VALUES='{"db-url":"postgres://real"}' KEYDILLO_TEST_APP_PORT=1
+ok "launch-time: a monorepo root's .env counts when kd runs in a package" '[[ $(cd $T/mono/packages/web && $DEV run -- sh -c "echo \$DATABASE_URL" 2>/dev/null) == "postgres://real" ]]'
+unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_LAUNCH_VALUES KEYDILLO_TEST_APP_PORT
+ok "post: a launch-time placeholder in the output is explained" '[[ $(postc "kd node worker.js" $T/proj "connect failed: password keydillo:db-url:0123456789abcdef0123456789abcdef0123456789abcdef") == *"got the placeholder for db-url"* ]]'
+
 print "\n$pass passed, $fail failed"
 exit $fail

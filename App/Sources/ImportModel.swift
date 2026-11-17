@@ -119,7 +119,8 @@ final class ImportModel {
       for (path, reps) in replacementsByFile {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         backup.files.append(.init(path: path, text: text))
-        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:])))
+        let launch = Set(chosen.filter { $0.file == path && $0.localOnly != nil }.map(\.name))
+        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:], launchNames: launch)))
       }
       try model.keychain.setSecret(try JSONEncoder().encode(backup), for: Self.backupAccount(backup.date), label: "keydillo .env backup",
                                    service: Self.backupService)
@@ -231,6 +232,22 @@ final class ImportModel {
   }
 
   /// Short placeholders from earlier imports become the self-explaining form.
+  /// Launch-time keys imported before random placeholders get one now.
+  static func randomizeLaunchPlaceholders(model: AppModel) {
+    let launch = Set(model.services.filter(\.isLaunchTime).map(\.name))
+    guard !launch.isEmpty else { return }
+    for path in trackedFiles {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+      let out = text.components(separatedBy: "\n").map { line -> String in
+        guard let eq = line.firstIndex(of: "="), let svc = Placeholder.service(in: line), launch.contains(svc) else { return line }
+        let value = String(line[line.index(after: eq)...]).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+        guard Placeholder.isPlaceholder(value), !Placeholder.isRandomLaunchValue(value) else { return line }
+        return String(line[...eq]) + Placeholder.launchValue(for: svc)
+      }.joined(separator: "\n")
+      if out != text { try? out.write(toFile: path, atomically: true, encoding: .utf8) }
+    }
+  }
+
   static func migratePlaceholders() {
     guard !UserDefaults.standard.bool(forKey: "migratedPlaceholders1") else { return }
     let re = try! NSRegularExpression(pattern: #"^((?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*["']?)keydillo:([a-z0-9-]+)(["']?\s*)$"#)
