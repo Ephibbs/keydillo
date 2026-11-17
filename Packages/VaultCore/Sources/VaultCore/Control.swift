@@ -2,7 +2,8 @@ import Foundation
 import Darwin
 
 /// Messages between the keydillo CLI / MCP server and the app, over a Unix socket.
-/// Nothing here ever carries a key value.
+/// Nothing here carries a key value, except launch-time values, which the app hands only to keydillo's own
+/// signed `kd` command after approval.
 public enum ControlRequest: Codable, Equatable {
   case listServices
   case status
@@ -10,6 +11,8 @@ public enum ControlRequest: Codable, Equatable {
   case requestSecret(SecretRequest)
   /// Opens all of a project's keys with one Touch ID, for as long as the project's setting allows.
   case openProject(OpenProjectRequest)
+  /// `kd` asks for launch-time values (by key name) to put in the program's environment.
+  case launchValues([String])
 }
 
 public struct OpenProjectRequest: Codable, Equatable {
@@ -47,6 +50,7 @@ public struct ServiceSummary: Codable, Equatable {
   public var baseURLEnvName: String
   public var hosts: [String]? = nil
   public var hostTokens: [String]? = nil
+  public var launchTime: Bool? = nil
 }
 
 public struct StatusInfo: Codable, Equatable {
@@ -70,13 +74,14 @@ public enum ControlResponse: Codable, Equatable {
   case declined
   case error(String)
   case opened(project: String, services: [String], span: String)
+  case values([String: String])
 }
 
 public extension ServiceConfig {
   func summary(port: UInt16) -> ServiceSummary {
     ServiceSummary(name: name, displayName: displayName, project: project, host: upstreamHost,
                    baseURL: "http://localhost:\(port)/\(name)\(sdkBasePath ?? "")", envVarName: envVarName,
-                   baseURLEnvName: baseURLEnvName ?? Self.derivedBaseEnv(envVarName), hosts: allHosts, hostTokens: upstreamHost.isEmpty ? hostTokens : nil)
+                   baseURLEnvName: baseURLEnvName ?? Self.derivedBaseEnv(envVarName), hosts: allHosts, hostTokens: upstreamHost.isEmpty && !isLaunchTime ? hostTokens : nil, launchTime: isLaunchTime ? true : nil)
   }
 
   /// OPENAI_API_KEY / OPENAI_KEY / RESEND_SECRET_KEY → OPENAI_BASE_URL / OPENAI_BASE_URL / RESEND_BASE_URL

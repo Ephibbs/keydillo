@@ -371,8 +371,11 @@ struct KeyDetailView: View {
   var fields: some View {
     VStack(alignment: .leading, spacing: 12) {
       Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-        row("Sent only to") {
-          if editing {
+        row(config.isLaunchTime ? "How it's used" : "Sent only to") {
+          if config.isLaunchTime {
+            Text("Given to the app when it starts with kd. The running program can see it, so a command that prints its environment could reveal it.")
+              .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+          } else if editing {
             FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true)
           } else {
             VStack(alignment: .leading, spacing: 6) {

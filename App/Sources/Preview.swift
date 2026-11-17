@@ -48,7 +48,7 @@ enum Preview {
     case "import":
       let d = NSTemporaryDirectory() + "kd-preview-import"
       try? FileManager.default.createDirectory(atPath: d + "/beta", withIntermediateDirectories: true)
-      try? "ACME_API_KEY=acme_FAKEpreview0123456789\nWIDGET_TOKEN=wdg_FAKEpreview0123456789\n".write(toFile: d + "/beta/.env", atomically: true, encoding: .utf8)
+      try? "ACME_API_KEY=acme_FAKEpreview0123456789\nWIDGET_TOKEN=wdg_FAKEpreview0123456789\nJWT_SECRET=FAKEjwtpreview0123456789abcdef\n".write(toFile: d + "/beta/.env", atomically: true, encoding: .utf8)
       wm.show("import", title: "Import keys") { ImportView(reviewOpen: true, inSetup: false, onlyPaths: [d + "/beta/.env"]) {}.sheetCard() }
     case "popover": DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()

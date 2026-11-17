@@ -114,6 +114,7 @@ final class AppModel {
   }
 
   @ObservationIgnored private var engine: ProxyEngine!
+  @ObservationIgnored private var secretReader: ProjectAwareSecrets!
   @ObservationIgnored private var server: ProxyServer?
   @ObservationIgnored private let snapshot = SnapshotBox([])
   @ObservationIgnored private var keyRequestWaiters: [UUID: CheckedContinuation<ControlResponse, Never>] = [:]
@@ -147,6 +148,7 @@ final class AppModel {
   private init() {
     let approver = ModelApprover(model: self)
     let secrets = ProjectAwareSecrets(keychain: keychain, store: unlocks, projectOf: { [snapshot] name in snapshot.value.first { $0.name == name }?.project })
+    secretReader = secrets
     engine = ProxyEngine(services: { [snapshot] in snapshot.value }, secrets: secrets, approver: approver)
     unlocks.onChange = { [weak self] in self?.refreshOpenProjects() }
     Task { @MainActor in   // drop expired projects from the menu bar
@@ -507,6 +509,22 @@ final class AppModel {
       events.insert(ActivityEvent(date: Date(), service: name, method: "", path: "", process: who, pid: caller.pid, outcome: .sent, status: 0,
                                   note: "opened \(name) \(access.span)"), at: 0)
       return .opened(project: name, services: keys.map(\.name), span: access.span)
+    case .launchValues(let names):
+      // Only keydillo's own signed `kd` may receive values, and only launch-time keys, each approved like any request.
+      guard ProcessLookup.isKeydilloBinary(caller.pid) else { return .error("launch-time values are only given to keydillo's own kd command") }
+      guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read keys yet.") }
+      let command = ProcessLookup.arguments(of: caller.pid).dropFirst().filter { $0 != "run" && $0 != "--" }.prefix(4).joined(separator: " ")
+      var out: [String: String] = [:]
+      for name in names {
+        guard let svc = service(named: name), svc.isLaunchTime else { continue }
+        let ask = ApprovalRequest(service: name, displayName: svc.displayName, host: "", method: "START", path: command, client: caller)
+        guard case .approved(let ctx) = await engine.gate.authorize(svc, ask),
+              let d = try? secretReader.secret(for: name, context: ctx) else { continue }
+        out[name] = String(decoding: d, as: UTF8.self)
+        events.insert(ActivityEvent(date: Date(), service: name, method: "START", path: command, process: caller.displayName, pid: caller.pid,
+                                    outcome: .sent, status: 0, note: "given to the program as it started"), at: 0)
+      }
+      return .values(out)
     case .requestSecret(let r):
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read or add keys yet. Tell the user and retry after they unlock.") }
       guard ServiceConfig.isValidName(r.service) else { return .error("service must be lowercase letters, digits and dashes") }

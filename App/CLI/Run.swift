@@ -263,6 +263,52 @@ enum Runner {
     return nil
   }
 
+  /// Launch-time keys (database URLs, JWT secrets…): the program reads them as it starts, so kd puts the real value
+  /// in its environment (after the app's approval). .env loaders don't override variables that are already set.
+  static func fillLaunchValues(services: [ServiceSummary], env0: [String: String], shipped: Bool, into env: inout [String: String]) {
+    let launch = Set(services.filter { $0.launchTime == true }.map(\.name))
+    guard !launch.isEmpty else { return }
+    var wanted: [String: String] = [:]   // env var -> key name
+    for (k, v) in projectEnvEntries(from: FileManager.default.currentDirectoryPath) + env0.map({ ($0.key, $0.value) }) {
+      if let svc = Placeholder.service(in: v), launch.contains(svc) { wanted[k] = svc }
+    }
+    guard !wanted.isEmpty else { return }
+    var values: [String: String] = [:]
+    if !shipped, let json = env0["KEYDILLO_TEST_LAUNCH_VALUES"], let d = json.data(using: .utf8),
+       let v = try? JSONDecoder().decode([String: String].self, from: d) {
+      values = v   // testing hook, development builds only
+    } else if case .values(let v)? = try? ControlSocket.send(.launchValues(Array(Set(wanted.values)).sorted())) {
+      values = v
+    }
+    for (k, svc) in wanted.sorted(by: { $0.key < $1.key }) {
+      if let v = values[svc] { env[k] = v }
+      else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved), so the program gets the keydillo placeholder.\n".utf8)) }
+    }
+  }
+
+  /// KEY=VALUE lines from the env files of the keydillo project at or above `dir`.
+  static func projectEnvEntries(from dir: String) -> [(String, String)] {
+    var d = dir
+    while !d.isEmpty && d != "/" {
+      let names = ((try? FileManager.default.contentsOfDirectory(atPath: d)) ?? []).filter(ImportScanner.isEnvFile)
+      let texts = names.compactMap { try? String(contentsOfFile: d + "/" + $0, encoding: .utf8) }
+      if texts.contains(where: { $0.contains(ImportScanner.headerStart) }) {
+        return texts.flatMap { t in
+          t.components(separatedBy: "\n").compactMap { line -> (String, String)? in
+            var l = line.trimmingCharacters(in: .whitespaces)
+            if l.hasPrefix("#") || !l.contains("=") { return nil }
+            if l.hasPrefix("export ") { l = String(l.dropFirst(7)) }
+            let parts = l.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return (parts[0].trimmingCharacters(in: .whitespaces), parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")))
+          }
+        }
+      }
+      d = (d as NSString).deletingLastPathComponent
+    }
+    return []
+  }
+
   static var keepAlive: DispatchSourceTimer?
   static var scanner: DispatchSourceTimer?
 
@@ -320,6 +366,7 @@ enum Runner {
     env["KEYDILLO_CA"] = runExtra.path
     env["PYTHONPATH"] = shims.path + (env0["PYTHONPATH"].map { ":" + $0 } ?? "")
 
+    fillLaunchValues(services: services, env0: env0, shipped: shipped, into: &env)
     active = proxy
     return (proxy, env)
   }

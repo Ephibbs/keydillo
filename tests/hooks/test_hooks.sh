@@ -90,5 +90,19 @@ ok "kd: a key with no host is offered to the app for approval of the host it was
 kill $APPP 2>/dev/null
 unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 
+# 10. Launch-time keys: kd puts the real value in the program's environment; .env loaders keep it.
+mkdir -p $T/web/src
+printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:start-with-keydillo-run\nPORT=3000\n' > $T/web/.env
+export KEYDILLO_TEST_SERVICES='[{"name":"jwt-secret","displayName":"JWT secret","project":"t","host":"","baseURL":"x","envVarName":"JWT_SECRET","baseURLEnvName":"X","launchTime":true}]'
+export KEYDILLO_TEST_LAUNCH_VALUES='{"jwt-secret":"s3cret-from-keychain"}' KEYDILLO_TEST_APP_PORT=1
+ok "launch-time: kd gives the program the real value" '[[ $(cd $T/web/src && $DEV run -- sh -c "echo \$JWT_SECRET" 2>/dev/null) == "s3cret-from-keychain" ]]'
+PY=$HOME/Desktop/keydillo-breakers/.venv/bin/python
+if [[ -x $PY ]]; then
+  ok "launch-time: python-dotenv keeps kd's value instead of the placeholder" '[[ $(cd $T/web && $DEV run -- $PY -c "from dotenv import load_dotenv; load_dotenv(); import os; print(os.environ[\"JWT_SECRET\"])" 2>/dev/null) == "s3cret-from-keychain" ]]'
+fi
+export KEYDILLO_TEST_LAUNCH_VALUES='{}'
+ok "launch-time: if it isn't approved, kd says so" '[[ $(cd $T/web && $DEV run -- true 2>&1) == *"JWT_SECRET wasn"* ]]'
+unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_LAUNCH_VALUES KEYDILLO_TEST_APP_PORT
+
 print "\n$pass passed, $fail failed"
 exit $fail

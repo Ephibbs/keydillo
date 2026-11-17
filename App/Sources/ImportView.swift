@@ -73,13 +73,13 @@ struct ImportView: View {
         Color.clear.onAppear { UIProbe.set("import-list-height", g.size.height) }
           .onChange(of: g.size.height) { _, h in UIProbe.set("import-list-height", h) }
       })
-      Text("Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, put kd in front: kd npm run dev. Files tracked by git will show the change in your next commit.")
+      Text("Keys marked \"not fully hidden\" (database URLs, JWT and signing secrets) are unticked: kd gives them to the app when it starts, and the running program can see them. Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, put kd in front: kd npm run dev. Files tracked by git will show the change in your next commit.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
 
   func group(_ f: ImportScanner.FileResult) -> some View {
-    let ids = Set(f.keys.filter { $0.localOnly == nil && !$0.isPublic }.map(\.id))
+    let ids = Set(f.keys.filter { !$0.isPublic }.map(\.id))
     return VStack(spacing: 0) {
       HStack(spacing: 10) {
         Toggle("", isOn: Binding(get: { ids.isSubset(of: im.selected) }, set: { _ in im.toggleGroup(f) }))
@@ -101,12 +101,13 @@ struct ImportView: View {
       ForEach(f.keys) { k in
         Divider().overlay(Theme.hairline)
         HStack(spacing: 10) {
-          Toggle("", isOn: Binding(get: { im.selected.contains(k.id) && k.localOnly == nil }, set: { on in if on { im.selected.insert(k.id) } else { im.selected.remove(k.id) } }))
-            .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.localOnly != nil)
+          Toggle("", isOn: Binding(get: { im.selected.contains(k.id) }, set: { on in if on { im.selected.insert(k.id) } else { im.selected.remove(k.id) } }))
+            .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.isPublic)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          Text(k.localOnly.map { "Left as is: \($0)" } ?? (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use")))
-            .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
+          Text(k.localOnly != nil ? "Given to the app at start · not fully hidden" : (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use")))
+            .font(.system(size: 12)).foregroundStyle(k.localOnly != nil ? Theme.danger : Theme.secondary).lineLimit(1)
+            .help(k.localOnly != nil ? "Used by your app itself (\(k.localOnly!)). kd gives it to the app when it starts. The running program can see it, so a command that prints its environment could reveal it." : "")
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .onAppear { UIProbe.add("import-rows", 1) }

@@ -20,7 +20,7 @@ final class ImportModel {
   var onlyPaths: [String]?
 
   var selectedCount: Int { files.flatMap(\.keys).filter { selected.contains($0.id) }.count }
-  var totalCount: Int { files.flatMap(\.keys).filter { !$0.isPublic && $0.localOnly == nil }.count }
+  var totalCount: Int { files.flatMap(\.keys).filter { !$0.isPublic }.count }
 
   func scan() async {
     scanning = true
@@ -47,7 +47,7 @@ final class ImportModel {
   }
 
   func toggleGroup(_ f: ImportScanner.FileResult) {
-    let ids = Set(f.keys.filter { $0.localOnly == nil && !$0.isPublic }.map(\.id))
+    let ids = Set(f.keys.filter { !$0.isPublic }.map(\.id))
     if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }
   }
 
@@ -56,7 +56,7 @@ final class ImportModel {
   /// Returns true when the import ran.
   func run(model: AppModel) async -> Bool {
     // Secrets the app uses itself can never be filled back in by a proxy, so they're never replaced.
-    let chosen = files.flatMap(\.keys).filter { selected.contains($0.id) && $0.localOnly == nil }
+    let chosen = files.flatMap(\.keys).filter { selected.contains($0.id) }
     guard !chosen.isEmpty else { return true }
     guard model.storageSecure else { self.error = AppModel.insecureMessage; return false }
     guard await model.authenticate("import \(chosen.count) key\(chosen.count == 1 ? "" : "s") from your .env files") != nil else { return false }
@@ -87,9 +87,11 @@ final class ImportModel {
         while taken.contains(candidate) { candidate = "\(base)-\(i)"; i += 1 }
         name = candidate
         taken.insert(name); nameByValue[key.value] = name
-        var cfg = ServiceConfig(name: name, displayName: key.service?.displayName ?? Self.title(key.name), project: file.project,
-                                upstreamHost: key.service?.host ?? "", authHeader: key.service?.header ?? "",
-                                authPrefix: key.service?.prefix ?? "", envVarName: key.name, approval: model.defaultApproval.mode)
+        let launch = key.localOnly != nil
+        var cfg = ServiceConfig(name: name, displayName: launch ? Self.title(key.name) : (key.service?.displayName ?? Self.title(key.name)), project: file.project,
+                                upstreamHost: launch ? "" : (key.service?.host ?? ""), authHeader: launch ? "" : (key.service?.header ?? ""),
+                                authPrefix: launch ? "" : (key.service?.prefix ?? ""), envVarName: key.name, approval: model.defaultApproval.mode)
+        if launch { cfg.launchTime = true }
         cfg.keyPageURL = key.service?.keyPage
         cfg.folder = file.folder
         if let conv = key.service.flatMap({ ImportScanner.convention(for: $0.service) }) {
@@ -104,7 +106,7 @@ final class ImportModel {
       let summary = cfg.map(model.summary)
       // Only add a base-URL line when the service's SDK actually reads one; otherwise it's noise.
       let readsEnv = cfg.map { $0.baseURLEnvName != nil || ImportScanner.convention(for: $0.name)?.env != nil } ?? false
-      prefixesByFile[key.file, default: [:]][key.name] = key.keyPrefix
+      if key.localOnly == nil { prefixesByFile[key.file, default: [:]][key.name] = key.keyPrefix }
       replacementsByFile[key.file, default: [:]][key.name] =
         (name, summary?.baseURL, (cfg?.isProxyReady == true && readsEnv) ? summary?.baseURLEnvName : nil)
     }

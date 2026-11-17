@@ -95,6 +95,11 @@ public final class ProxyEngine: @unchecked Sendable {
       log(.blocked, 404, "unknown service")
       return await sink.respond(.error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat."))
     }
+    if stored.isLaunchTime {
+      log(.blocked, 409, "launch-time key")
+      return await sink.respond(.error(409, "\(stored.displayName) is a launch-time key: keydillo gives it to programs as they start and never sends it over the network",
+        code: "launch_time_key", hint: "Start the program with `kd` in front so it gets the value in its environment."))
+    }
     // `kd` names the host a program actually called (it saw the placeholder there). The server keeps this header
     // only when it comes from keydillo's own signed command.
     var svc = stored

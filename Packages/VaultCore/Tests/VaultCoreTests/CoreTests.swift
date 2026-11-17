@@ -255,6 +255,15 @@ final class HostOnFirstUseTests: XCTestCase {
     XCTAssertEqual(svc.allHosts, [first, second])
   }
 
+  func testLaunchTimeKeysAreNeverSentOverTheNetwork() async {
+    let secrets = MemorySecrets(); secrets.values["jwt"] = Data("s3cret".utf8)
+    var svc = ServiceConfig(name: "jwt", upstreamHost: "", authHeader: ""); svc.launchTime = true
+    let engine = ProxyEngine(services: { [svc] }, secrets: secrets, approver: HostApprover())
+    let r = await engine.handle(req("/jwt/x", "X-Keydillo-Target-Host: example.com\r\n"), client: ClientProcess(pid: 1, name: "t", startTime: 1))
+    XCTAssertEqual(r.status, 409); XCTAssertTrue(String(decoding: r.body, as: UTF8.self).contains("launch_time_key"))
+    XCTAssertEqual(svc.summary(port: 7787).launchTime, true)
+  }
+
   func testUnknownKeysGetHostHintsFromTheirName() {
     let s = ServiceConfig(name: "together", upstreamHost: "", authHeader: "Authorization", envVarName: "TOGETHER_API_KEY")
     XCTAssertEqual(s.hostTokens, ["together"])

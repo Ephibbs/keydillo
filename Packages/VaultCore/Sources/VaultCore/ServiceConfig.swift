@@ -58,6 +58,10 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// Opt-in: allow the key's placeholder anywhere in a request (path, other headers, body), for APIs that need it.
   /// Off by default, because the allowed host could then echo, store or forward the key.
   public var placeholderAnywhere: Bool?
+  /// A launch-time key (database URL, JWT secret…): not sent over the network by keydillo, but given to a program
+  /// in its environment when `kd` starts it. The program can see the value.
+  public var launchTime: Bool?
+  public var isLaunchTime: Bool { launchTime == true }
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?
 
