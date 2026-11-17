@@ -63,7 +63,7 @@ struct SetupView: View {
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
       VStack(alignment: .leading, spacing: 4) {
-        Text("Put kd in front of commands that use your keys. Claude does it for you.").font(.system(size: 13))
+        Text("Put kd in front of commands that use your keys. Claude does it for you.").font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
         Text("kd npm run dev").font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.secondary)
         if kdMissing {
           Text("To use kd in Terminal, add this line to ~/.zshrc: \(ShellIntegration.pathLine)")
@@ -71,6 +71,7 @@ struct SetupView: View {
         }
       }
       .task { kdMissing = await Task.detached { !ShellIntegration.kdOnPath() }.value }
+      OtherToolsLine()
       if let connectError { Text(connectError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       footer(3) {
         HStack(spacing: 8) {
@@ -125,5 +126,23 @@ struct SetupView: View {
       model.noteCleanExit(); Handover.toLaunchd(); exit(0)
     }
     StatusItem.shared?.open()
+  }
+}
+
+/// For people using Cursor, Codex and other agents: the skill works there too (no tools or hook).
+struct OtherToolsLine: View {
+  static let command = "npx skills add Ephibbs/keydillo"
+  @State private var copied = false
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text("Using Cursor, Codex or another AI tool? Run:").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      HStack(spacing: 8) {
+        Text(Self.command).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+        Button(copied ? "Copied" : "Copy") {
+          NSPasteboard.general.clearContents(); NSPasteboard.general.setString(Self.command, forType: .string); copied = true
+        }
+        .buttonStyle(SmallButtonStyle())
+      }
+    }
   }
 }

@@ -36,6 +36,7 @@ enum Preview {
     case "main": wm.showMain()
     case "setup2": wm.show("setup", title: "Setup") { SetupView(step: 1) }
     case "setup3": wm.show("setup", title: "Setup") { SetupView(step: 2) }
+    case "setup4": wm.show("setup", title: "Setup") { SetupView(step: 3) }
     case "key":
       wm.showKeyWindow(KeyRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs.io", header: "xi-api-key",
                                   prefix: "", envVarName: "ELEVENLABS_API_KEY", project: "voiceover", requester: "Claude Code", cwd: NSHomeDirectory() + "/Desktop/voiceover", keyPageURL: "https://elevenlabs.io/app/settings/api-keys"))
