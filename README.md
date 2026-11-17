@@ -9,7 +9,7 @@
 
 <p align="center">Don’t let AI expose your secrets.<br />Get set up in seconds and forget about it.</p>
 
-<p align="center"><img src="docs/assets/demo.gif" alt="Claude Code runs kd python voiceover.py, keydillo asks for Touch ID to use the ElevenLabs key, and the voiceover is saved" width="760"></p>
+<p align="center"><img src="docs/assets/demo.gif" alt="Claude Code needs an ElevenLabs key, keydillo opens a window where the key is pasted, the .env gets a placeholder, and after Touch ID the voiceover is saved" width="760"></p>
 
 <p align="center"><a href="https://ephibbs.github.io/keydillo-site/">Website</a> · <a href="#install">Install</a> · <a href="SECURITY.md">Security</a> · <a href="docs/roadmap.md">Roadmap</a></p>
 
