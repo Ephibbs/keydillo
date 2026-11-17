@@ -156,6 +156,9 @@ final class AppModel {
       guard let self else { return nil }
       return self.loadedFlag.value ? nil : "keydillo can't read keys until the Mac is unlocked"
     }
+    engine.onHostAdded = { [weak self] name, host in
+      Task { @MainActor in self?.addHost(host, to: name) }
+    }
     engine.onEvent = { [weak self] e in
       Task { @MainActor in
         guard let self else { return }
@@ -355,12 +358,29 @@ final class AppModel {
     if let old = service(named: config.name),
        old.upstreamHost != config.upstreamHost || old.authHeader != config.authHeader || old.authPrefix != config.authPrefix
         || old.upstreamScheme != config.upstreamScheme || old.authQueryParam != config.authQueryParam || old.basicAuth != config.basicAuth
-        || old.extraHeaders != config.extraHeaders || old.placeholderAnywhere != config.placeholderAnywhere || old.approval != config.approval {
+        || old.extraHeaders != config.extraHeaders || old.placeholderAnywhere != config.placeholderAnywhere || old.approval != config.approval
+        || !Set(config.allHosts).isSubset(of: Set(old.allHosts)) {
       guard await authenticate("send your \(config.displayName) key to \(config.upstreamHost)") != nil else { return false }
     }
     try persist(services.map { $0.name == config.name ? config : $0 })
     Task { await engine.gate.revokeAll(service: config.name); await refreshGrants() }
     return true
+  }
+
+  /// Called only after the user approved this host with Touch ID (from the proxy).
+  func addHost(_ host: String, to name: String) {
+    guard var s = service(named: name), !s.allHosts.contains(host) else { return }
+    if s.upstreamHost.isEmpty { s.upstreamHost = host } else { s.extraHosts = (s.extraHosts ?? []) + [host] }
+    try? persist(services.map { $0.name == name ? s : $0 })
+  }
+
+  /// Narrowing where a key can go needs no Touch ID.
+  func removeHost(_ host: String, from name: String) {
+    guard var s = service(named: name) else { return }
+    s.extraHosts = (s.extraHosts ?? []).filter { $0.lowercased() != host.lowercased() }
+    if s.extraHosts?.isEmpty == true { s.extraHosts = nil }
+    try? persist(services.map { $0.name == name ? s : $0 })
+    Task { await engine.gate.revokeAll(service: name); await refreshGrants() }
   }
 
   func delete(_ name: String) {
@@ -578,6 +598,16 @@ final class ModelApprover: Approver, @unchecked Sendable {
   static var screenLocked: Bool {
     guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
     return (d["CGSSessionScreenIsLocked"] as? Bool) == true
+  }
+
+  /// A key going to a host it hasn't been sent to: always an explicit Touch ID naming the host, whatever the
+  /// project setting, earlier approvals or the locked-Mac mode.
+  func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult {
+    if Self.screenLocked { return .unavailable("the Mac is locked") }
+    let ctx = LAContext()
+    ctx.localizedCancelTitle = "Don't allow"
+    do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.newHostReason) ? .approved(ctx) : .denied }
+    catch { return .denied }
   }
 
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {

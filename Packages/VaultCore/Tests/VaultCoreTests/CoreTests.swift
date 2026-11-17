@@ -204,6 +204,63 @@ final class ControlTests: XCTestCase {
   }
 }
 
+final class HostApprover: Approver, @unchecked Sendable {
+  var allowNewHost = true
+  var newHostAsks: [String] = []
+  func approve(_ request: ApprovalRequest) async -> ApprovalResult { .approved(nil) }
+  func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult {
+    newHostAsks.append(request.host); return allowNewHost ? .approved(nil) : .denied
+  }
+}
+
+final class HostOnFirstUseTests: XCTestCase {
+  func req(_ target: String, _ headers: String = "") -> HTTPRequest {
+    guard case .complete(let r, _) = HTTPParser.parse(Data("GET \(target) HTTP/1.1\r\nHost: localhost:7787\r\n\(headers)\r\n".utf8)) else { fatalError() }
+    return r
+  }
+
+  func testAKeyIsLockedToItsHostOnFirstUseAndEachNewHostNeedsItsOwnApproval() async throws {
+    let echo = try EchoServer(), other = try EchoServer()
+    let secrets = MemorySecrets(); secrets.values["tg"] = Data("sk_TESTSECRET123".utf8)
+    var svc = ServiceConfig(name: "tg", upstreamHost: "", upstreamScheme: "http", authHeader: "x-api-key", approval: .perProcess)
+    let approver = HostApprover()
+    let engine = ProxyEngine(services: { [svc] }, secrets: secrets, approver: approver)
+    engine.onHostAdded = { _, h in if svc.upstreamHost.isEmpty { svc.upstreamHost = h } else { svc.extraHosts = (svc.extraHosts ?? []) + [h] } }
+    let client = ClientProcess(pid: 1, name: "test", startTime: 1)
+
+    // No host yet, and nobody said where it's going: a clear refusal.
+    let r0 = await engine.handle(req("/tg/v1/x"), client: client)
+    XCTAssertEqual(r0.status, 409); XCTAssertTrue(String(decoding: r0.body, as: UTF8.self).contains("needs_host"))
+
+    // kd saw it go to a host: one explicit approval naming the host, then the key is locked there.
+    let first = "127.0.0.1:\(echo.port)"
+    let r1 = await engine.handle(req("/tg/v1/x", "X-Keydillo-Target-Host: \(first)\r\n"), client: client)
+    XCTAssertEqual(r1.status, 200); XCTAssertEqual(approver.newHostAsks, [first]); XCTAssertEqual(svc.upstreamHost, first)
+
+    // Same host again: no new-host prompt.
+    _ = await engine.handle(req("/tg/v1/x", "X-Keydillo-Target-Host: \(first)\r\n"), client: client)
+    XCTAssertEqual(approver.newHostAsks.count, 1)
+
+    // Another host: asked again even though the key is already approved for this caller; declining refuses it.
+    approver.allowNewHost = false
+    let second = "127.0.0.1:\(other.port)"
+    let r2 = await engine.handle(req("/tg/v1/x", "X-Keydillo-Target-Host: \(second)\r\n"), client: client)
+    XCTAssertEqual(r2.status, 403); XCTAssertTrue(String(decoding: r2.body, as: UTF8.self).contains("host_not_allowed"))
+    XCTAssertEqual(approver.newHostAsks, [first, second]); XCTAssertNil(svc.extraHosts)
+
+    // Approving adds it to the key's hosts.
+    approver.allowNewHost = true
+    let r3 = await engine.handle(req("/tg/v1/x", "X-Keydillo-Target-Host: \(second)\r\n"), client: client)
+    XCTAssertEqual(r3.status, 200); XCTAssertEqual(svc.extraHosts ?? [], [second])
+    XCTAssertEqual(svc.allHosts, [first, second])
+  }
+
+  func testUnknownKeysGetHostHintsFromTheirName() {
+    let s = ServiceConfig(name: "together", upstreamHost: "", authHeader: "Authorization", envVarName: "TOGETHER_API_KEY")
+    XCTAssertEqual(s.hostTokens, ["together"])
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

@@ -39,7 +39,9 @@ final class ImportModel {
     let model = AppModel.shared
     // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.
     let all: [ImportScanner.Found] = found.flatMap { $0.keys }
-    selected = Set(all.filter { k in !k.isPublic && k.localOnly == nil && (k.service != nil || model.existing(for: k) != nil) }.map { $0.id })
+    // Every secret key is ticked: unknown providers get their site the first time they're used (approved with Touch ID).
+    selected = Set(all.filter { k in !k.isPublic && k.localOnly == nil }.map { $0.id })
+    _ = model
     scanning = false
     scanned = true
   }

@@ -58,6 +58,8 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// Opt-in: allow the key's placeholder anywhere in a request (path, other headers, body), for APIs that need it.
   /// Off by default, because the allowed host could then echo, store or forward the key.
   public var placeholderAnywhere: Bool?
+  /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
+  public var extraHosts: [String]?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
@@ -97,6 +99,20 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
 
   /// A host is enough: without a header or query parameter, the key goes wherever its placeholder appears.
   public var isProxyReady: Bool { !upstreamHost.isEmpty }
+
+  /// Every host the key may go to (lowercased; host[:port] as stored).
+  public var allHosts: [String] {
+    ([upstreamHost] + (extraHosts ?? [])).filter { !$0.isEmpty }.map { $0.lowercased() }
+  }
+
+  /// Words from the key's name that a host for an unknown provider likely contains ("together" for TOGETHER_API_KEY).
+  /// kd looks inside traffic to such hosts so a key without a host yet can be locked to its host on first use.
+  public var hostTokens: [String] {
+    let generic: Set<String> = ["api", "key", "keys", "token", "secret", "access", "auth", "private", "service", "role", "rest", "app",
+                                "client", "id", "prod", "dev", "test", "live", "local", "url", "base", "v1", "v2", "the"]
+    let words = (name + "-" + envVarName).lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    return Array(Set(words.filter { $0.count >= 4 && !generic.contains($0) })).sorted()
+  }
 
   public func permits(method: String, path: String) -> Bool {
     allowed.isEmpty || allowed.contains { $0.matches(method: method, path: path) }

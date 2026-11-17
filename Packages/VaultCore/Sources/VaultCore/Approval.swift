@@ -27,6 +27,20 @@ public enum ApprovalResult {
 
 public protocol Approver: AnyObject {
   func approve(_ request: ApprovalRequest) async -> ApprovalResult
+  /// Sending a key to a host it hasn't been sent to before. Always an explicit prompt naming the host:
+  /// never covered by an earlier approval, a project setting or the locked-Mac mode.
+  func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult
+}
+
+public extension Approver {
+  func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult { .denied }
+}
+
+public extension ApprovalRequest {
+  /// "keydillo is trying to send your Together key to a new site, api.together.xyz (asked by Claude Code)…"
+  var newHostReason: String {
+    "send your \(displayName) key to a new site, \(host) (asked by \(client.friendlyName)). Only approve if you expect \(displayName) to be used there; keydillo will remember it"
+  }
 }
 
 /// Touch ID (falls back to the login password when Touch ID is unavailable or locked out).

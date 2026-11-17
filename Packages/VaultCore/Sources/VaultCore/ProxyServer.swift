@@ -68,6 +68,10 @@ public final class ProxyServer: @unchecked Sendable {
         var clientPort: UInt16 = 0
         if case .hostPort(_, let p) = c.endpoint { clientPort = p.rawValue }
         var client = self.identify(clientPort, self.port)
+        let fromKd = req.headers.contains(where: { ["x-keydillo-caller", "x-keydillo-target-host"].contains($0.0.lowercased()) })
+          && ProcessLookup.isKeydilloBinary(client.pid)
+        var req = req
+        if !fromKd { req.headers.removeAll { $0.0.lowercased() == "x-keydillo-target-host" } }
         // A request forwarded by `kd` names the program that really made it. Believe that only from keydillo's own
         // signed binary, and only for one of its own child processes.
         if let v = req.headers.first(where: { $0.0.lowercased() == "x-keydillo-caller" })?.1, let pid = Int32(v.trimmingCharacters(in: .whitespaces)),

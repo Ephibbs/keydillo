@@ -73,5 +73,22 @@ unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 ok "names: a leftover --serve-for argument doesn't borrow a session's name" '! "$B" whois $SF 2>/dev/null | grep -q "shown as: Claude Code$"'
 kill $SF 2>/dev/null
 
+# 9. A key without a host: kd looks inside traffic to likely sites and asks the app to approve the host it saw.
+cat > $T/app.py <<'PYEOF'
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        open(sys.argv[2], "w").write(self.headers.get("X-Keydillo-Target-Host", "none") + " " + self.path)
+        self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).handle_request()
+PYEOF
+python3 $T/app.py 18736 $T/seen & APPP=$!; sleep 0.5
+export KEYDILLO_TEST_APP_PORT=18736 KEYDILLO_TEST_SERVICES='[{"name":"example","displayName":"Example","project":"t","host":"","baseURL":"x","envVarName":"EXAMPLE_API_KEY","baseURLEnvName":"EXAMPLE_BASE_URL","hostTokens":["example"]}]'
+$DEV run -- curl -s --max-time 8 https://api.example.com/v1/x -H "x-api-key: keydillo:example" >/dev/null 2>&1
+ok "kd: a key with no host is offered to the app for approval of the host it was sent to" '[[ $(cat $T/seen 2>/dev/null) == "api.example.com /example/v1/x" ]]'
+kill $APPP 2>/dev/null
+unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
+
 print "\n$pass passed, $fail failed"
 exit $fail

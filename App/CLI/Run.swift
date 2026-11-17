@@ -280,7 +280,7 @@ enum Runner {
     } else {
       services = appServices() ?? { fail("keydillo isn't running and couldn't be started. Open the keydillo app, then try again.") }()
     }
-    do { try ensureCA(hosts: services.map { $0.host.lowercased().split(separator: ":").first.map(String.init) ?? $0.host }) } catch { fail(error.localizedDescription) }
+    do { try ensureCA(hosts: MitmProxy.knownHosts(services) + MitmProxy.guessedDomains(services)) } catch { fail(error.localizedDescription) }
     let appPort = (shipped ? nil : env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) }) ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
     let upstreamProxy = UpstreamProxy.fromEnvironment(env0)
     if let up = upstreamProxy {
@@ -313,7 +313,7 @@ enum Runner {
     // Shims for runtimes that ignore proxy or CA settings.
     try? writeShims()
     var hostMap: [String: [String]] = [:]
-    for svc in services { hostMap[svc.host.lowercased().split(separator: ":").first.map(String.init) ?? svc.host, default: []].append(svc.name) }
+    for svc in services { for h in MitmProxy.hosts(of: svc) { hostMap[h, default: []].append(svc.name) } }
     env["KEYDILLO_RUN_MAP"] = String(decoding: (try? JSONSerialization.data(withJSONObject: hostMap)) ?? Data("{}".utf8), as: UTF8.self)
     env["KEYDILLO_RUN_PORT"] = String(appPort)
     env["NODE_OPTIONS"] = ((env0["NODE_OPTIONS"].map { $0 + " " }) ?? "") + "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
@@ -384,7 +384,31 @@ final class MitmProxy: @unchecked Sendable {
     session = URLSession(configuration: cfg)
   }
 
-  var hosts: Set<String> { Set(services.map { $0.host.lowercased() }) }
+  /// A service's approved hosts (without ports).
+  static func hosts(of s: ServiceSummary) -> [String] {
+    (s.hosts ?? [s.host]).filter { !$0.isEmpty }.map { $0.lowercased().split(separator: ":").first.map(String.init) ?? $0 }
+  }
+  static func knownHosts(_ services: [ServiceSummary]) -> [String] { Array(Set(services.flatMap { hosts(of: $0) })).sorted() }
+
+  /// For keys without a host yet: likely provider domains from the key's name (together → together.xyz, upstash → upstash.io).
+  /// Traffic to these is looked into so the placeholder can be seen and its host approved once with Touch ID.
+  static func guessedDomains(_ services: [ServiceSummary]) -> [String] {
+    let tlds = ["com", "ai", "io", "xyz", "co", "dev", "app", "net", "org", "cloud", "sh", "so"]
+    var out = Set<String>()
+    for s in services where hosts(of: s).isEmpty {
+      for t in s.hostTokens ?? [] { for tld in tlds { out.insert("\(t).\(tld)"); out.insert("\(t)cloud.\(tld)") } }
+    }
+    return out.sorted()
+  }
+
+  lazy var exactHosts: Set<String> = Set(Self.knownHosts(services))
+  lazy var guessed: [String] = Self.guessedDomains(services)
+
+  /// Whether kd looks inside connections to `host`.
+  func intercepts(_ host: String) -> Bool {
+    lock.lock(); defer { lock.unlock() }
+    return exactHosts.contains(host) || guessed.contains { host == $0 || host.hasSuffix("." + $0) }
+  }
 
   func start() throws -> UInt16 {
     let params = NWParameters.tcp
@@ -479,7 +503,7 @@ final class MitmProxy: @unchecked Sendable {
       let port = UInt16(target.split(separator: ":").last ?? "443") ?? 443
       do {
         if ProcessInfo.processInfo.environment["KEYDILLO_DEBUG"] != nil { FileHandle.standardError.write(Data("keydillo run: CONNECT \(host):\(port)\n".utf8)) }
-        if !self.hosts.contains(host), let up = self.upstreamProxy, !up.bypasses(host) {
+        if !self.intercepts(host), let up = self.upstreamProxy, !up.bypasses(host) {
           // Not ours: hand the CONNECT to the user's own proxy and let it answer.
           let upstream = NWConnection(host: NWEndpoint.Host(up.host), port: NWEndpoint.Port(rawValue: up.port)!, using: .tcp)
           upstream.start(queue: self.queue)
@@ -490,9 +514,9 @@ final class MitmProxy: @unchecked Sendable {
           self.pipe(c, upstream); self.pipe(upstream, c)
           return
         }
-        let (h, p) = self.hosts.contains(host) ? ("127.0.0.1", try self.tlsPort(for: host)) : (host, port)
+        let intercepted = self.intercepts(host)
+        let (h, p) = intercepted ? ("127.0.0.1", try self.tlsPort(for: host)) : (host, port)
         let upstream = NWConnection(host: NWEndpoint.Host(h), port: NWEndpoint.Port(rawValue: p)!, using: .tcp)
-        let intercepted = self.hosts.contains(host)
         upstream.stateUpdateHandler = { [weak self] st in
           guard case .ready = st, intercepted, let self,
                 case .hostPort(_, let local)? = upstream.currentPath?.localEndpoint else { return }
@@ -643,13 +667,15 @@ final class MitmProxy: @unchecked Sendable {
     let named = placeholderService(req)
     var upstream: NWConnection
     var toApp = false
+    var newHost: String?
     var target = req.target
     if let named {
-      guard let svc = services.first(where: { $0.name == named }), (svc.host.lowercased().split(separator: ":").first.map(String.init) ?? "") == host else {
-        let r = HTTPResponse.error(403, "the placeholder for '\(named)' was sent to \(host), which isn't that key's host", code: "host_not_allowed",
-                                   hint: "Use the host keydillo stores for \(named), or check which env var your code reads.")
+      guard let svc = services.first(where: { $0.name == named }) else {
+        let r = HTTPResponse.error(404, "no key named '\(named)' is stored", code: "unknown_service")
         c.send(content: r.serialized(), completion: .contentProcessed { _ in c.cancel() }); return
       }
+      // A host the key hasn't been sent to before: the app asks the user, with Touch ID naming this host.
+      newHost = Self.hosts(of: svc).contains(host) ? nil : host
       target = "/\(svc.name)\(req.target)"
       upstream = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: appPort)!, using: .tcp)
       toApp = true
@@ -674,7 +700,7 @@ final class MitmProxy: @unchecked Sendable {
     var hasLength = false
     for (k, v) in req.headers {
       let lk = k.lowercased()
-      if ["host", "proxy-connection", "proxy-authorization", "transfer-encoding", "x-keydillo-caller"].contains(lk) { continue }
+      if ["host", "proxy-connection", "proxy-authorization", "transfer-encoding", "x-keydillo-caller", "x-keydillo-target-host"].contains(lk) { continue }
       if !upgrade && (lk == "connection" || lk == "keep-alive") { continue }
       // Ask for uncompressed replies so keydillo can scrub any echoed key.
       if lk == "accept-encoding" { continue }
@@ -687,6 +713,7 @@ final class MitmProxy: @unchecked Sendable {
     if !upgrade { head += "Connection: close\r\n" }
     // Tells the app which program actually made the request (the app checks it came from keydillo's own binary).
     if named != nil { head += "X-Keydillo-Caller: \(caller)\r\n" }
+    if let h = newHost { head += "X-Keydillo-Target-Host: \(h)\r\n" }
     head += "\r\n"
     var answered = false
     upstream.stateUpdateHandler = { st in

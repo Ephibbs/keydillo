@@ -45,6 +45,8 @@ public struct ServiceSummary: Codable, Equatable {
   public var baseURL: String
   public var envVarName: String
   public var baseURLEnvName: String
+  public var hosts: [String]? = nil
+  public var hostTokens: [String]? = nil
 }
 
 public struct StatusInfo: Codable, Equatable {
@@ -74,7 +76,7 @@ public extension ServiceConfig {
   func summary(port: UInt16) -> ServiceSummary {
     ServiceSummary(name: name, displayName: displayName, project: project, host: upstreamHost,
                    baseURL: "http://localhost:\(port)/\(name)\(sdkBasePath ?? "")", envVarName: envVarName,
-                   baseURLEnvName: baseURLEnvName ?? Self.derivedBaseEnv(envVarName))
+                   baseURLEnvName: baseURLEnvName ?? Self.derivedBaseEnv(envVarName), hosts: allHosts, hostTokens: upstreamHost.isEmpty ? hostTokens : nil)
   }
 
   /// OPENAI_API_KEY / OPENAI_KEY / RESEND_SECRET_KEY → OPENAI_BASE_URL / OPENAI_BASE_URL / RESEND_BASE_URL

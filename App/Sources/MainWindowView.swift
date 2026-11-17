@@ -375,9 +375,28 @@ struct KeyDetailView: View {
           if editing {
             FilledField(placeholder: "api.example.com", text: $config.upstreamHost, monospaced: true)
           } else {
-            HStack(spacing: 6) {
-              Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.secondary)
-              Text(config.upstreamHost.isEmpty ? "Not set" : config.upstreamHost).font(.system(size: 13, design: .monospaced))
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(spacing: 6) {
+                Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.secondary)
+                Text(config.upstreamHost.isEmpty ? "Set the first time it's used (you approve the site with Touch ID)" : config.upstreamHost)
+                  .font(.system(size: 13, design: config.upstreamHost.isEmpty ? .default : .monospaced))
+                  .foregroundStyle(config.upstreamHost.isEmpty ? Theme.secondary : Theme.text)
+              }
+              if let extra = config.extraHosts, !extra.isEmpty {
+                DisclosureGroup("Also sent to \(extra.count) other site\(extra.count == 1 ? "" : "s")") {
+                  VStack(alignment: .leading, spacing: 4) {
+                    ForEach(extra, id: \.self) { h in
+                      HStack(spacing: 8) {
+                        Text(h).font(.system(size: 12, design: .monospaced))
+                        Button("Remove") { model.removeHost(h, from: config.name); config.extraHosts = model.service(named: config.name)?.extraHosts }
+                          .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.danger)
+                      }
+                    }
+                  }
+                  .padding(.top, 4)
+                }
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+              }
             }
           }
         }

@@ -50,7 +50,7 @@ struct ImportView: View {
     let ready = im.selectedCount
     let found = "We found \(im.totalCount) key\(im.totalCount == 1 ? "" : "s") in \(im.files.count) .env file\(im.files.count == 1 ? "" : "s"). Each folder becomes a project; keydillo locks the keys away and leaves a placeholder in each file."
     if ready == im.totalCount { return found }
-    return found + " \(ready == 0 ? "None are" : "\(ready) are") ticked yet: keydillo only ticks keys for APIs it recognises. Open the list to choose the rest."
+    return found + " \(ready) of \(im.totalCount) ticked."
   }
 
   /// Room for every row, up to 320 points (then it scrolls).
@@ -105,7 +105,7 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.localOnly != nil)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          Text(k.localOnly.map { "Left as is: \($0)" } ?? (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Needs a host")))
+          Text(k.localOnly.map { "Left as is: \($0)" } ?? (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use")))
             .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
         }
         .padding(.horizontal, 12).padding(.vertical, 7)

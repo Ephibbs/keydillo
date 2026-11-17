@@ -44,7 +44,12 @@ public final class ProxyEngine: @unchecked Sendable {
   /// Returns a reason while keys can't be read yet (e.g. the Mac is locked), so missing keys aren't reported as unknown.
   public var notReady: (() -> String?)?
 
+  /// Called after the user approves a new host for a key, so the app can remember it.
+  public var onHostAdded: ((String, String) -> Void)?
+  let approver: Approver
+
   public init(services: @escaping () -> [ServiceConfig], secrets: SecretProvider, approver: Approver) {
+    self.approver = approver
     self.services = services
     self.secrets = secrets
     self.gate = ApprovalGate(approver: approver)
@@ -82,7 +87,7 @@ public final class ProxyEngine: @unchecked Sendable {
       onEvent(ActivityEvent(date: Date(), service: name, method: req.method, path: upstreamPath, process: client.displayName,
                             pid: client.pid, outcome: outcome, status: status, note: note))
     }
-    guard let svc = services().first(where: { $0.name == name }) else {
+    guard let stored = services().first(where: { $0.name == name }) else {
       if let why = notReady?() {
         log(.blocked, 423, why)
         return await sink.respond(.error(423, why, code: "approval_unavailable", hint: "The user's Mac is locked. Tell the user it's waiting for them and retry after they unlock. Don't request a new key."))
@@ -90,9 +95,38 @@ public final class ProxyEngine: @unchecked Sendable {
       log(.blocked, 404, "unknown service")
       return await sink.respond(.error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat."))
     }
+    // `kd` names the host a program actually called (it saw the placeholder there). The server keeps this header
+    // only when it comes from keydillo's own signed command.
+    var svc = stored
+    var hostApproval: LAContext?? = nil
+    if let wanted = req.header("X-Keydillo-Target-Host")?.lowercased().trimmingCharacters(in: .whitespaces), !wanted.isEmpty {
+      var probe = svc; probe.upstreamHost = wanted
+      guard UpstreamTarget(probe) != nil else {
+        log(.blocked, 400, "bad host"); return await sink.respond(.error(400, "\(wanted) isn't a valid host", code: "bad_host"))
+      }
+      if !svc.allHosts.contains(wanted) {
+        let ask = ApprovalRequest(service: name, displayName: svc.displayName, host: wanted, method: req.method, path: upstreamPath, client: client)
+        switch await approver.approveNewHost(ask) {
+        case .approved(let c):
+          hostApproval = .some(c)
+          onHostAdded?(name, wanted)
+          log(.sent, 0, "new host \(wanted) approved for \(name)")
+        case .denied:
+          log(.denied, 403, "new host \(wanted) declined")
+          return await sink.respond(.error(403, "the user didn't allow sending \(svc.displayName)'s key to \(wanted)", code: "host_not_allowed",
+            hint: "keydillo only sends a key to hosts the user approved: \(svc.allHosts.isEmpty ? "none yet" : svc.allHosts.joined(separator: ", ")). Tell the user."))
+        case .unavailable(let why):
+          log(.denied, 423, why)
+          return await sink.respond(.error(423, "sending \(svc.displayName)'s key to a new site needs the user's Touch ID, which isn't possible right now (\(why))", code: "approval_unavailable",
+            hint: "Tell the user; it needs them at the Mac."))
+        }
+      }
+      svc.upstreamHost = wanted
+    }
     guard svc.isProxyReady else {
-      log(.blocked, 409, "not set up")
-      return await sink.respond(.error(409, "\(name) is stored but has no host or header yet", code: "needs_setup", hint: "Ask the user to finish setting up \(name) in keydillo, or call request_secret with the API's host and header."))
+      log(.blocked, 409, "no host yet")
+      return await sink.respond(.error(409, "\(name) has no host yet: keydillo locks a key to its host the first time a program uses it", code: "needs_host",
+        hint: "Run the program with `kd` in front (e.g. kd npm run dev); the user approves the host once with Touch ID. Or ask the user to set the host in keydillo."))
     }
     // Decode once and refuse dot segments and encoded slashes, so path rules can't be stepped around.
     let decodedPath = upstreamPath.removingPercentEncoding ?? upstreamPath
@@ -119,6 +153,7 @@ public final class ProxyEngine: @unchecked Sendable {
     let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: svc.upstreamHost,
                                    method: req.method, path: upstreamPath, client: client)
     let ctx: LAContext?
+    if let approved = hostApproval { ctx = approved } else {
     switch await gate.authorize(svc, approval) {
     case .approved(let c): ctx = c
     case .denied:
@@ -127,6 +162,7 @@ public final class ProxyEngine: @unchecked Sendable {
     case .unavailable(let why):
       log(.denied, 423, why)
       return await sink.respond(.error(423, "can't ask for approval right now (\(why))", code: "approval_unavailable", hint: "Tell the user the request is waiting for them; retry once they're back."))
+    }
     }
 
     var secret: Data
@@ -157,7 +193,7 @@ public final class ProxyEngine: @unchecked Sendable {
       for (k, v) in req.headers {
         let lk = k.lowercased()
         if keepUpgrade && (lk == "upgrade" || lk == "connection") { out.append((k, v)); continue }
-        if Self.hopByHop.contains(lk) || lk == "accept-encoding" || lk == "x-keydillo-caller" { continue }
+        if Self.hopByHop.contains(lk) || lk == "accept-encoding" || lk == "x-keydillo-caller" || lk == "x-keydillo-target-host" { continue }
         if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization") { continue }
         if let extra = svc.extraHeaders, extra.keys.contains(where: { $0.lowercased() == lk }) { continue }
         out.append((k, anywhere ? sub.apply(v, urlEncoded: false) : v))
