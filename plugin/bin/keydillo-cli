@@ -1,0 +1,19 @@
+#!/bin/sh
+# Finds the keydillo command inside the installed app and runs it. The plugin ships no binary of its own.
+found=$(mdfind "kMDItemCFBundleIdentifier == 'com.studiokillswitch.keydillo'" 2>/dev/null | grep -v '/.Trash/' | head -1)
+for app in "/Applications/keydillo.app" "$HOME/Applications/keydillo.app" "$found"; do
+  [ -n "$app" ] || continue
+  cli="$app/Contents/Resources/bin/keydillo"
+  if [ -x "$cli" ]; then
+    [ "$1" = "--check-installed" ] && exit 0
+    exec "$cli" "$@"
+  fi
+done
+case "$1" in
+  --check-installed)
+    # SessionStart output is added to Claude's context.
+    echo "keydillo plugin: the keydillo Mac app isn't installed, so API keys can't be stored or used through it yet. If the user needs an API key, suggest: brew install --cask keydillo (or download it from https://github.com/Ephibbs/keydillo/releases), then open keydillo once."
+    exit 0 ;;
+  hook) exit 0 ;;   # don't block anything when the app is missing
+  *) echo "keydillo app not found. Install it with: brew install --cask keydillo" >&2; exit 1 ;;
+esac

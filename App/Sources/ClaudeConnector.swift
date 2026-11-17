@@ -14,8 +14,17 @@ enum ClaudeConnector {
 
   static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
 
+  /// True when the keydillo Claude Code plugin is installed (`/plugin install keydillo@keydillo`).
+  static var pluginInstalled: Bool {
+    guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude/plugins/installed_plugins.json")),
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let plugins = root["plugins"] as? [String: Any] else { return false }
+    return plugins.keys.contains { $0.hasPrefix("keydillo@") }
+  }
+
   /// Returns an error message, or nil on success.
   static func connect() async -> String? {
+    if pluginInstalled { disconnect(); return nil }   // the plugin already brings the skill, tools and hook
     do {
       try registerMCP()
       try writeSkill()
@@ -45,6 +54,10 @@ enum ClaudeConnector {
 
   /// Keeps an installed skill current with this version of keydillo.
   static func refreshSkillIfInstalled() {
+    if pluginInstalled {   // avoid running two copies of the skill, tools and hook
+      if FileManager.default.fileExists(atPath: skillURL.path) { disconnect() }
+      return
+    }
     guard let current = try? String(contentsOf: skillURL, encoding: .utf8) else { return }
     if current != skill { try? skill.write(to: skillURL, atomically: true, encoding: .utf8) }
     try? installHook()   // connected users get the hook and newer settings too

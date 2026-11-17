@@ -17,6 +17,9 @@ struct PopoverView: View {
       }
       .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
+      if model.storageSecure && !model.servicesLoaded {
+        Text("Your keys load once the Mac is unlocked.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      }
       if !model.storageSecure {
         Text(AppModel.insecureMessage).font(.system(size: 12)).foregroundStyle(Theme.danger)
           .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)

@@ -122,11 +122,31 @@ final class AppModel {
     Array(Set(services.map(\.project) + extraProjects)).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
   }
 
+  /// False until the key list has been read. While the Mac is locked the Keychain can't be read, so keydillo
+  /// waits for unlock instead of showing (and later saving) an empty list.
+  private(set) var servicesLoaded = false { didSet { loadedFlag.value = servicesLoaded } }
+  @ObservationIgnored let loadedFlag = FlagBox()
+
+  /// Reads the key list; returns false if the Keychain isn't readable yet.
+  @discardableResult func loadServices() -> Bool {
+    guard let list = keychain.loadChecked() else { return false }
+    services = list
+    snapshot.value = list
+    if !servicesLoaded {
+      servicesLoaded = true
+      ImportModel.migrateFileBackups(model: self)
+      ImportModel.migrateBaseURLs(model: self)
+    }
+    return true
+  }
+
   private init() {
-    services = keychain.load()
-    snapshot.value = services
     let approver = ModelApprover(model: self)
     engine = ProxyEngine(services: { [snapshot] in snapshot.value }, secrets: keychain, approver: approver)
+    engine.notReady = { [weak self] in
+      guard let self else { return nil }
+      return self.loadedFlag.value ? nil : "keydillo can't read keys until the Mac is unlocked"
+    }
     engine.onEvent = { [weak self] e in
       Task { @MainActor in
         guard let self else { return }
@@ -136,11 +156,14 @@ final class AppModel {
         await self.refreshGrants()
       }
     }
+    if !loadServices() {
+      Task { @MainActor in
+        while !self.loadServices() { try? await Task.sleep(for: .seconds(3)) }
+      }
+    }
     startProxy()
     startControl()
-    ImportModel.migrateFileBackups(model: self)
     ImportModel.addHeadersToTrackedFiles(port: port)
-    ImportModel.migrateBaseURLs(model: self)
     ImportModel.migratePlaceholders()
     ClaudeConnector.refreshSkillIfInstalled()
     Task { @MainActor in
@@ -285,6 +308,7 @@ final class AppModel {
   }
 
   private func persist(_ next: [ServiceConfig]) throws {
+    guard servicesLoaded else { throw VaultError.invalidConfig("Unlock your Mac first: keydillo can't read your keys while it's locked.") }
     try keychain.save(next)
     services = next
     snapshot.value = next
@@ -353,6 +377,7 @@ final class AppModel {
       return .status(StatusInfo(proxyRunning: proxyRunning, proxyState: proxyState, port: port, storage: storageDescription,
                                 services: services.map(summary), recentBlocks: Array(blocks)))
     case .requestSecret(let r):
+      guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read or add keys yet. Tell the user and retry after they unlock.") }
       guard ServiceConfig.isValidName(r.service) else { return .error("service must be lowercase letters, digits and dashes") }
       let kr = KeyRequest(service: r.service, displayName: r.displayName ?? HostCheck.displayName(r.service), host: r.host,
                           header: r.header, prefix: r.prefix ?? "",
@@ -426,7 +451,8 @@ final class AppModel {
 
   var storageDescription: String {
     switch keychain.mode {
-    case .dataProtection: return "Private Keychain group, Touch ID on every read"
+    case .dataProtection: return servicesLoaded ? "Private Keychain group, Touch ID on every read"
+      : "Private Keychain group. Keys can't be read until the Mac is unlocked; keydillo loads them as soon as it is"
     case .legacy: return "NOT SECURE: no private Keychain group in this build, so keydillo won't store keys"
     }
   }
@@ -497,3 +523,13 @@ final class SnapshotBox: @unchecked Sendable {
 }
 
 extension UInt16 { var nonZero: UInt16? { self == 0 ? nil : self } }
+
+/// Thread-safe Bool read by the proxy off the main thread.
+final class FlagBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var v = false
+  var value: Bool {
+    get { lock.lock(); defer { lock.unlock() }; return v }
+    set { lock.lock(); v = newValue; lock.unlock() }
+  }
+}

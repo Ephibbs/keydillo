@@ -41,6 +41,9 @@ public final class ProxyEngine: @unchecked Sendable {
                                        "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "host",
                                        "content-length"]
 
+  /// Returns a reason while keys can't be read yet (e.g. the Mac is locked), so missing keys aren't reported as unknown.
+  public var notReady: (() -> String?)?
+
   public init(services: @escaping () -> [ServiceConfig], secrets: SecretProvider, approver: Approver) {
     self.services = services
     self.secrets = secrets
@@ -80,6 +83,10 @@ public final class ProxyEngine: @unchecked Sendable {
                             pid: client.pid, outcome: outcome, status: status, note: note))
     }
     guard let svc = services().first(where: { $0.name == name }) else {
+      if let why = notReady?() {
+        log(.blocked, 423, why)
+        return await sink.respond(.error(423, why, code: "approval_unavailable", hint: "The user's Mac is locked. Tell the user it's waiting for them and retry after they unlock. Don't request a new key."))
+      }
       log(.blocked, 404, "unknown service")
       return await sink.respond(.error(404, "no key named '\(name)' is stored", code: "unknown_service", hint: "Call the keydillo request_secret tool so the user can add it. Never ask for the key in chat."))
     }

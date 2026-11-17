@@ -1,0 +1,14 @@
+{
+  "name": "keydillo",
+  "owner": { "name": "Studio Killswitch" },
+  "metadata": { "description": "Let Claude Code use your API keys without seeing them. Needs the keydillo Mac app." },
+  "plugins": [
+    {
+      "name": "keydillo",
+      "source": "./plugin",
+      "description": "Keeps API keys in your Mac's Keychain. Claude calls APIs through a local proxy that adds the key after you approve with Touch ID, so the key never enters the chat, your shell or your .env files.",
+      "category": "security",
+      "homepage": "https://github.com/Ephibbs/keydillo"
+    }
+  ]
+}

@@ -121,6 +121,18 @@ public final class KeychainBackend: ConfigPersistence {
     return (try? JSONDecoder().decode([ServiceConfig].self, from: d)) ?? []
   }
 
+  /// Like `load()`, but nil when the list couldn't be read (Mac locked, Keychain error, unreadable data),
+  /// so callers never mistake "can't read yet" for "no keys" and overwrite the real list.
+  public func loadChecked() -> [ServiceConfig]? {
+    var q = base(service: Self.configService, account: Self.configAccount)
+    q[kSecReturnData as String] = true
+    var out: CFTypeRef?
+    let status = SecItemCopyMatching(q as CFDictionary, &out)
+    if status == errSecItemNotFound { return [] }
+    guard status == errSecSuccess, let d = out as? Data else { return nil }
+    return try? JSONDecoder().decode([ServiceConfig].self, from: d)
+  }
+
   public func save(_ services: [ServiceConfig]) throws {
     let data = try JSONEncoder().encode(services)
     let q = base(service: Self.configService, account: Self.configAccount)
