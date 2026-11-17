@@ -7,3 +7,4 @@ xcuserdata/
 **/.build/
 node_modules/
 .venv/
+release/
