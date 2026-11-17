@@ -73,7 +73,7 @@ unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 ok "names: a leftover --serve-for argument doesn't borrow a session's name" '! "$B" whois $SF 2>/dev/null | grep -q "shown as: Claude Code$"'
 kill $SF 2>/dev/null
 
-# 9. A key without a host: kd looks inside traffic to likely sites and asks the app to approve the host it saw.
+# 9. A key without a host: kd doesn't guess sites from its name (that once broke git for a key named "github").
 cat > $T/app.py <<'PYEOF'
 import http.server, sys
 class H(http.server.BaseHTTPRequestHandler):
@@ -86,7 +86,7 @@ PYEOF
 python3 $T/app.py 18736 $T/seen & APPP=$!; sleep 0.5
 export KEYDILLO_TEST_APP_PORT=18736 KEYDILLO_TEST_SERVICES='[{"name":"example","displayName":"Example","project":"t","host":"","baseURL":"x","envVarName":"EXAMPLE_API_KEY","baseURLEnvName":"EXAMPLE_BASE_URL","hostTokens":["example"]}]'
 $DEV run -- curl -s --max-time 8 https://api.example.com/v1/x -H "x-api-key: keydillo:example" >/dev/null 2>&1
-ok "kd: a key with no host is offered to the app for approval of the host it was sent to" '[[ $(cat $T/seen 2>/dev/null) == "api.example.com /example/v1/x" ]]'
+ok "kd: a key with no site doesn't make kd intercept sites guessed from its name" '[[ ! -s $T/seen ]]'
 kill $APPP 2>/dev/null
 unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 
