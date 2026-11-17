@@ -211,7 +211,7 @@ public enum ImportScanner {
     let name = l[..<eq].trimmingCharacters(in: .whitespaces)
     var value = l[l.index(after: eq)...].trimmingCharacters(in: .whitespaces)
     if let q = value.first, q == "\"" || q == "'", value.count >= 2, value.last == q {
-      value = String(value.dropFirst().dropLast())
+      value = unquote(value)
     } else if let hash = value.range(of: " #") {
       value = value[..<hash.lowerBound].trimmingCharacters(in: .whitespaces)
     }

@@ -58,7 +58,12 @@ struct MainWindowView: View {
 
   var sidebar: some View {
     VStack(alignment: .leading, spacing: 18) {
-      Text("keydillo").font(.system(size: 17, weight: .semibold)).padding(.horizontal, 8).padding(.top, 34)
+      HStack(spacing: 8) {
+        Image("MenuBarIcon").renderingMode(.template).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+          .frame(height: 22).foregroundStyle(Theme.text).accessibilityHidden(true)
+        Text("keydillo").font(.system(size: 17, weight: .semibold))
+      }
+      .padding(.horizontal, 8).padding(.top, 34)
       sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
       VStack(alignment: .leading, spacing: 2) {
         sectionLabel("Projects")
@@ -78,6 +83,13 @@ struct MainWindowView: View {
         }
       }
       VStack(alignment: .leading, spacing: 2) {
+        if !model.exposed.isEmpty {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("⚠︎ Real keys in \(model.exposed.count) project\(model.exposed.count == 1 ? "" : "s")").font(.system(size: 12)).foregroundStyle(Theme.danger)
+            Button("Secure all") { Task { _ = await model.secureAll() } }.buttonStyle(SmallButtonStyle())
+          }
+          .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 10)
+        }
         sectionLabel("Monitor")
         sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false }
         sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false }
@@ -267,8 +279,9 @@ struct MainWindowView: View {
            : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
-      Button("Put this project's real keys back in .env…") { Task { _ = await ImportModel.restoreRealValues(model: model, project: project); await model.checkRealKeys() } }
-        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.secondary).underline()
+      Button("Put keys back in files…") { Task { _ = await ImportModel.restoreRealValues(model: model, project: project); await model.checkRealKeys() } }
+        .buttonStyle(SmallButtonStyle()).help("Writes this project's real keys back into its .env files (Touch ID). Programs can read them again.")
+        .padding(.top, 2)
     }
     .sheet(isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
       VStack(alignment: .leading, spacing: 14) {

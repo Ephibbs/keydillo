@@ -352,6 +352,16 @@ final class PutBackQuotingTests: XCTestCase {
     XCTAssertEqual(ImportScanner.envValueText("new#value", original: "\"old\""), "'new#value'", "original ignored when the value changed")
     XCTAssertEqual(ImportScanner.envValueText("sk_abc123"), "sk_abc123")
   }
+
+  func testEscapedQuotesDontGrowAcrossPutBackAndSecure() {
+    var line = #"SECRET="it's a "quoted" value""#
+    for _ in 0..<3 {
+      let found = ImportScanner.parse(line + "\n", file: "/p/.env").first { $0.name == "SECRET" }
+      let v = found?.value ?? ImportScanner.unquote(String(line.dropFirst(7)))
+      XCTAssertEqual(v, #"it's a "quoted" value"#)
+      line = "SECRET=" + ImportScanner.envValueText(v)
+    }
+  }
 }
 
 final class NewHostPromptTests: XCTestCase {

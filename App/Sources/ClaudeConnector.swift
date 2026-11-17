@@ -178,6 +178,16 @@ enum ClaudeConnector {
   5b. Some placeholders are launch-time keys (database URLs, JWT and signing secrets): `kd` puts the real value in the program's environment when it starts. Never print, echo or log environment variables in a keydillo project, and never write code that does.
   6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly must be started with `kd <command>`; tell the user to do the same in their own Terminal.
 
+  ## What doesn't work through kd
+
+  Use the workaround quietly; only if none fits, suggest the user put that project's real key back (keydillo window → project → "Put this project's real keys back"), without making a fuss.
+  - Go, Rust, gRPC, and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
+  - AWS/R2/S3 and other signed requests (the secret signs the request on your side): kd can't swap these. Use a launch-time key if one exists, or suggest putting the real key back.
+  - Docker: `localhost` inside a container is the container. Use `http://host.docker.internal:7787/<name>` as the base URL.
+  - Edge runtimes (Next.js middleware, Cloudflare Workers dev) don't use kd's proxy: use the base URL.
+  - Programs that detach (pm2, nohup daemons) can lose kd when it exits: run them in the foreground under kd.
+  - Launch-time keys (database URLs, JWT and signing secrets) are given to the program as it starts, so anything it runs can read them. Never print environment variables.
+
   ## When keydillo says no
 
   keydillo errors are JSON with `error`, `code` and `hint`. Follow the hint:

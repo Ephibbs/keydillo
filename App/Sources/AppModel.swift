@@ -333,6 +333,15 @@ final class AppModel {
     set { UserDefaults.standard.set(Array(newValue), forKey: "keptInFile"); Task { await checkRealKeys() } }
   }
 
+  /// Every file in every project that still holds real keys, secured in one import (one Touch ID).
+  func secureAll() async -> String? {
+    let files = Array(Set(exposed.values.flatMap { $0.map(\.file) }))
+    guard !files.isEmpty else { return nil }
+    let r = await ImportModel.secure(model: self, files: files)
+    await checkRealKeys()
+    return r
+  }
+
   func checkExposed() async {
     var folders: [String: String] = [:]   // folder -> project
     for s in services { if let f = s.folder, f != NSHomeDirectory() { folders[f] = s.project } }

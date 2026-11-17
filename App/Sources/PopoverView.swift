@@ -71,6 +71,15 @@ struct PopoverView: View {
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
       }
 
+      if !model.exposed.isEmpty {
+        Button { Task { _ = await model.secureAll() } } label: {
+          HStack(spacing: 4) {
+            Text("⚠︎ Real keys in \(model.exposed.count) project\(model.exposed.count == 1 ? "" : "s") ·").foregroundStyle(Theme.danger)
+            Text("Secure all").underline()
+          }.font(.system(size: 12))
+        }
+        .buttonStyle(.plain).padding(.horizontal, 16).padding(.bottom, 6)
+      }
       if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
         let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
         Button {

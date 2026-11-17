@@ -1,61 +1,60 @@
 # Where `kd` can fail, and how to fix it
 
-Updated 2026-11-17 against main at 5849d2d, for the kd-only design: Claude puts `kd` in front of commands itself. A pre-command check stops programs run without `kd` in keydillo projects, and a post-command check explains real provider auth errors.
+Updated 2026-11-17 against main at 17b759a, for the kd-only design: Claude puts `kd` in front of commands itself. A pre-command check stops programs run without `kd` in keydillo projects, and a post-command check explains real provider auth errors.
 
 **Repro folders:** each case in `~/Desktop/keydillo-breakers/<folder>/run.sh`. The pre-command probe is `kd-precheck/check.sh`.
 
 **How it was tested:**
-- A CLI and test proxy built from 5849d2d (scratch build, test hooks on), a mock provider, and Touch ID scripted to approve.
-- Import and put-back use keydillo's own `ImportScanner` with the same line logic as the app (`harness/import-sim`).
+- A CLI and test proxy built from 7be4cbe/17b759a (scratch build, test hooks on), a mock provider, and Touch ID scripted to approve.
+- Import, put-back and Secure use keydillo's own `ImportScanner` with the same line logic as the app (`harness/import-sim`, `cycle-sim`).
 - Dummy keys only, and never the user's real store.
 
-**Not tested end to end:** anything that needs the signed app and a real Touch ID. That covers the new-host prompt, the Ask once project setting, folder-less key settings, and the Touch ID setting migration. For those I read the code.
+**Not tested end to end:** anything that needs the signed app and a real Touch ID: the new-site prompt, Ask once per project, folder-less key settings, the Touch ID migration, and the Secure button itself. I tested Secure's import step through the scanner.
 
 **Hours** are Claude build hours, rough.
 
-## Summary
+## Summary (this pass)
 
-- **Compatibility suite:** 225 of 225 pass. All earlier breakers hold, with no regressions.
-- **Last pass's blocker is fixed:** the pre-command check now stops `npm run dev` in `.env.local` (Next.js) and `.dev.vars` (wrangler) projects, and after `cd web &&`.
-- **Also fixed:**
-  - `kd` answers at once with a clear `keydillo_not_running` 503 when the app is gone, instead of hanging.
-  - After Quit, `kd` refuses with "keydillo was quit. Open it to use keys." instead of reopening the app.
-  - Go commands get base-URL advice instead of `kd`.
+**Nothing blocks release.** Both earlier blockers are fixed:
+- **Launch-time keys:** the placeholder is now `keydillo:<name>:<48 hex>`. A program that misses the real value gets an unguessable string instead of a public one, and Claude's post check says so.
+- **Put back:** values with `#` and `$` come back exactly as they were. Node `dotenv` and python-dotenv both read the original password.
 
-**Should block release** (both cheap):
-1. **A launch-time secret that isn't filled in becomes a public, guessable value.** If the program reloads `.env` with override, reads the file itself, is started from a monorepo root, or runs in a clean-environment worker, it gets the placeholder text. A JWT or session secret then equals `keydillo:<name>:start-with-keydillo-run`, so anyone can forge sessions. This is the same silent security downgrade the earlier import fix removed, now back through launch-time keys.
-2. **"Put my real keys back" corrupts values that contain `#` or `$`.** It writes them unquoted, so Node `dotenv` reads `DB_PASSWORD="p#ss$word"` back as `p`. Database passwords hit this often, and this is the way out of keydillo.
+**Also verified:**
+- **Compatibility suite:** 225 of 225 pass.
+- **Breakers:** plain `http://`, reused connections, streaming, websockets, Basic auth, aiohttp, undici, Bun, Deno, burst load, the immediate 503 when the app is gone, and import all hold.
+- **Host guessing:** a hostless `GITHUB_TOKEN` no longer breaks `git` or Go under `kd`.
+- **After Quit:** Claude's commands aren't blocked, and keyed failures say keydillo was quit.
+- **Secure never stores a placeholder:** re-importing a file full of placeholders, including prefixed `sk-proj-keydillo:…` ones, stores 0 keys.
 
-**Next (P1):**
-- Keys with no host make `kd` intercept whole domains guessed from the key's name. One `GITHUB_TOKEN` breaks `git` and Go tools talking to github.com under `kd`.
-- The pre-command check still misses wrappers (`bash -c`, `make`, `nohup`, `env X=1`, `kd true && …`).
+**Still open (P1):**
+- Host guessing still applies to names that aren't on the platform list. A hostless `HUGGINGFACE_TOKEN` breaks `git clone https://huggingface.co/…` and Go clients under `kd` (`kd-host-first-use/run-hf.sh`).
+- Wrappers still slip past the pre-command check.
 - Daemons under `kd`.
-- Go, Rust and gRPC certificate errors under `kd`.
+- Go and Rust certificate errors under `kd`.
+
+**New (P2):** a value with an escaped quote (`"it's\"quoted"`) gains backslashes on every put-back and Secure cycle (`import-putback-cycle`, three cycles shown).
 
 ## Ranked list
 
 | # | Where it fails | Priority | Status | Error clear? | Fix | Hours |
 |---|---|---|---|---|---|---|
-| 1 | Unfilled launch-time secret falls back to the public placeholder | P0, blocks release | Reproduced (`kd-launch-keys`) | No (silent; sessions forgeable) | Unguessable placeholder for launch-time keys; kd warns | 1 |
-| 2 | Put back writes `#` and `$` values unquoted | P0, blocks release | Reproduced (`import-putback-cycle`) | No (wrong password, app fails later) | Re-quote values, keeping the original quote style | 0.5 |
-| 3 | Guessed-domain interception breaks git and Go under `kd` | P1 | Reproduced (`kd-host-first-use`) | No ("SSL certificate problem", x509) | Don't intercept guessed domains for clients that ignore kd's CA, or ask for the host up front | 1.5 |
-| 4 | Pre-command check misses wrappers and chains | P1 | Reproduced (`kd-precheck`) | No (bare 401) | Unwrap wrappers; require `kd` on each segment | 1.5 |
-| 5 | Daemons and detached processes started under `kd` | P1 | Reproduced (`routed-daemon`) | No | Keep the CA bundle; proxy token instead of the process-tree check | 3 |
-| 6 | TLS clients that don't trust kd's CA (Go, Rust, gRPC, `python -I`, pinning) under `kd` | P1 | Reproduced for Go, gRPC, `python -I` | No | Print a keydillo line when a client aborts the handshake | 1 |
-| 7 | Programs that bypass the proxy (edge middleware, clean-env workers, Docker `--env-file`) | P1 | Reproduced | No (provider 401) | Exit summary when no keyed request ever reached kd | 1.5 |
-| 8 | "Real keys are back" fires after the user's own put back | P2 | Reproduced in sim, inferred in the app | Misleading | Stop managing (untrack) keys that were put back | 0.5 |
-| 9 | After Quit, Claude can't run anything in a keydillo project | P2 | Inferred from code; the `kd` refusal is reproduced | Partly | Skip the pre-command check, or let `kd` run without keys, while quit | 0.5 |
-| 10 | Repair may give a folder-less key another project's value | P2 | Inferred | No | Only repair folder-less keys from a single matching backup, or ask | 0.5 |
+| 1 | Host guessing for hostless keys not on the platform list (huggingface, pinecone, …) breaks git and Go under `kd` | P1 | Reproduced (`kd-host-first-use/run-hf.sh`) | No ("SSL certificate problem", x509) | Only intercept guessed domains for programs that trust kd's CA, or ask for the site at import | 1.5 |
+| 2 | Pre-command check misses wrappers and chains (`bash -c`, `make`, `nohup`, `timeout`, `env X=1`, `npm --prefix`, `kd true && …`) | P1 | Reproduced (`kd-precheck`) | No (bare 401) | Unwrap wrappers; require `kd` on each segment | 1.5 |
+| 3 | Daemons and detached processes started under `kd` | P1 | Reproduced (`routed-daemon`) | No | Keep the CA bundle; proxy token instead of the process-tree check | 3 |
+| 4 | TLS clients that don't trust kd's CA (Go, Rust, gRPC, `python -I`) under `kd` | P1 | Reproduced | No | Print a keydillo line when a client aborts the handshake | 1 |
+| 5 | Programs that bypass the proxy (edge middleware, clean-env workers, Docker `--env-file`) | P1 | Reproduced | No (provider 401) | Exit summary when no keyed request reached kd | 1.5 |
+| 6 | Escaped quotes grow on each put-back or Secure cycle | P2 | Reproduced (`import-putback-cycle`) | No (value changes) | Unescape `\"` and `\\` in `ImportScanner.assignment`, so import and `unquote` agree | 0.3 |
+| 7 | Unfilled launch-time key: `kd` itself prints nothing (override, file readers, `kd` from a monorepo root with `.env` in a subfolder) | P2 | Reproduced (`kd-launch-keys`) | Only via Claude's post check | Have `kd` warn when a launch-time placeholder is in its env files but nothing asked for it | 0.5 |
+| 8 | "Real keys are back" after the user's own put back (now the project warning) | P2 | Reproduced in sim | Misleading unless "keep in file" is clicked | Mark put-back keys as kept in the file automatically | 0.3 |
+| 9 | `kd` after Quit refuses commands that use no keys (a person typing `kd npm test`) | P3 | Reproduced (`kd-after-quit`) | Yes | Optional: run without keys and print one line | 0.3 |
+| 10 | Repair may give a folder-less key another project's value | P2 | Inferred | No | Only repair folder-less keys from a single matching backup | 0.5 |
 | 11 | Not started with `kd` (IDE run buttons, cron, launchd) | P2 | Inferred | No | README section | 0.5 |
-| 12 | Signed requests (AWS, R2, Cloudinary) | P2 | Reproduced | Yes (left in `.env`, README) | Optional SigV4 re-signing later | 4 |
+| 12 | Signed requests (AWS, R2, Cloudinary) | P2 | Documented | Yes | SigV4 re-signing later | 4 |
 | 13 | Touch ID setting migration can drop "every time" | P3 | Inferred | Silent | Delete the old preference only after the new setting is saved | 0.2 |
-| 14 | `needs_host` tells you to use `kd` even when you did (unsigned or source builds) | P3 | Reproduced with a scratch build | Misleading | Say the kd binary isn't keydillo's signed one | 0.3 |
-| 15 | `kd` running for more than 30 days | P3 | Inferred | No | CA valid for the life of the run | 0.3 |
-| 16 | Key format checks for unknown services (Clerk) | P3 | Reproduced | Partly (README) | Keep the original prefix for every key | 0.5 |
-| 17 | Proxy set only in macOS system settings (PAC) | P3 | Inferred | No | Read system proxy settings | 1.5 |
-| 18 | `kd` with an alias or builtin | P3 | Reproduced | Partly | Say it isn't a program | 0.3 |
+| 14 | `needs_host` tells you to use `kd` even when you did (unsigned or source builds) | P3 | Reproduced | Misleading | Say this kd isn't keydillo's signed build | 0.3 |
+| 15 | CA valid for 30 days; Clerk format check; PAC-only proxies; `kd` with aliases | P3 | As before | | See below | 2.6 |
 
-## Details
+## Details (from the previous pass, kept for the open items)
 
 ### 1. An unfilled launch-time secret becomes a public value (P0, blocks release)
 `kd` puts the real value of a launch-time key into the program's environment, and `.env` loaders normally don't overwrite it. When the value doesn't arrive, the program silently uses the placeholder text as its secret. From `kd-launch-keys/run.sh` (`JWT_SECRET`, approved value `REAL-jwt-secret-123`):
@@ -198,7 +197,7 @@ With my unsigned scratch build, a request with a placeholder to a new host got `
 - **PAC or system-only proxies:** not used for passthrough traffic (1.5 h).
 - **Aliases:** `kd source .env` prints "env: source: No such file or directory" (0.3 h).
 
-## Fixed and verified this pass
+## Fixed in the previous pass
 - **Pre-command check:** stops `npm run dev` in `.env.local` and `.dev.vars` projects and after `cd web &&`. The post check explains masked provider errors there too.
 - **App quits during `kd`:** keyed calls get an immediate 503 `keydillo_not_running` with a hint, instead of hanging.
 - **Quit:** `kd` refuses with a clear message instead of reopening the app.

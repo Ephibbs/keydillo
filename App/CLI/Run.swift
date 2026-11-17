@@ -275,6 +275,11 @@ enum Runner {
     for (k, v) in projectEnvEntries(from: FileManager.default.currentDirectoryPath) + env0.map({ ($0.key, $0.value) }) {
       if let svc = Placeholder.service(in: v), launch.contains(svc) { wanted[k] = svc }
     }
+    // Launch-time placeholders in .env files below this folder aren't filled from here (e.g. running at a monorepo root).
+    let below = launchPlaceholdersBelow(FileManager.default.currentDirectoryPath, launch: launch).filter { !wanted.keys.contains($0.name) }
+    for b in below.prefix(3) {
+      FileHandle.standardError.write(Data("kd: \(b.file) has launch-time key \(b.name); kd fills it only when run from that folder (or below it).\n".utf8))
+    }
     guard !wanted.isEmpty else { return }
     var values: [String: String] = [:]
     if !shipped, let json = env0["KEYDILLO_TEST_LAUNCH_VALUES"], let d = json.data(using: .utf8),
@@ -287,6 +292,26 @@ enum Runner {
       if let v = values[svc] { env[k] = v }
       else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved, or keydillo isn't running), so the program gets the keydillo placeholder.\n".utf8)) }
     }
+  }
+
+  static func launchPlaceholdersBelow(_ dir: String, launch: Set<String>) -> [(file: String, name: String)] {
+    var out: [(file: String, name: String)] = []
+    func walk(_ d: String, _ depth: Int) {
+      guard depth <= 3, let items = try? FileManager.default.contentsOfDirectory(atPath: d) else { return }
+      for n in items {
+        let p = d + "/" + n
+        if ImportScanner.isEnvFile(n), depth > 0, let t = try? String(contentsOfFile: p, encoding: .utf8) {
+          for line in t.components(separatedBy: "\n") {
+            guard let eq = line.firstIndex(of: "="), let svc = Placeholder.service(in: line), launch.contains(svc) else { continue }
+            out.append((p, String(line[..<eq]).replacingOccurrences(of: "export ", with: "").trimmingCharacters(in: .whitespaces)))
+          }
+        }
+        var isDir: ObjCBool = false
+        if !n.hasPrefix("."), n != "node_modules", FileManager.default.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue { walk(p, depth + 1) }
+      }
+    }
+    walk(dir, 0)
+    return out
   }
 
   /// KEY=VALUE lines from the env files of the keydillo project at or above `dir`.
@@ -445,6 +470,9 @@ final class MitmProxy: @unchecked Sendable {
   /// For keys without a host yet: likely provider domains from the key's name (together → together.xyz, upstash → upstash.io).
   /// Traffic to these is looked into so the placeholder can be seen and its host approved once with Touch ID.
   static func guessedDomains(_ services: [ServiceSummary]) -> [String] {
+    // No guessing sites from key names: it took over unrelated sites (github.com, huggingface.co) and broke git and Go.
+    // Keys without a site get one when the user or Claude sets it (Touch ID).
+    return []
     // Names of general developer platforms are never used to guess (a "github" key once took over github.com and broke git).
     let platforms: Set<String> = ["github", "gitlab", "bitbucket", "google", "googleapis", "apple", "icloud", "microsoft", "azure", "amazon",
                                   "amazonaws", "npmjs", "docker", "cloudflare", "vercel", "netlify", "heroku", "slack", "discord", "python",

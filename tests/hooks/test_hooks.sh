@@ -73,7 +73,7 @@ unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 ok "names: a leftover --serve-for argument doesn't borrow a session's name" '! "$B" whois $SF 2>/dev/null | grep -q "shown as: Claude Code$"'
 kill $SF 2>/dev/null
 
-# 9. A key without a host: kd looks inside traffic to likely sites (never developer platforms like github.com).
+# 9. A key without a host: kd never guesses sites from its name.
 cat > $T/app.py <<'PYEOF'
 import http.server, sys
 class H(http.server.BaseHTTPRequestHandler):
@@ -86,7 +86,7 @@ PYEOF
 python3 $T/app.py 18736 $T/seen & APPP=$!; sleep 0.5
 export KEYDILLO_TEST_APP_PORT=18736 KEYDILLO_TEST_SERVICES='[{"name":"example","displayName":"Example","project":"t","host":"","baseURL":"x","envVarName":"EXAMPLE_API_KEY","baseURLEnvName":"EXAMPLE_BASE_URL","hostTokens":["example"]}]'
 $DEV run -- curl -s --max-time 8 https://api.example.com/v1/x -H "x-api-key: keydillo:example" >/dev/null 2>&1
-ok "kd: a key with no site is offered to the app for approval of the site it was sent to" '[[ $(cat $T/seen 2>/dev/null) == "api.example.com /example/v1/x" ]]'
+ok "kd: a key with no site doesn't make kd intercept sites guessed from its name" '[[ ! -s $T/seen ]]'
 export KEYDILLO_TEST_SERVICES='[{"name":"github","displayName":"GitHub","project":"t","host":"","baseURL":"x","envVarName":"GITHUB_TOKEN","baseURLEnvName":"X","hostTokens":["github"]}]'
 ok "kd: a key named after a developer platform never takes over that platform's site" '[[ $($DEV run -- curl -s -o /dev/null -w "%{http_code}" --max-time 8 https://github.com/ 2>/dev/null) == 200 ]]'
 kill $APPP 2>/dev/null
@@ -124,6 +124,13 @@ export KEYDILLO_TEST_LAUNCH_VALUES='{"db-url":"postgres://real"}' KEYDILLO_TEST_
 ok "launch-time: a monorepo root's .env counts when kd runs in a package" '[[ $(cd $T/mono/packages/web && $DEV run -- sh -c "echo \$DATABASE_URL" 2>/dev/null) == "postgres://real" ]]'
 unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_LAUNCH_VALUES KEYDILLO_TEST_APP_PORT
 ok "post: a launch-time placeholder in the output is explained" '[[ $(postc "kd node worker.js" $T/proj "connect failed: password keydillo:db-url:0123456789abcdef0123456789abcdef0123456789abcdef") == *"got the placeholder for db-url"* ]]'
+
+# 13. kd warns about launch-time keys in .env files below where it runs (monorepo root).
+mkdir -p $T/root2/apps/web
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:0123456789abcdef0123456789abcdef0123456789abcdef\n' > $T/root2/apps/web/.env
+export KEYDILLO_TEST_SERVICES='[{"name":"jwt-secret","displayName":"JWT","project":"t","host":"","baseURL":"x","envVarName":"JWT_SECRET","baseURLEnvName":"X","launchTime":true}]' KEYDILLO_TEST_APP_PORT=1
+ok "launch-time: kd run from a monorepo root says which package .env it can't fill" '[[ $(cd $T/root2 && $DEV run -- true 2>&1) == *"apps/web/.env has launch-time key JWT_SECRET"* ]]'
+unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
 
 print "\n$pass passed, $fail failed"
 exit $fail
