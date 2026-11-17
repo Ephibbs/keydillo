@@ -59,6 +59,7 @@ targets:
       PRODUCT_NAME: keydillo
       PRODUCT_MODULE_NAME: KeydilloCLI
       PRODUCT_BUNDLE_IDENTIFIER: com.studiokillswitch.keydillo.cli
+      SKIP_INSTALL: YES
       DEVELOPMENT_TEAM: 2JARAJYAYY
       CODE_SIGN_STYLE: Automatic
       CODE_SIGN_IDENTITY: "Apple Development"
