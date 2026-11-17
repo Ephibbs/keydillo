@@ -34,7 +34,7 @@ def svc(name, header="", prefix="", **extra):
 SERVICES = [
     svc("hdr", "xi-api-key"), svc("bearer", "Authorization", "Bearer "), svc("basic", "Authorization", basicAuth=True),
     svc("pair", "Authorization", basicAuth=True), svc("query", "", authQueryParam="key"),
-    svc("multi", "apikey", extraHeaders={"Authorization": "Bearer {key}"}), svc("sub"),
+    svc("multi", "apikey", extraHeaders={"Authorization": "Bearer {key}"}), svc("sub", placeholderAnywhere=True),
     svc("openai", "Authorization", "Bearer "), svc("anthropic", "x-api-key"), svc("stripe", "Authorization", "Bearer "),
     svc("rules", "x-api-key", allowed=[{"method": "POST", "pattern": "/echo"}]),
     dict(svc("down", "x-api-key"), upstreamHost="127.0.0.1:18999"),
@@ -226,6 +226,11 @@ def c_rules(c):
     r = c("GET", f"{PROXY}/rules/echo"); check(r["status"] == 403 and js(r)["code"] == "path_not_allowed", f"{r['status']}")
 def c_upstream_down(c):
     r = c("GET", f"{PROXY}/down/echo"); check(r["status"] == 502 and js(r)["code"] == "upstream_failed", f"{r['status']}")
+def c_misplaced(c):
+    r = c("POST", f"{PROXY}/hdr/echo", {"Content-Type": "application/json"}, json.dumps({"api_key": ph("hdr")}).encode())
+    check(r["status"] == 400 and js(r)["code"] == "placeholder_misplaced", f"placeholder in body was accepted ({r['status']})")
+    r = c("GET", f"{PROXY}/hdr/echo?k={ph('hdr')}")
+    check(r["status"] == 400, f"placeholder in query was accepted ({r['status']})")
 def c_browser_origin(c):
     r = c("POST", f"{PROXY}/hdr/echo", {"Origin": "https://evil.example", "Content-Type": "text/plain"}, b"x")
     check(r["status"] == 403 and js(r)["code"] == "browser_blocked", f"web page request allowed ({r['status']})")
@@ -240,8 +245,8 @@ def c_localhost_name(c):
 GENERIC = [
     ("Auth: custom header (xi-api-key)", c_header), ("Auth: Bearer", c_bearer), ("Auth: Basic, key as user (Stripe)", c_basic),
     ("Auth: Basic user:password (Twilio)", c_basic_pair), ("Auth: query parameter (?key=)", c_query),
-    ("Auth: two headers (Supabase)", c_multi), ("Auth: key in URL path (Telegram)", c_path), ("Auth: key in JSON body (OAuth)", c_json_body),
-    ("Auth: key in form body", c_form_body), ("Auth: key in cookie", c_cookie), ("Agent-supplied key is replaced", c_agent_header_replaced),
+    ("Auth: two headers (Supabase)", c_multi), ("Auth: key in URL path (Telegram, opt-in)", c_path), ("Auth: key in JSON body (OAuth, opt-in)", c_json_body),
+    ("Auth: key in form body (opt-in)", c_form_body), ("Auth: key in cookie (opt-in)", c_cookie), ("Agent-supplied key is replaced", c_agent_header_replaced),
     ("All HTTP methods incl. HEAD/OPTIONS", c_methods), ("JSON with Unicode, byte-exact", c_json_roundtrip), ("Multipart upload 3 MB", c_multipart),
     ("20 MB request body", c_large_body), ("Chunked (streamed) upload", c_chunked_upload), ("10 MB binary download, byte-exact", c_download),
     ("gzip response", c_gzip), ("SSE streaming arrives live", c_sse), ("20 s slow request", c_slow), ("Redirect returned, key not forwarded", c_redirect),
@@ -251,7 +256,7 @@ GENERIC = [
 ONCE = [
     ("20 parallel calls share one Touch ID", c_parallel), ("Denied → clear 403", c_denied), ("Mac locked → clear 423", c_locked),
     ("Unknown key → hint to request_secret", c_unknown), ("Path rule blocks", c_rules), ("Upstream down → 502", c_upstream_down),
-    ("Web page (Origin) blocked", c_browser_origin), ("DNS rebinding Host blocked", c_rebinding), ("IPv6 [::1] works", c_ipv6),
+    ("Placeholder outside its spot refused", c_misplaced), ("Web page (Origin) blocked", c_browser_origin), ("DNS rebinding Host blocked", c_rebinding), ("IPv6 [::1] works", c_ipv6),
 ]
 
 # ---------- SDKs ----------

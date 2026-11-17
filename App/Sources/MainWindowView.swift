@@ -394,6 +394,11 @@ struct KeyDetailView: View {
       row("Rate limit") {
         HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
       }
+      row("Placeholder") {
+        Toggle("Allow anywhere in a request (path, body, other headers)", isOn: Binding(get: { config.placeholderAnywhere == true }, set: { config.placeholderAnywhere = $0 ? true : nil }))
+          .toggleStyle(.checkbox).font(.system(size: 12))
+          .help("Off is safer: the key only goes in its auth spot. Turn on only for APIs that need the key elsewhere (OAuth bodies, bot tokens in URLs). The site could then echo or store the key.")
+      }
       row("Key in URL") {
         FilledField(placeholder: "Query parameter, e.g. key (leave empty to use the header)",
                     text: Binding(get: { config.authQueryParam ?? "" }, set: { config.authQueryParam = $0.isEmpty ? nil : $0 }), monospaced: true)

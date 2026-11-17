@@ -68,9 +68,18 @@ struct PendingApproval: Identifiable {
 @Observable
 final class AppModel {
   static let shared = AppModel()
-  static let accessGroup = "2JARAJYAYY.com.studiokillswitch.keydillo"
+  /// The private Keychain group this binary is entitled to, read from its own signature (works for anyone's team ID).
+  static let accessGroup: String? = {
+    guard let task = SecTaskCreateFromSelf(nil),
+          let v = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil) as? [String] else { return nil }
+    return v.first
+  }()
 
-  let keychain = KeychainBackend.detect(accessGroup: AppModel.accessGroup)
+  let keychain = AppModel.accessGroup.map { KeychainBackend.detect(accessGroup: $0) } ?? KeychainBackend(mode: .legacy)
+  /// False when this build can't use a private Keychain group. keydillo then refuses to store keys rather than
+  /// quietly falling back to the login Keychain, where other programs could change a key's rules.
+  var storageSecure: Bool { if case .dataProtection = keychain.mode { return true }; return false }
+  static let insecureMessage = "This copy of keydillo isn't signed with a Keychain access group, so it won't store keys. Build it with your own Apple team ID (see the README), or install a signed release."
   var services: [ServiceConfig] = []
   var events: [ActivityEvent] = []
   var pending: [PendingApproval] = []
@@ -212,6 +221,7 @@ final class AppModel {
 
   /// Saves a key after Touch ID. Returns false if the user cancelled.
   func save(_ config: ServiceConfig, secret: String) async throws -> Bool {
+    guard storageSecure else { throw VaultError.invalidConfig(Self.insecureMessage) }
     try config.validate()
     let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw VaultError.invalidConfig("Paste the key first") }
@@ -225,7 +235,11 @@ final class AppModel {
   /// Rule edits that change where a key can go need Touch ID too.
   func update(_ config: ServiceConfig) async throws -> Bool {
     try config.validate()
-    if let old = service(named: config.name), old.upstreamHost != config.upstreamHost || old.authHeader != config.authHeader {
+    // Anything that changes where or how the key is sent, or how often you're asked, needs Touch ID.
+    if let old = service(named: config.name),
+       old.upstreamHost != config.upstreamHost || old.authHeader != config.authHeader || old.authPrefix != config.authPrefix
+        || old.upstreamScheme != config.upstreamScheme || old.authQueryParam != config.authQueryParam || old.basicAuth != config.basicAuth
+        || old.extraHeaders != config.extraHeaders || old.placeholderAnywhere != config.placeholderAnywhere || old.approval != config.approval {
       guard await authenticate("send your \(config.displayName) key to \(config.upstreamHost)") != nil else { return false }
     }
     try persist(services.map { $0.name == config.name ? config : $0 })
@@ -390,7 +404,7 @@ final class AppModel {
   var storageDescription: String {
     switch keychain.mode {
     case .dataProtection: return "Private Keychain group, Touch ID on every read"
-    case .legacy: return "Login Keychain, readable only by keydillo"
+    case .legacy: return "NOT SECURE: no private Keychain group in this build, so keydillo won't store keys"
     }
   }
 }

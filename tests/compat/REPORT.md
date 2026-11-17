@@ -1,6 +1,6 @@
 # keydillo compatibility report
 
-Generated 2026-11-16 15:17 by `tests/compat/run_compat.py`.
+Generated 2026-11-16 18:01 by `tests/compat/run_compat.py`.
 Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 ## Request and auth types × clients
@@ -13,10 +13,10 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 | Auth: Basic user:password (Twilio) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Auth: query parameter (?key=) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Auth: two headers (Supabase) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Auth: key in URL path (Telegram) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Auth: key in JSON body (OAuth) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Auth: key in form body | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Auth: key in cookie | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Auth: key in URL path (Telegram, opt-in) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Auth: key in JSON body (OAuth, opt-in) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Auth: key in form body (opt-in) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Auth: key in cookie (opt-in) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Agent-supplied key is replaced | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | All HTTP methods incl. HEAD/OPTIONS | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | JSON with Unicode, byte-exact | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -44,6 +44,7 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 | Unknown key → hint to request_secret | ✅ |  |
 | Path rule blocks | ✅ |  |
 | Upstream down → 502 | ✅ |  |
+| Placeholder outside its spot refused | ✅ |  |
 | Web page (Origin) blocked | ✅ |  |
 | DNS rebinding Host blocked | ✅ |  |
 | IPv6 [::1] works | ✅ |  |

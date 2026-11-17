@@ -99,6 +99,12 @@ public final class ProxyEngine: @unchecked Sendable {
       return await sink.respond(.error(429, "rate limit for \(name) reached (\(cap)/hour)", code: "rate_limited", hint: "Wait, or ask the user to raise the limit."))
     }
 
+    if svc.placeholderAnywhere != true, let place = Self.misplacedPlaceholder(req, svc: svc, path: upstreamPath, query: query) {
+      log(.blocked, 400, "placeholder in \(place)")
+      return await sink.respond(.error(400, "a keydillo placeholder was found in the \(place). \(svc.displayName)'s key is only ever sent in \(Self.authSpot(svc))", code: "placeholder_misplaced",
+        hint: "Remove the placeholder from the \(place); keydillo adds the key itself. If this API really needs the key there, the user can allow it for \(name) in keydillo."))
+    }
+
     let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: svc.upstreamHost,
                                    method: req.method, path: upstreamPath, client: client)
     let ctx: LAContext?
@@ -121,19 +127,19 @@ public final class ProxyEngine: @unchecked Sendable {
     let keyValue: String = svc.basicAuth == true
       ? "Basic " + Data((raw.contains(":") ? raw : raw + ":").utf8).base64EncodedString()
       : svc.authPrefix + raw
-    // Anywhere the agent put this key's placeholder (path, query, cookie, body), the real key goes instead.
+    // Only keys that opted in may be placed anywhere; the rest go only into their configured spot.
     let sub = PlaceholderSubstitution(service: name, value: raw)
+    let anywhere = svc.placeholderAnywhere == true
+    let forms = Self.redactionForms(raw: raw, keyValue: keyValue)
 
-    // Query string: drop any value the client sent for the key's parameter, then add the real one.
-    var queryItems = query.map { Self.parseQuery(sub.apply($0, urlEncoded: true)) } ?? []
+    var queryItems = query.map { Self.parseQuery(anywhere ? sub.apply($0, urlEncoded: true) : $0) } ?? []
     if let qp = svc.authQueryParam, !qp.isEmpty {
       queryItems.removeAll { $0.0 == qp }
       queryItems.append((qp, keyValue))
     }
     let queryString = queryItems.isEmpty ? "" : "?" + queryItems.map { "\($0.0)\($0.1.map { "=" + Self.encode($0) } ?? "")" }.joined(separator: "&")
-    let host = svc.upstreamHost.split(separator: ":").first.map(String.init) ?? svc.upstreamHost
     let usesHeader = (svc.authQueryParam ?? "").isEmpty && !svc.authHeader.isEmpty
-    let outPath = sub.apply(upstreamPath, urlEncoded: true)   // logs keep the placeholder version
+    let outPath = anywhere ? sub.apply(upstreamPath, urlEncoded: true) : upstreamPath
 
     func forwardedHeaders(keepUpgrade: Bool) -> [(String, String)] {
       var out: [(String, String)] = []
@@ -143,31 +149,33 @@ public final class ProxyEngine: @unchecked Sendable {
         if Self.hopByHop.contains(lk) { continue }
         if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization" && svc.authHeader.lowercased() != "authorization") { continue }
         if let extra = svc.extraHeaders, extra.keys.contains(where: { $0.lowercased() == lk }) { continue }
-        out.append((k, sub.apply(v, urlEncoded: false)))
+        out.append((k, anywhere ? sub.apply(v, urlEncoded: false) : v))
       }
       if usesHeader { out.append((svc.authHeader, keyValue)) }
       for (k, template) in svc.extraHeaders ?? [:] { out.append((k, template.replacingOccurrences(of: "{key}", with: raw))) }
       return out
     }
 
-    // Websockets: hand the connection over as a raw tunnel after sending the upgrade request with the key.
+    // Build the destination from the validated host and port only; the path and query can't change it.
+    guard let target = UpstreamTarget(svc), let url = URL(string: target.origin + outPath + queryString),
+          url.host?.lowercased() == target.host, (url.port ?? Int(target.defaultPort)) == Int(target.port) else {
+      log(.blocked, 400, "bad url"); return await sink.respond(.error(400, "bad path", code: "bad_path"))
+    }
+
+    // Websockets: send the upgrade request with the key; tunnel only if the upstream actually switches protocols.
     if (req.header("Upgrade") ?? "").lowercased() == "websocket" {
-      let tls = svc.upstreamScheme == "https"
-      let port = svc.upstreamHost.split(separator: ":").dropFirst().first.flatMap { UInt16($0) } ?? (tls ? 443 : 80)
       var head = "\(req.method) \(outPath)\(queryString) HTTP/1.1\r\nHost: \(svc.upstreamHost)\r\n"
       for (k, v) in forwardedHeaders(keepUpgrade: true) { head += "\(k): \(v)\r\n" }
       head += "\r\n"
       log(.sent, 101, "websocket")
-      return await sink.tunnel(host: host, port: port, tls: tls, head: Data(head.utf8))
+      return await sink.tunnel(host: target.host, port: target.port, tls: target.tls, head: Data(head.utf8),
+                               redact: { Self.redact($0, forms: forms, label: svc.displayName) })
     }
 
-    guard let url = URL(string: "\(svc.upstreamScheme)://\(svc.upstreamHost)\(outPath)\(queryString)"), url.host == host else {
-      log(.blocked, 400, "bad url"); return await sink.respond(.error(400, "bad path", code: "bad_path"))
-    }
     var out = URLRequest(url: url)
     out.httpMethod = req.method
     for (k, v) in forwardedHeaders(keepUpgrade: false) { out.addValue(v, forHTTPHeaderField: k) }
-    if !req.body.isEmpty { out.httpBody = sub.apply(req.body) }
+    if !req.body.isEmpty { out.httpBody = anywhere ? sub.apply(req.body) : req.body }
 
     let fetch = StreamFetch()
     let task = session.dataTask(with: out)
@@ -182,10 +190,10 @@ public final class ProxyEngine: @unchecked Sendable {
         if Self.hopByHop.contains(lk) || lk == "content-encoding" { continue }
         if lk == "set-cookie" {
           // URLSession joins repeated Set-Cookie headers with ", "; split them back apart.
-          for c in Self.splitSetCookie(v) { headers.append((k, Self.redact(c, secret: secret, label: svc.displayName))) }
+          for c in Self.splitSetCookie(v) { headers.append((k, Self.redact(c, forms: forms, label: svc.displayName))) }
           continue
         }
-        headers.append((k, Self.redact(v, secret: secret, label: svc.displayName)))
+        headers.append((k, Self.redact(v, forms: forms, label: svc.displayName)))
       }
       // The provider refused the key itself: say so in plain words for the agent and flag it in the app.
       let rejected = http.statusCode == 401
@@ -194,17 +202,17 @@ public final class ProxyEngine: @unchecked Sendable {
       }
       await sink.start(status: http.statusCode, headers: headers)
       // Stream chunks through, holding back a tail so a key split across chunks is still redacted.
-      let hold = max(0, secret.count - 1)
+      let hold = max(0, (forms.map(\.count).max() ?? 1) - 1)
       var carry = Data()
       for try await chunk in fetch.chunks {
         carry.append(chunk)
-        let redacted = Self.redact(carry, secret: secret, label: svc.displayName)
+        let redacted = Self.redact(carry, forms: forms, label: svc.displayName)
         if redacted.count > hold {
           await sink.write(redacted.prefix(redacted.count - hold))
           carry = Data(redacted.suffix(hold))
         } else { carry = redacted }
       }
-      if !carry.isEmpty { await sink.write(Self.redact(carry, secret: secret, label: svc.displayName)) }
+      if !carry.isEmpty { await sink.write(Self.redact(carry, forms: forms, label: svc.displayName)) }
       await sink.finish()
       log(.sent, http.statusCode, rejected ? "key rejected by \(svc.displayName)" : nil)
     } catch {
@@ -265,6 +273,56 @@ public final class ProxyEngine: @unchecked Sendable {
     return (String(target[..<q]), String(target[target.index(after: q)...]))
   }
 
+  /// Every form of the key this proxy might have produced, longest first, so echoes in any of them are scrubbed.
+  static func redactionForms(raw: String, keyValue: String) -> [Data] {
+    var f = [raw, keyValue, Data(raw.utf8).base64EncodedString(), Data((raw + ":").utf8).base64EncodedString(),
+             raw.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? raw]
+    if keyValue.hasPrefix("Basic ") { f.append(String(keyValue.dropFirst(6))) }
+    let forms = Array(Set(f.filter { $0.count >= 4 })).sorted { $0.count > $1.count }
+    return forms.map { Data($0.utf8) }
+  }
+
+  public static func redact(_ data: Data, forms: [Data], label: String = "") -> Data {
+    let mark = Data("[redacted by keydillo: \(label.isEmpty ? "" : label + " ")key]".utf8)
+    var out = data
+    for f in forms where out.count >= f.count {
+      while let r = out.range(of: f) { out.replaceSubrange(r, with: mark) }
+    }
+    return out
+  }
+  static func redact(_ s: String, forms: [Data], label: String = "") -> String {
+    String(decoding: redact(Data(s.utf8), forms: forms, label: label), as: UTF8.self)
+  }
+
+  static func hasMarker(_ s: String) -> Bool { let l = s.lowercased(); return l.contains("keydillo:") || l.contains("keydillo%3a") }
+
+  static func authSpot(_ svc: ServiceConfig) -> String {
+    if let q = svc.authQueryParam, !q.isEmpty { return "the ?\(q)= query parameter" }
+    if svc.basicAuth == true { return "the Authorization header (Basic)" }
+    return "the \(svc.authHeader) header"
+  }
+
+  /// Where a placeholder sits outside the key's configured spot, if anywhere.
+  static func misplacedPlaceholder(_ req: HTTPRequest, svc: ServiceConfig, path: String, query: String?) -> String? {
+    if hasMarker(path) { return "URL path" }
+    for (k, v) in parseQuery(query ?? "") where k != svc.authQueryParam && (hasMarker(k) || hasMarker(v ?? "")) { return "query string" }
+    let usesHeader = (svc.authQueryParam ?? "").isEmpty && !svc.authHeader.isEmpty
+    for (k, v) in req.headers where hasMarker(v) {
+      let lk = k.lowercased()
+      if usesHeader && (lk == svc.authHeader.lowercased() || lk == "authorization") { continue }
+      if svc.basicAuth == true && lk == "authorization" { continue }
+      if svc.extraHeaders?.keys.contains(where: { $0.lowercased() == lk }) == true { continue }
+      return "\(k) header"
+    }
+    if lowercasedContains(req.body, "keydillo:") || lowercasedContains(req.body, "keydillo%3a") { return "request body" }
+    return nil
+  }
+
+  static func lowercasedContains(_ d: Data, _ needle: String) -> Bool {
+    guard d.count >= needle.count, d.range(of: Data("eydillo".utf8)) != nil || d.range(of: Data("EYDILLO".utf8)) != nil else { return false }
+    return String(decoding: d, as: UTF8.self).lowercased().contains(needle)
+  }
+
   /// Replaces any occurrence of the secret in upstream output, in case an API echoes it back.
   public static func redact(_ data: Data, secret: Data, label: String = "") -> Data {
     guard secret.count >= 8, data.count >= secret.count else { return data }
@@ -291,7 +349,9 @@ public protocol ResponseSink: AnyObject {
   func write(_ data: Data) async
   func finish() async
   /// Turns the client connection into a raw tunnel to host:port after sending `head` (websockets).
-  func tunnel(host: String, port: UInt16, tls: Bool, head: Data) async
+  /// Sends `head` upstream; if the upstream answers 101, the connection becomes a raw tunnel.
+  /// Any other answer is passed back through `redact` and the connection is closed.
+  func tunnel(host: String, port: UInt16, tls: Bool, head: Data, redact: @escaping (Data) -> Data) async
 }
 
 public extension ResponseSink {
@@ -308,7 +368,7 @@ public final class BufferSink: ResponseSink {
   public func start(status: Int, headers: [(String, String)]) async { response = HTTPResponse(status: status, headers: headers) }
   public func write(_ data: Data) async { response.body.append(data) }
   public func finish() async {}
-  public func tunnel(host: String, port: UInt16, tls: Bool, head: Data) async {
+  public func tunnel(host: String, port: UInt16, tls: Bool, head: Data, redact: @escaping (Data) -> Data) async {
     response = .error(501, "websockets need a live connection", code: "unsupported")
   }
 }

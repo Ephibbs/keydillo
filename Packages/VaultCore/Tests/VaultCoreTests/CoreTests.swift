@@ -332,3 +332,45 @@ final class StreamingTests: XCTestCase {
     XCTAssertEqual(events.last?.path, "/v1/x")   // no query string in logs
   }
 }
+
+final class SecurityTests: XCTestCase {
+  func testStrictHosts() {
+    func ok(_ h: String) -> Bool { UpstreamTarget(ServiceConfig(name: "x", upstreamHost: h, authHeader: "k")) != nil }
+    XCTAssertTrue(ok("api.stripe.com")); XCTAssertTrue(ok("api.stripe.com:8443")); XCTAssertTrue(ok("API.Stripe.com"))
+    for bad in ["evil.io:443#.stripe.com", "evil.io?.stripe.com", "evil.io/.stripe.com", "user@evil.io", "evil.io:99999", "évil.io", "a..b", " api.x.com", "api.x.com:"] {
+      XCTAssertFalse(ok(bad), bad)
+    }
+    XCTAssertThrowsError(try ServiceConfig(name: "x", upstreamHost: "evil.io:443#.stripe.com", authHeader: "k").validate())
+  }
+
+  func testRedactsEveryForm() {
+    let forms = ProxyEngine.redactionForms(raw: "sk_TESTSECRET123", keyValue: "Basic " + Data("sk_TESTSECRET123:".utf8).base64EncodedString())
+    for leak in ["sk_TESTSECRET123", Data("sk_TESTSECRET123:".utf8).base64EncodedString(), Data("sk_TESTSECRET123".utf8).base64EncodedString()] {
+      XCTAssertFalse(String(decoding: ProxyEngine.redact(Data("x \(leak) y".utf8), forms: forms), as: UTF8.self).contains(leak), leak)
+    }
+  }
+
+  func testPlaceholderOnlyInItsSpot() async throws {
+    let echo = try EchoServer()
+    let secrets = MemorySecrets(); secrets.values["h"] = Data("sk_TESTSECRET123".utf8); secrets.values["any"] = Data("sk_TESTSECRET456".utf8)
+    let h = ServiceConfig(name: "h", upstreamHost: "127.0.0.1:\(echo.port)", upstreamScheme: "http", authHeader: "x-api-key")
+    var any = ServiceConfig(name: "any", upstreamHost: "127.0.0.1:\(echo.port)", upstreamScheme: "http", authHeader: "")
+    any.placeholderAnywhere = true
+    let approver = StubApprover()
+    let engine = ProxyEngine(services: { [h, any] }, secrets: secrets, approver: approver)
+    func req(_ target: String, _ headers: [(String, String)] = [], body: String = "") -> HTTPRequest {
+      HTTPRequest(method: body.isEmpty ? "GET" : "POST", target: target, headers: [("Host", "localhost")] + headers, body: Data(body.utf8))
+    }
+    let c = ClientProcess(pid: 1, name: "t")
+    for r in [req("/h/v1/x?q=keydillo:h"), req("/h/bot" + "keydillo:h/x"), req("/h/v1/x", [("X-Other", "keydillo:h")]), req("/h/v1/x", body: "{\"k\":\"keydillo:h\"}")] {
+      let resp = await engine.handle(r, client: c)
+      XCTAssertEqual(resp.status, 400, r.target)
+      XCTAssertTrue(String(decoding: resp.body, as: UTF8.self).contains("placeholder_misplaced"))
+    }
+    XCTAssertEqual(approver.calls, 0, "refused before asking for Touch ID")
+    let okResp = await engine.handle(req("/h/v1/x", [("x-api-key", "keydillo:h")]), client: c)
+    XCTAssertEqual(okResp.status, 200)
+    let anyResp = await engine.handle(req("/any/v1/x", body: "{\"k\":\"keydillo:any\"}"), client: c)
+    XCTAssertEqual(anyResp.status, 200)
+  }
+}

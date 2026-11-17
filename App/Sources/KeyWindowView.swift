@@ -74,9 +74,10 @@ struct KeyWindowView: View {
           .accessibilityLabel("\(request.displayName) API key")
         if !request.host.isEmpty {
           HStack(spacing: 6) {
-            Image(systemName: HostCheck.isKnown(service: request.service, host: request.host) ? "checkmark" : "exclamationmark.triangle")
+            let verdict = HostCheck.verdict(service: request.service, name: request.displayName, host: request.host)
+            Image(systemName: verdict == .known ? "checkmark" : verdict == .mismatch ? "exclamationmark.triangle" : "info.circle")
               .font(.system(size: 11, weight: .bold))
-              .foregroundStyle(HostCheck.isKnown(service: request.service, host: request.host) ? Theme.success : Theme.danger)
+              .foregroundStyle(verdict == .known ? Theme.success : verdict == .mismatch ? Theme.danger : Theme.secondary)
             Text("Only ever sent to").foregroundStyle(Theme.tertiary)
             Text(request.host).font(.system(size: 13, weight: .semibold, design: .monospaced))
           }
@@ -88,6 +89,10 @@ struct KeyWindowView: View {
       }
 
       Collapsible(title: "Options", isOpen: $optionsOpen) { options }
+
+      if !model.storageSecure {
+        Text(AppModel.insecureMessage).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      }
 
       if let error { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
 
@@ -232,13 +237,28 @@ enum HostCheck {
   static func domains(_ service: String) -> [String]? {
     known.first { service.lowercased().contains($0.key) }?.value
   }
+  enum Verdict { case known, unknown, mismatch }
+
+  /// known: the host is in the brand's own domains. mismatch: the service, name or host mentions a brand but the
+  /// host isn't one of its domains. unknown: we don't know this service, so no green check.
+  static func verdict(service: String, name: String, host: String) -> Verdict {
+    let h = host.lowercased().split(separator: ":").first.map(String.init) ?? host.lowercased()
+    let text = (service + " " + name + " " + h).lowercased().replacingOccurrences(of: " ", with: "")
+    let brands = known.filter { text.contains($0.key) }
+    guard !brands.isEmpty else { return .unknown }
+    let inDomain = brands.contains { $0.value.contains { h == $0 || h.hasSuffix("." + $0) } }
+    return inDomain ? .known : .mismatch
+  }
+
   static func isKnown(service: String, host: String) -> Bool {
     guard let d = domains(service) else { return true }
     let h = host.lowercased()
     return d.contains { h == $0 || h.hasSuffix("." + $0) }
   }
   static func warning(service: String, name: String, host: String) -> String? {
-    guard let d = domains(service), !isKnown(service: service, host: host) else { return nil }
+    guard verdict(service: service, name: name, host: host) == .mismatch else { return nil }
+    let text = (service + " " + name).lowercased().replacingOccurrences(of: " ", with: "")
+    let d = known.first { text.contains($0.key) || host.lowercased().contains($0.key) }?.value ?? []
     return "This isn't a usual \(name) address (\(d.joined(separator: ", "))). Only save if you trust it."
   }
 }

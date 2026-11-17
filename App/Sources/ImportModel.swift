@@ -52,6 +52,7 @@ final class ImportModel {
   func run(model: AppModel) async -> Bool {
     let chosen = files.flatMap(\.keys).filter { selected.contains($0.id) }
     guard !chosen.isEmpty else { return true }
+    guard model.storageSecure else { self.error = AppModel.insecureMessage; return false }
     guard await model.authenticate("import \(chosen.count) key\(chosen.count == 1 ? "" : "s") from your .env files") != nil else { return false }
 
     var newServices: [ServiceConfig] = []

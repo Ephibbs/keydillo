@@ -17,6 +17,10 @@ struct PopoverView: View {
       }
       .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
+      if !model.storageSecure {
+        Text(AppModel.insecureMessage).font(.system(size: 12)).foregroundStyle(Theme.danger)
+          .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)
+      }
       if let c = model.portConflict { portCard(c) }
       if !model.realKeyFiles.isEmpty { realKeysCard }
       ForEach(model.pending) { p in pendingCard(p) }

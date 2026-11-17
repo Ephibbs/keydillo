@@ -115,17 +115,36 @@ final class ConnectionSink: ResponseSink, @unchecked Sendable {
     c.cancel()
   }
 
-  func tunnel(host: String, port: UInt16, tls: Bool, head: Data) async {
+  func tunnel(host: String, port: UInt16, tls: Bool, head: Data, redact: @escaping (Data) -> Data) async {
     let up = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: tls ? .tls : .tcp)
-    up.stateUpdateHandler = { [c] st in
+    let client = c
+    up.stateUpdateHandler = { st in
       switch st {
       case .ready: up.send(content: head, completion: .idempotent)
-      case .failed, .cancelled: c.cancel()
+      case .failed, .cancelled: client.cancel()
       default: break
       }
     }
     up.start(queue: queue)
-    Self.pipe(c, up); Self.pipe(up, c)
+    // Read the upstream's answer before deciding: only a real 101 becomes a tunnel.
+    func readHead(_ buf: Data) {
+      up.receive(minimumIncompleteLength: 1, maximumLength: 65536) { d, _, done, err in
+        var b = buf; if let d { b.append(d) }
+        guard let end = b.range(of: Data("\r\n\r\n".utf8)) else {
+          if done || err != nil || b.count > 65536 { client.cancel(); up.cancel() } else { readHead(b) }
+          return
+        }
+        let statusLine = String(decoding: b[..<end.lowerBound], as: UTF8.self).split(separator: "\r\n").first ?? ""
+        if statusLine.split(separator: " ").dropFirst().first == "101" {
+          client.send(content: b, completion: .idempotent)
+          Self.pipe(client, up); Self.pipe(up, client)
+        } else {
+          // Not a websocket after all: pass it back scrubbed, then close.
+          client.send(content: redact(b), completion: .contentProcessed { _ in client.cancel(); up.cancel() })
+        }
+      }
+    }
+    readHead(Data())
   }
 
   static func pipe(_ from: NWConnection, _ to: NWConnection) {

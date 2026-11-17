@@ -55,6 +55,9 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var sdkBasePath: String?
   /// Env var the provider's SDK reads its base URL from (OpenAI: OPENAI_BASE_URL).
   public var baseURLEnvName: String?
+  /// Opt-in: allow the key's placeholder anywhere in a request (path, other headers, body), for APIs that need it.
+  /// Off by default, because the allowed host could then echo, store or forward the key.
+  public var placeholderAnywhere: Bool?
 
   public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
@@ -79,8 +82,10 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
 
   public func validate() throws {
     guard Self.isValidName(name) else { throw VaultError.invalidConfig("Name must be lowercase letters, digits and dashes") }
-    guard !upstreamHost.contains("/"), !upstreamHost.contains(" ") else { throw VaultError.invalidConfig("Host must be a bare hostname, like api.example.com") }
-    let loopback = upstreamHost.hasPrefix("127.0.0.1") || upstreamHost.hasPrefix("localhost")
+    if !upstreamHost.isEmpty {
+      guard UpstreamTarget(self) != nil else { throw VaultError.invalidConfig("Host must be a bare hostname, like api.example.com") }
+    }
+    let loopback = UpstreamTarget(self).map { ["127.0.0.1", "localhost", "::1"].contains($0.host) } ?? false
     guard upstreamScheme == "https" || (upstreamScheme == "http" && loopback) else {
       throw VaultError.invalidConfig("Upstreams must use https")
     }
@@ -129,5 +134,30 @@ public final class FileConfigStore: ConfigPersistence {
   }
   public func save(_ services: [ServiceConfig]) throws {
     try JSONEncoder().encode(services).write(to: url, options: .atomic)
+  }
+}
+
+
+/// A service's upstream, parsed strictly: lowercase host[:port], nothing else.
+public struct UpstreamTarget: Equatable {
+  public let host: String
+  public let port: UInt16
+  public let tls: Bool
+  public var defaultPort: UInt16 { tls ? 443 : 80 }
+  public var origin: String { "\(tls ? "https" : "http")://\(host)\(port == defaultPort ? "" : ":\(port)")" }
+
+  static let pattern = try! NSRegularExpression(pattern: "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$")
+
+  public init?(_ svc: ServiceConfig) {
+    let h = svc.upstreamHost.lowercased()
+    guard h.allSatisfy({ $0.isASCII }), !h.contains(".."),
+          Self.pattern.firstMatch(in: h, range: NSRange(h.startIndex..., in: h)) != nil else { return nil }
+    tls = svc.upstreamScheme != "http"
+    let parts = h.split(separator: ":", maxSplits: 1)
+    host = String(parts[0])
+    if parts.count == 2 {
+      guard let p = UInt16(parts[1]), p > 0 else { return nil }
+      port = p
+    } else { port = tls ? 443 : 80 }
   }
 }
