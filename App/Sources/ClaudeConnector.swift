@@ -70,11 +70,7 @@ enum ClaudeConnector {
     pre.append(["matcher": "Bash|WebFetch", "hooks": [["type": "command", "command": hookCommand, "timeout": 5]]])
     hooks["PreToolUse"] = pre
     root["hooks"] = hooks
-    // Undo the old blanket .env deny rules from earlier builds.
-    if var perms = root["permissions"] as? [String: Any], var deny = perms["deny"] as? [String] {
-      deny.removeAll { $0 == "Read(**/.env)" || $0 == "Read(**/.env.*)" }
-      perms["deny"] = deny; root["permissions"] = perms
-    }
+    // Never touch the user's own permission rules.
     let out = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     try out.write(to: url, options: .atomic)
   }

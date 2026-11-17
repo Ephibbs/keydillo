@@ -10,14 +10,27 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var agentPid: Int32?
   /// Process start time, so a recycled pid is not mistaken for the same process.
   public var startTime: UInt64
+  /// Full path of the calling executable.
+  public var path: String = ""
+  /// The caller's Unix session leader (a terminal tab's login shell, an agent's shell, an app).
+  /// Approvals are bound to it, so another terminal or app gets its own prompt.
+  public var rootPid: Int32 = -1
+  public var rootStart: UInt64 = 0
+  public var rootPath: String = ""
+  /// Working directory of the caller, when readable (used for per-project rules).
+  public var cwd: String?
 
   public init(pid: Int32, name: String, agent: String? = nil, agentPid: Int32? = nil, startTime: UInt64 = 0) {
     self.pid = pid; self.name = name; self.agent = agent; self.agentPid = agentPid; self.startTime = startTime
   }
 
-  /// The process a "session" approval belongs to: the agent if we found one, else the caller itself.
+  /// False when we couldn't tell who connected. Such callers never get cached approvals.
+  public var identified: Bool { pid > 0 && startTime > 0 }
+
+  /// The process tree an approval belongs to. Another terminal, app or session gets its own prompt.
   public var sessionKey: String {
-    if let agentPid { return "\(agentPid)|\(ProcessLookup.startTime(of: agentPid))" }
+    guard identified else { return "unidentified|\(UUID().uuidString)" }   // never matches a cached grant
+    if rootPid > 0 { return "\(rootPid)|\(rootStart)" }
     return "\(pid)|\(startTime)"
   }
 
@@ -67,15 +80,46 @@ public enum ProcessLookup {
 
   public static func describe(_ pid: Int32) -> ClientProcess {
     var p = ClientProcess(pid: pid, name: name(of: pid), startTime: startTime(of: pid))
+    p.path = path(of: pid)
+    p.cwd = cwd(of: pid)
     var cur = pid
-    for _ in 0..<8 {
+    for _ in 0..<12 {
       let n = name(of: cur).lowercased()
-      if agentNames.contains(where: { n.contains($0) }) { p.agent = name(of: cur); p.agentPid = cur; break }
+      if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur }
       let parent = parentPid(of: cur)
       if parent <= 1 || parent == cur { break }
       cur = parent
     }
+    // The caller's Unix session (a terminal tab, an agent's shell, an app) is what an approval belongs to.
+    let sid = getsid(pid)
+    if sid > 1 {
+      p.rootPid = sid; p.rootStart = startTime(of: sid); p.rootPath = path(of: sid)
+    }
     return p
+  }
+
+  public static func path(of pid: Int32) -> String {
+    var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+    return proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : ""
+  }
+
+  public static func cwd(of pid: Int32) -> String? {
+    var info = proc_vnodepathinfo()
+    let r = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, Int32(MemoryLayout<proc_vnodepathinfo>.size))
+    guard r == Int32(MemoryLayout<proc_vnodepathinfo>.size) else { return nil }
+    return withUnsafePointer(to: info.pvi_cdir.vip_path) { $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) } }
+  }
+
+  /// True if `pid` is `ancestor` or one of its descendants.
+  public static func isDescendant(_ pid: Int32, of ancestor: Int32) -> Bool {
+    var cur = pid
+    for _ in 0..<32 {
+      if cur == ancestor { return true }
+      let parent = parentPid(of: cur)
+      if parent <= 1 || parent == cur { return false }
+      cur = parent
+    }
+    return false
   }
 
   static func name(of pid: Int32) -> String {

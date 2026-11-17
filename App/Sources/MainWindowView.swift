@@ -446,7 +446,13 @@ struct KeyDetailView: View {
   }
 
   func rotate() {
-    if let page = config.keyPageURL, let url = URL(string: page) { NSWorkspace.shared.open(url) }
+    if let page = AppModel.safeKeyPage(config.keyPageURL), let url = URL(string: page) {
+      let alert = NSAlert()
+      alert.messageText = "Open \(url.host ?? page)?"
+      alert.informativeText = "keydillo will open \(page) so you can make a new key, then show the window to paste it."
+      alert.addButton(withTitle: "Open"); alert.addButton(withTitle: "Just paste a new key")
+      if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(url) }
+    }
     WindowManager.shared.showReplaceKey(config)
   }
 

@@ -3,7 +3,7 @@ import SwiftUI
 struct SetupView: View {
   @Environment(AppModel.self) private var model
   @State var step = 0
-  @State private var approval: DefaultApproval = .window15
+  @State private var approval: DefaultApproval = .session
   @State private var changesOpen = false
   @State private var connecting = false
   @State private var connectError: String?
@@ -26,8 +26,7 @@ struct SetupView: View {
 
   var welcome: some View {
     Group {
-      Image(systemName: "key.horizontal").font(.system(size: 24)).foregroundStyle(Theme.text)
-        .frame(width: 56, height: 56).background(RoundedRectangle(cornerRadius: 14).fill(Theme.fill))
+      Image("AppLogo").resizable().interpolation(.high).frame(width: 56, height: 56).accessibilityHidden(true)
       header("Welcome to keydillo", "Let Claude and other AI tools use your API keys without ever seeing them. Keys are encrypted on this Mac.")
       footer(0) { Button("Continue") { step = 1 }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction) }
     }
@@ -38,8 +37,8 @@ struct SetupView: View {
       header("How often should we ask for Touch ID?", "Before an AI tool uses one of your keys.")
       VStack(spacing: 8) {
         choice(.eachRequest, "Every time")
-        choice(.window15, "Once every 15 minutes", note: "Recommended")
-        choice(.session, "Once per session")
+        choice(.session, "Once per session", note: "Recommended")
+        choice(.window15, "Once every 15 minutes")
       }
       Text("You can change this anytime, or per key.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       footer(1) {

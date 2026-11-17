@@ -109,7 +109,7 @@ final class AppModel {
     set { UserDefaults.standard.set(newValue, forKey: "setupDone") }
   }
   var defaultApproval: DefaultApproval {
-    get { DefaultApproval(rawValue: UserDefaults.standard.string(forKey: "defaultApproval") ?? "") ?? .window15 }
+    get { DefaultApproval(rawValue: UserDefaults.standard.string(forKey: "defaultApproval") ?? "") ?? .session }
     set { UserDefaults.standard.set(newValue.rawValue, forKey: "defaultApproval") }
   }
 
@@ -208,9 +208,9 @@ final class AppModel {
   var windowUpgrades: Set<UUID> = []
   func allowWindow(_ p: PendingApproval) { windowUpgrades.insert(p.id) }
 
-  func applyUpgradeIfNeeded(_ id: UUID, service: String, context: LAContext) {
+  func applyUpgradeIfNeeded(_ id: UUID, service: String, context: LAContext, client: ClientProcess) {
     guard windowUpgrades.remove(id) != nil else { return }
-    Task { await engine.gate.grantWindow(service: service, minutes: 15, context: context); await refreshGrants() }
+    Task { await engine.gate.grantWindow(service: service, minutes: 15, context: context, client: client); await refreshGrants() }
   }
 
   // MARK: Keys
@@ -319,15 +319,15 @@ final class AppModel {
 
   func startControl() {
     do {
-      try ControlSocket.serve { req in
-        await MainActor.run { AppModel.shared }.handle(req)
+      try ControlSocket.serve { req, caller in
+        await MainActor.run { AppModel.shared }.handle(req, caller: caller)
       }
     } catch {
       NSLog("keydillo: control socket failed: \(error)")
     }
   }
 
-  func handle(_ req: ControlRequest) async -> ControlResponse {
+  func handle(_ req: ControlRequest, caller: ClientProcess = .unknown) async -> ControlResponse {
     switch req {
     case .listServices:
       return .services(services.map(summary))
@@ -343,13 +343,22 @@ final class AppModel {
       let kr = KeyRequest(service: r.service, displayName: r.displayName ?? HostCheck.displayName(r.service), host: r.host,
                           header: r.header, prefix: r.prefix ?? "",
                           envVarName: r.envVarName ?? ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).envVarName,
-                          project: r.project ?? "Personal", requester: r.requester == KeyRequest.cliRequester ? nil : (r.requester ?? "an agent"), cwd: r.cwd,
-                          keyPageURL: r.keyPageURL ?? "")
+                          project: r.project ?? "Personal",
+                          // Who's asking comes from the kernel's view of the caller, not from what the request says.
+                          requester: r.requester == KeyRequest.cliRequester && caller.agent == nil ? nil : (caller.agent ?? (caller.identified ? caller.name : "an unidentified program")),
+                          cwd: caller.cwd ?? r.cwd,
+                          keyPageURL: Self.safeKeyPage(r.keyPageURL) ?? "")
       return await withCheckedContinuation { cont in
         keyRequestWaiters[kr.id] = cont
         WindowManager.shared.showKeyWindow(kr)
       }
     }
+  }
+
+  /// Key pages must be plain https links.
+  static func safeKeyPage(_ s: String?) -> String? {
+    guard let s, let u = URL(string: s), u.scheme == "https", let h = u.host, !h.isEmpty, u.user == nil else { return nil }
+    return s
   }
 
   func finishKeyRequest(_ id: UUID, saved: ServiceConfig?) {
@@ -429,7 +438,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
     defer { Task { @MainActor in model?.clearPending(pending.id) } }
     do {
       guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.reason) else { return .denied }
-      await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx) }
+      await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }
       return .approved(ctx)
     } catch {
       return .denied

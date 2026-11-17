@@ -88,6 +88,12 @@ struct KeyWindowView: View {
         }
       }
 
+      if let old = model.service(named: request.service), old.project == request.project,
+         old.upstreamHost.lowercased() != request.host.lowercased(), !request.host.isEmpty {
+        Text("This replaces \(old.displayName)'s address: \(old.upstreamHost) → \(request.host). Only save if you expected that.")
+          .font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      }
+
       Collapsible(title: "Options", isOpen: $optionsOpen) { options }
 
       if !model.storageSecure {

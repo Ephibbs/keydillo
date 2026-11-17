@@ -41,7 +41,12 @@ engine.onEvent = { e in
   FileHandle.standardError.write(Data(line.utf8))
 }
 let server = ProxyServer(port: cfg.port, engine: engine)
-server.identify = { _, _ in ClientProcess(pid: 1, name: "compat-client") }
+// Real caller identification, like the app (logged for debugging).
+server.identify = { a, b in
+  let c = ProcessLookup.process(connectedFrom: a, to: b)
+  FileHandle.standardError.write(Data("caller \(c.pid) \(c.name) start=\(c.startTime) root=\(c.rootPid) \(c.sessionKey)\n".utf8))
+  return c
+}
 server.onStateChange = { s in if s == "ready" { print("ready"); fflush(stdout) } }
 try server.start()
 dispatchMain()

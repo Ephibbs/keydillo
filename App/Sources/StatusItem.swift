@@ -10,7 +10,10 @@ final class StatusItem: NSObject {
 
   override init() {
     super.init()
-    item.button?.image = NSImage(systemSymbolName: "key.horizontal", accessibilityDescription: "keydillo")
+    let icon = NSImage(named: "MenuBarIcon") ?? NSImage(systemSymbolName: "key.horizontal", accessibilityDescription: "keydillo")
+    icon?.isTemplate = true
+    icon?.accessibilityDescription = "keydillo"
+    item.button?.image = icon
     item.button?.target = self
     item.button?.action = #selector(toggle)
     popover.behavior = .transient

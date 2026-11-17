@@ -61,14 +61,15 @@ public actor ApprovalGate {
     switch service.approval {
     case .eachRequest: return ""
     case .perProcess: return "\(service.name)|\(client.sessionKey)"
-    case .window: return service.name
+    case .window: return "\(service.name)|\(client.sessionKey)"
     }
   }
 
   /// A user-chosen window applies regardless of the service's own mode.
-  func windowOverride(_ service: ServiceConfig) -> Grant? {
-    guard let g = grants[service.name], let e = g.expires else { return nil }
-    if e <= now() { grants[service.name] = nil; return nil }
+  func windowOverride(_ service: ServiceConfig, _ client: ClientProcess) -> Grant? {
+    let k = "\(service.name)|\(client.sessionKey)|override"
+    guard let g = grants[k], let e = g.expires else { return nil }
+    if e <= now() { grants[k] = nil; return nil }
     return g
   }
 
@@ -83,38 +84,40 @@ public actor ApprovalGate {
   private var bursts: [String: (Date, LAContext?)] = [:]
   public static let burstSeconds: TimeInterval = 3
   func burst(_ service: ServiceConfig, _ client: ClientProcess) -> LAContext?? {
+    guard client.identified else { return nil }
     let k = service.name + "|" + client.sessionKey
     guard let (t, ctx) = bursts[k], now().timeIntervalSince(t) < Self.burstSeconds else { return nil }
     return .some(ctx)
   }
 
   public func authorize(_ service: ServiceConfig, _ request: ApprovalRequest) async -> ApprovalResult {
-    if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { return .approved(g.context) }
     if let ctx = burst(service, request.client) { return .approved(ctx) }
     await lock()
     defer { unlock() }
     // Another request may have been approved while we waited.
-    if let g = validGrant(service, request.client) ?? windowOverride(service) { return .approved(g.context) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { return .approved(g.context) }
     if let ctx = burst(service, request.client) { return .approved(ctx) }
     let result = await approver.approve(request)
-    if case .approved(let ctx) = result { bursts[service.name + "|" + request.client.sessionKey] = (now(), ctx) }
-    if case .approved(let ctx) = result {
+    if case .approved(let ctx) = result, request.client.identified { bursts[service.name + "|" + request.client.sessionKey] = (now(), ctx) }
+    if case .approved(let ctx) = result, request.client.identified {
       switch service.approval {
       case .eachRequest: break
       case .perProcess: grants[key(service, request.client)] = Grant(context: ctx, expires: nil, client: request.client)
-      case .window(let m): grants[key(service, request.client)] = Grant(context: ctx, expires: now().addingTimeInterval(Double(m) * 60), client: nil)
+      case .window(let m): grants[key(service, request.client)] = Grant(context: ctx, expires: now().addingTimeInterval(Double(m) * 60), client: request.client)
       }
     }
     return result
   }
 
   /// Extends an approval to a time window, e.g. when the user picks "15 min" in the popover.
-  public func grantWindow(service: String, minutes: Int, context: LAContext?) {
-    grants[service] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: nil)
+  public func grantWindow(service: String, minutes: Int, context: LAContext?, client: ClientProcess? = nil) {
+    guard let client, client.identified else { return }
+    grants["\(service)|\(client.sessionKey)|override"] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: client)
   }
 
   public func revokeAll(service: String? = nil) {
-    if let service { grants = grants.filter { !$0.key.hasPrefix(service + "|") && $0.key != service } }
+    if let service { grants = grants.filter { !$0.key.hasPrefix(service + "|") && $0.key != service }; bursts = bursts.filter { !$0.key.hasPrefix(service + "|") } }
     else { grants.removeAll() }
   }
 

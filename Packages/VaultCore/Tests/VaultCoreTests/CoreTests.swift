@@ -188,7 +188,8 @@ final class EndToEndTests: XCTestCase {
 final class ControlTests: XCTestCase {
   func testRoundTripOverSocket() throws {
     let path = NSTemporaryDirectory() + "kd-\(UUID().uuidString.prefix(6)).sock"
-    try ControlSocket.serve(path: path) { req in
+    try ControlSocket.serve(path: path) { req, caller in
+      XCTAssertEqual(caller.pid, getpid(), "peer identified by the kernel")
       if case .requestSecret(let r) = req {
         let svc = ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).summary(port: 7787)
         return .saved(svc, envLines: svc.placeholderEnvLines)
@@ -372,5 +373,28 @@ final class SecurityTests: XCTestCase {
     XCTAssertEqual(okResp.status, 200)
     let anyResp = await engine.handle(req("/any/v1/x", body: "{\"k\":\"keydillo:any\"}"), client: c)
     XCTAssertEqual(anyResp.status, 200)
+  }
+}
+
+final class CallerScopeTests: XCTestCase {
+  func req(_ s: ServiceConfig, _ c: ClientProcess) -> ApprovalRequest {
+    ApprovalRequest(service: s.name, displayName: s.displayName, host: s.upstreamHost, method: "GET", path: "/", client: c)
+  }
+  func testApprovalsBelongToTheCallersTree() async {
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    var c1 = ClientProcess(pid: 100, name: "curl", startTime: 5); c1.rootPid = 10; c1.rootStart = 1
+    var c2 = ClientProcess(pid: 101, name: "python3", startTime: 6); c2.rootPid = 10; c2.rootStart = 1
+    var other = ClientProcess(pid: 200, name: "curl", startTime: 7); other.rootPid = 20; other.rootStart = 2
+    _ = await gate.authorize(s, req(s, c1)); _ = await gate.authorize(s, req(s, c2))
+    XCTAssertEqual(a.calls, 1, "same terminal/session shares the approval")
+    _ = await gate.authorize(s, req(s, other))
+    XCTAssertEqual(a.calls, 2, "another process tree gets its own prompt")
+  }
+  func testUnidentifiedCallersAreNeverCached() async {
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .window(minutes: 15))
+    _ = await gate.authorize(s, req(s, .unknown)); _ = await gate.authorize(s, req(s, .unknown))
+    XCTAssertEqual(a.calls, 2)
   }
 }

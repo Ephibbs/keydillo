@@ -127,7 +127,8 @@ public enum ControlSocket {
   }
 
   /// Listens on the socket; `handle` may take as long as it needs (it runs on its own task per client).
-  public static func serve(path: String = ControlSocket.path, handle: @escaping @Sendable (ControlRequest) async -> ControlResponse) throws {
+  /// The handler gets the connecting process as identified by the kernel (LOCAL_PEERPID), not as it describes itself.
+  public static func serve(path: String = ControlSocket.path, handle: @escaping @Sendable (ControlRequest, ClientProcess) async -> ControlResponse) throws {
     unlink(path)
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { throw VaultError.invalidConfig("socket failed") }
@@ -142,6 +143,9 @@ public enum ControlSocket {
       while true {
         let c = accept(fd, nil, nil)
         if c < 0 { continue }
+        var peer: pid_t = 0
+        var len = socklen_t(MemoryLayout<pid_t>.size)
+        let caller = getsockopt(c, SOL_LOCAL, LOCAL_PEERPID, &peer, &len) == 0 && peer > 0 ? ProcessLookup.describe(peer) : .unknown
         Task.detached {
           var input = Data(); var buf = [UInt8](repeating: 0, count: 65536)
           while input.last != 0x0A {
@@ -150,7 +154,7 @@ public enum ControlSocket {
             input.append(contentsOf: buf[0..<n])
           }
           let response: ControlResponse
-          if let req = try? JSONDecoder().decode(ControlRequest.self, from: input) { response = await handle(req) }
+          if let req = try? JSONDecoder().decode(ControlRequest.self, from: input) { response = await handle(req, caller) }
           else { response = .error("Bad request") }
           var data = (try? JSONEncoder().encode(response)) ?? Data(); data.append(0x0A)
           _ = data.withUnsafeBytes { write(c, $0.baseAddress, data.count) }
