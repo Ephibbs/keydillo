@@ -198,7 +198,7 @@ struct MainWindowView: View {
     let override = model.accessOverride(for: project)
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
-        Text("Touch ID for this project").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        Text("Ask for Touch ID").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         Menu {
           Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
           Divider()
@@ -209,7 +209,7 @@ struct MainWindowView: View {
           .menuStyle(.borderlessButton).fixedSize().disabled(folder == nil)
       }
       Text(folder == nil ? "Available once keydillo knows this project's folder (import it, or add a key from Claude in that folder)."
-           : access == .perKey ? "Each key asks on its own."
+           : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
            : "After one Touch ID, programs in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even while the Mac is locked. Logged in Activity.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
@@ -289,9 +289,6 @@ struct KeyDetailView: View {
     return c
   }
 
-  var approvalBinding: Binding<DefaultApproval> {
-    Binding(get: { config.approval.asDefault }, set: { config.approval = $0.mode })
-  }
 
   var summary: ServiceSummary { model.summary(config) }
 
@@ -406,13 +403,6 @@ struct KeyDetailView: View {
         row("Auth header") {
           if editing { FilledField(placeholder: "Authorization", text: $config.authHeader, monospaced: true) }
           else { Text(config.authHeader.isEmpty ? "Not set" : config.authPrefix + config.authHeader).font(.system(size: 13, design: .monospaced)) }
-        }
-        row("Touch ID") {
-          ViewThatFits(in: .horizontal) {
-            PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: approvalBinding)
-            Picker("", selection: approvalBinding) { ForEach(DefaultApproval.allCases, id: \.self) { Text($0.label).tag($0) } }
-              .labelsHidden().fixedSize()
-          }
         }
         row("Project") {
           if editing { FilledField(placeholder: "Personal", text: $config.project) } else { Text(config.project).font(.system(size: 13)) }

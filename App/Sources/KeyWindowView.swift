@@ -158,9 +158,6 @@ struct KeyWindowView: View {
         }
         .labelsHidden()
       }
-      row("Touch ID") {
-        PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: $approval)
-      }
       row("Header") { FilledField(placeholder: "Authorization", text: $request.header, monospaced: true, height: 32) }
       row("Prefix") { FilledField(placeholder: "Bearer (optional)", text: $request.prefix, monospaced: true, height: 32) }
       row("Env name") { FilledField(placeholder: "EXAMPLE_API_KEY", text: $request.envVarName, monospaced: true, height: 32) }

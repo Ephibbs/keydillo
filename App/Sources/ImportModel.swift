@@ -273,6 +273,7 @@ final class ImportModel {
     let whose = project.map { "\($0)'s" } ?? "your"
     guard let ctx = await model.authenticate("put \(whose) real keys back into .env files (programs will see them again)") else { return "Cancelled." }
     var restored = 0
+    var missed: [String] = []
     for path in trackedFiles {
       guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
       var lines = text.components(separatedBy: "\n")
@@ -280,8 +281,10 @@ final class ImportModel {
       for (i, line) in lines.enumerated() {
         guard let service = Placeholder.service(in: line), project == nil || model.service(named: service)?.project == project,
               let eq = line.firstIndex(of: "="),
-              line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces).hasPrefix(Placeholder.prefix),
-              let value = try? model.keychain.secret(for: service, context: ctx) else { continue }
+              Placeholder.isPlaceholder(String(line[line.index(after: eq)...])) else { continue }
+        guard let value = try? model.keychain.secret(for: service, context: ctx), !Placeholder.isPlaceholder(String(decoding: value, as: UTF8.self)) else {
+          missed.append(String(line[..<eq])); continue
+        }
         lines[i] = String(line[...eq]) + String(decoding: value, as: UTF8.self)
         changed = true
       }
@@ -292,7 +295,8 @@ final class ImportModel {
         if (try? text.write(toFile: path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
       }
     }
-    return restored == 0 ? "Nothing to put back\(project.map { " for \($0)" } ?? "")." : "Put real keys back in \(restored) file\(restored == 1 ? "" : "s")."
+    let done = restored == 0 ? "Nothing to put back\(project.map { " for \($0)" } ?? "")." : "Put real keys back in \(restored) file\(restored == 1 ? "" : "s")."
+    return missed.isEmpty ? done : done + " Couldn't restore: \(missed.joined(separator: ", ")) (keydillo doesn't have a real value for these)."
   }
 
   static func slug(_ envName: String) -> String {

@@ -39,11 +39,10 @@ struct SetupView: View {
       VStack(spacing: 8) {
         choice(.eachRequest, "Every time")
         choice(.session, "Once per session", note: "Recommended")
-        choice(.window15, "Once every 15 minutes")
       }
-      Text("You can change this anytime, or per key.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      Text("You can change this anytime in Settings, or per project.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       footer(1) {
-        Button("Continue") { model.defaultApproval = approval; step = 2 }
+        Button("Continue") { Task { await model.setDefaultAccess(approval == .eachRequest ? .everyTime : .perKey) }; step = 2 }
           .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
       }
     }

@@ -49,6 +49,9 @@ public final class KeychainBackend: ConfigPersistence {
   // MARK: Secrets
 
   public func setSecret(_ value: Data, for name: String, label: String, service: String = KeychainBackend.secretService) throws {
+    if service == Self.secretService, Placeholder.isPlaceholder(String(decoding: value, as: UTF8.self)) {
+      throw VaultError.invalidConfig("That's a keydillo placeholder, not a key. The real key wasn't changed.")
+    }
     SecItemDelete(base(service: service, account: name) as CFDictionary)
     var q = base(service: service, account: name)
     q[kSecValueData as String] = value

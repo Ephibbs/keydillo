@@ -16,7 +16,8 @@ Status: pre-milestone 1. See docs/decisions.md.
   else passes through untouched, still encrypted. `kd` is installed in `~/.local/bin`, next to `claude`.
 - Claude Code (with the keydillo plugin, or after "Connect" in keydillo) is told to put `kd` in front of
   commands that call APIs. Nothing is routed without `kd`.
-- If keydillo isn't running, `kd` opens it in the background.
+- If keydillo isn't running, `kd` opens it in the background (unless you quit it yourself from the menu).
+- To stop using keydillo for a project or everything, use **Put my real keys back** (menu bar or Settings). Each import also saves a copy of the original .env files in keydillo's private Keychain group, as a safety net.
 - If an API still says the key is invalid, the program skipped keydillo (see the limits below). Claude is told
   this right after the command; the fix is to call the API through its `*_BASE_URL`
   (`http://localhost:7787/<name>/...`).

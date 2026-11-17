@@ -130,7 +130,7 @@ public enum ImportScanner {
         f.localOnly = localUse(name: name, value: value)
         return f
       }
-      if looksPublicByName(name), value.count >= 12, !value.hasPrefix(Placeholder.prefix), !value.contains("://") {
+      if looksPublicByName(name), value.count >= 12, !Placeholder.isPlaceholder(value), !value.contains("://") {
         return Found(file: file, name: name, value: value, service: nil, isPublic: true)
       }
       return nil
@@ -221,7 +221,7 @@ public enum ImportScanner {
     if n.hasSuffix("_URL") || n.hasSuffix("_HOST") || n.hasSuffix("_PORT") || n.hasSuffix("_ID") && !n.contains("SECRET") { return false }
     let secretMarkers = ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASS", "PRIVATE", "CREDENTIAL", "AUTH"]
     guard secretMarkers.contains(where: { n.contains($0) }) else { return false }
-    if value.count < 12 || value.hasPrefix(Placeholder.prefix) || value.contains("://") || value.contains(" ") { return false }
+    if value.count < 12 || Placeholder.isPlaceholder(value) || value.contains("://") || value.contains(" ") { return false }
     return true
   }
 

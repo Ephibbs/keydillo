@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
-  @State private var approval: DefaultApproval = AppModel.shared.defaultApproval
   @State private var loginItem = AppModel.shared.openAtLogin
   @State private var connectStatus: String?
   @State private var undoStatus: String?
@@ -13,17 +12,12 @@ struct SettingsView: View {
     VStack(alignment: .leading, spacing: 18) {
       Text("Settings").font(.system(size: 20, weight: .semibold))
       VStack(alignment: .leading, spacing: 8) {
-        Text("Ask for Touch ID (new keys)").font(.system(size: 13, weight: .medium))
-        PillPicker(options: DefaultApproval.allCases.map { ($0, $0.label) }, selection: $approval)
-          .onChange(of: approval) { _, v in model.defaultApproval = v }
-      }
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Touch ID for projects").font(.system(size: 13, weight: .medium))
+        Text("Ask for Touch ID").font(.system(size: 13, weight: .medium))
         Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { v in Task { await model.setDefaultAccess(v) } })) {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
         .labelsHidden().fixedSize()
-        Text("\"Don't ask again\" covers any program in the project's folder, not just Claude. Applies to projects without their own setting; change one project on its page.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        Text("For every project, unless it has its own setting on its page. \"Don't ask again\" covers any program in the project's folder, not just Claude, and turning it on needs Touch ID.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
@@ -36,7 +30,6 @@ struct SettingsView: View {
         Text(".env files").font(.system(size: 13, weight: .medium))
         HStack {
           Button("Import keys…") { WindowManager.shared.showImport() }.buttonStyle(SmallButtonStyle())
-          Button("Undo last import") { Task { undoStatus = await ImportModel.undoLast(model: model) } }.buttonStyle(SmallButtonStyle())
           Button("Put my real keys back…") { WindowManager.shared.showRestore() }.buttonStyle(SmallButtonStyle())
           if let undoStatus { Text(undoStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
         }

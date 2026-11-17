@@ -5,16 +5,28 @@ import VaultCore
 /// Whether one Touch ID opens a whole project for programs working inside that project's folder.
 /// (Timed windows and Claude-Code-only scoping live on the `project-timed-windows-and-scope` branch.)
 enum ProjectAccess: String, CaseIterable, Identifiable {
-  /// No project-wide approval: each key follows its own setting (every time, or once per session).
+  /// Touch ID for every request.
+  case everyTime
+  /// Once per program session (the stored value keeps its old name).
   case perKey
   /// After one Touch ID, programs in the project's folder use its keys without asking until keydillo quits.
   case always
 
   var id: String { rawValue }
-  var label: String { self == .perKey ? "Each key's own setting" : "Don't ask again" }
+  var label: String {
+    switch self {
+    case .everyTime: return "Every time"
+    case .perKey: return "Once per session"
+    case .always: return "Don't ask again in this project's folder"
+    }
+  }
+  /// How permissive it is; moving up needs Touch ID.
+  var rank: Int { self == .everyTime ? 0 : self == .perKey ? 1 : 2 }
   /// Phrase used in the Touch ID prompt and the menu bar.
-  var span: String { self == .perKey ? "" : "until keydillo quits" }
+  var span: String { self == .always ? "until keydillo quits" : "" }
   var duration: TimeInterval? { nil }
+  /// What each key in the project does when asked.
+  var keyMode: ApprovalMode { self == .everyTime ? .eachRequest : .perProcess }
 }
 
 /// A project opened with one Touch ID. While open, its keys are kept in keydillo's memory so they keep

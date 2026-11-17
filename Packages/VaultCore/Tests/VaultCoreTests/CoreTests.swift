@@ -301,6 +301,31 @@ final class RealKeysBackTests: XCTestCase {
   }
 }
 
+final class PlaceholderSafetyTests: XCTestCase {
+  func testPrefixedPlaceholdersAreRecognised() {
+    XCTAssertTrue(Placeholder.isPlaceholder("sk_" + Placeholder.value(for: "elevenlabs")))
+    XCTAssertTrue(Placeholder.isPlaceholder("sk-proj-keydillo%3Aopenai%3Astart-with-keydillo-run"))
+    XCTAssertFalse(Placeholder.isPlaceholder("sk_REALVALUEabc123def456ghi789"))
+  }
+
+  /// Import, then a put-back that missed a key, then import again: the second import must not see the
+  /// placeholder (with its kept "sk_" prefix) as a key and store it over the real one.
+  func testImportPutBackReimportNeverStoresAPlaceholder() {
+    let original = "ELEVENLABS_API_KEY=sk_REALFAKEvalue0123456789abcdef\nOPENAI_API_KEY=sk-proj-REALFAKEvalue0123456789abcdef\n"
+    let found = ImportScanner.parse(original, file: "/p/.env")
+    XCTAssertEqual(Set(found.map(\.name)), ["ELEVENLABS_API_KEY", "OPENAI_API_KEY"])
+    let reps = Dictionary(uniqueKeysWithValues: found.map { ($0.name, (service: $0.service?.service ?? "x", baseURL: String?.none, baseURLEnvName: String?.none)) })
+    let prefixes = Dictionary(uniqueKeysWithValues: found.map { ($0.name, $0.keyPrefix) })
+    let imported = ImportScanner.rewrite(original, replacements: reps, prefixes: prefixes)
+    XCTAssertTrue(imported.contains("sk_" + Placeholder.prefix), imported)
+    // A partial put-back: OpenAI restored, ElevenLabs left as its prefixed placeholder.
+    let partly = imported.replacingOccurrences(of: #"OPENAI_API_KEY=[^\n]*"#, with: "OPENAI_API_KEY=sk-proj-NEWREALvalue0123456789abcdef", options: .regularExpression)
+    let again = ImportScanner.parse(partly, file: "/p/.env")
+    XCTAssertEqual(again.map(\.name), ["OPENAI_API_KEY"], "the leftover placeholder must not be imported as a key")
+    XCTAssertFalse(again.contains { Placeholder.isPlaceholder($0.value) })
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

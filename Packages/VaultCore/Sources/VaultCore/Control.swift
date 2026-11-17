@@ -208,6 +208,11 @@ public enum Placeholder {
   /// Self-explaining, so a person who sends it to the real API sees why it failed.
   public static let hint = "start-with-keydillo-run"
   public static func value(for service: String) -> String { prefix + service + ":" + hint }
+  /// True for any keydillo placeholder, including ones with a kept format prefix (sk_keydillo:openai:…) or URL-encoded.
+  public static func isPlaceholder(_ value: String) -> Bool {
+    let v = value.replacingOccurrences(of: "%3A", with: ":").replacingOccurrences(of: "%3a", with: ":")
+    return service(in: v) != nil
+  }
   /// The service a placeholder stands for, if `s` is (or contains, e.g. "Bearer keydillo:x") one.
   public static func service(in s: String) -> String? {
     guard let r = s.range(of: prefix) else { return nil }

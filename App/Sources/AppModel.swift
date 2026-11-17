@@ -6,18 +6,16 @@ import ServiceManagement
 import VaultCore
 
 enum DefaultApproval: String, CaseIterable {
-  case eachRequest, window15, session
+  case eachRequest, session
   var mode: ApprovalMode {
     switch self {
     case .eachRequest: return .eachRequest
-    case .window15: return .window(minutes: 15)
     case .session: return .perProcess
     }
   }
   var label: String {
     switch self {
     case .eachRequest: return "Every time"
-    case .window15: return "Every 15 min"
     case .session: return "Once per session"
     }
   }
@@ -34,7 +32,7 @@ extension ApprovalMode {
   var asDefault: DefaultApproval {
     switch self {
     case .eachRequest: return .eachRequest
-    case .window: return .window15
+    case .window: return .session
     case .perProcess: return .session
     }
   }
@@ -132,10 +130,18 @@ final class AppModel {
   @discardableResult func loadServices() -> Bool {
     guard let list = keychain.loadChecked() else { return false }
     services = list
-    snapshot.value = list
+    refreshSnapshot()
     if !servicesLoaded {
       loadAccessSettings()
       servicesLoaded = true
+      if !Self.devHarness && !UserDefaults.standard.bool(forKey: "repairedPlaceholders1") {
+        Task { @MainActor in
+          try? await Task.sleep(for: .seconds(2))
+          let r = await self.repairPlaceholderValues()
+          if r != nil && r != "Not checked (Touch ID cancelled)." { UserDefaults.standard.set(true, forKey: "repairedPlaceholders1") }
+          if let r { try? r.write(to: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/repair-report.txt"), atomically: true, encoding: .utf8) }
+        }
+      }
       ImportModel.migrateFileBackups(model: self)
       ImportModel.migrateBaseURLs(model: self)
     }
@@ -211,9 +217,14 @@ final class AppModel {
   func loadAccessSettings() {
     // Older builds kept these in preferences, where any program could change them: drop them, never trust them.
     for k in ["projectAccessDefault", "projectAccess", "trustedProjects"] { UserDefaults.standard.removeObject(forKey: k) }
-    guard let d = keychain.setting("projectAccess"), !d.isEmpty, let s = try? JSONDecoder().decode(AccessSettings.self, from: d) else { return }
-    projectAccessDefault = ProjectAccess(rawValue: s.defaultAccess) ?? .perKey
-    projectAccessOverrides = s.overrides
+    let oldKeyDefault = UserDefaults.standard.string(forKey: "defaultApproval")
+    UserDefaults.standard.removeObject(forKey: "defaultApproval")
+    if let d = keychain.setting("projectAccess"), !d.isEmpty, let s = try? JSONDecoder().decode(AccessSettings.self, from: d) {
+      projectAccessDefault = ProjectAccess(rawValue: s.defaultAccess) ?? .perKey
+      projectAccessOverrides = s.overrides
+    }
+    // Earlier builds had a separate "Ask for Touch ID (new keys)" choice; "every time" carries over, 15 minutes becomes once per session.
+    if oldKeyDefault == "eachRequest" && projectAccessDefault == .perKey { projectAccessDefault = .everyTime; try? saveAccessSettings() }
   }
 
   private func saveAccessSettings() throws {
@@ -223,13 +234,16 @@ final class AppModel {
 
   /// Changes the default for all projects. Turning on "don't ask again" needs Touch ID.
   @discardableResult func setDefaultAccess(_ a: ProjectAccess) async -> Bool {
-    if a == .always, projectAccessDefault != .always {
-      guard await authenticate("stop asking for Touch ID in every project's folder") != nil else { return false }
+    if a.rank > projectAccessDefault.rank {
+      let what = a == .always ? "stop asking for Touch ID in every project's folder" : "ask for Touch ID only once per session"
+      guard await authenticate(what) != nil else { return false }
     }
     let old = projectAccessDefault
     projectAccessDefault = a
     do { try saveAccessSettings() } catch { projectAccessDefault = old; return false }
     unlocks.closeAll()
+    refreshSnapshot()
+    Task { await engine.gate.revokeAll(); await refreshGrants() }
     return true
   }
   func access(for project: String) -> ProjectAccess { projectAccessOverrides[project].flatMap(ProjectAccess.init) ?? projectAccessDefault }
@@ -237,8 +251,9 @@ final class AppModel {
   /// nil goes back to the default. Changing it closes the project if it's open. Turning on "don't ask again" needs Touch ID.
   @discardableResult func setAccess(_ project: String, _ access: ProjectAccess?) async -> Bool {
     let next = access ?? projectAccessDefault
-    if next == .always, self.access(for: project) != .always {
-      guard await authenticate("stop asking for Touch ID for programs in \(project)'s folder") != nil else { return false }
+    if next.rank > self.access(for: project).rank {
+      let what = next == .always ? "stop asking for Touch ID for programs in \(project)'s folder" : "ask for Touch ID once per session for \(project)"
+      guard await authenticate(what) != nil else { return false }
     }
     let old = projectAccessOverrides
     projectAccessOverrides[project] = access?.rawValue
@@ -246,7 +261,9 @@ final class AppModel {
     unlocks.close(project)
     let now = self.access(for: project)
     events.insert(ActivityEvent(date: Date(), service: project, method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
-                                note: "\(project): Touch ID \(now == .perKey ? "follows each key's setting" : "isn't asked for in its folder " + now.span)"), at: 0)
+                                note: "\(project): Touch ID \(now.label.lowercased())"), at: 0)
+    refreshSnapshot()
+    Task { await engine.gate.revokeAll(); await refreshGrants() }
     return true
   }
   func closeProject(_ project: String) {
@@ -268,6 +285,40 @@ final class AppModel {
     guard names.contains(where: { ImportScanner.isEnvFile($0)
       && ((try? String(contentsOfFile: f + "/" + $0, encoding: .utf8))?.contains(ImportScanner.headerStart) ?? false) }) else { return nil }
     return cwd == folder || cwd.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/") ? folder : nil
+  }
+
+  /// Finds stored keys whose value is a keydillo placeholder (an earlier import could store one) and restores the real
+  /// value from keydillo's own .env backups. Reports key names only. Needs one Touch ID.
+  func repairPlaceholderValues() async -> String? {
+    guard servicesLoaded, !services.isEmpty else { return nil }
+    guard let ctx = await authenticate("check your keys for a problem from an earlier keydillo import, and repair them") else { return "Not checked (Touch ID cancelled)." }
+    let bad = services.filter { s in
+      guard let d = try? keychain.secret(for: s.name, context: ctx) else { return false }
+      return Placeholder.isPlaceholder(String(decoding: d, as: UTF8.self))
+    }
+    guard !bad.isEmpty else { return "All \(services.count) keys are fine." }
+    // Backups, newest first; take the newest real (non-placeholder) value for the key's env var in its folder.
+    let backups: [ImportModel.Backup] = keychain.accounts(service: ImportModel.backupService).compactMap { a in
+      guard let d = try? keychain.secret(for: a, context: ctx, service: ImportModel.backupService) else { return nil }
+      return try? JSONDecoder().decode(ImportModel.Backup.self, from: d)
+    }.sorted { $0.date > $1.date }
+    var fixed: [String] = [], lost: [String] = []
+    for s in bad {
+      var value: String?
+      search: for b in backups {
+        for f in b.files where s.folder == nil || (f.path as NSString).deletingLastPathComponent == s.folder {
+          if let k = ImportScanner.parse(f.text, file: f.path).first(where: { $0.name == s.envVarName && !Placeholder.isPlaceholder($0.value) }) {
+            value = k.value; break search
+          }
+        }
+      }
+      if let v = value, (try? keychain.setSecret(Data(v.utf8), for: s.name, label: s.displayName)) != nil { fixed.append(s.name) } else { lost.append(s.name) }
+    }
+    unlocks.closeAll()
+    var out = fixed.isEmpty ? "" : "Repaired: \(fixed.joined(separator: ", ")). "
+    if !lost.isEmpty { out += "No real value found for: \(lost.joined(separator: ", ")); replace these in keydillo." }
+    events.insert(ActivityEvent(date: Date(), service: "keydillo", method: "", path: "", process: "keydillo", pid: getpid(), outcome: .sent, status: 0, note: out), at: 0)
+    return out
   }
 
   /// Re-checks tracked .env files for keys keydillo manages that hold real values again.
@@ -424,7 +475,12 @@ final class AppModel {
     guard servicesLoaded else { throw VaultError.invalidConfig("Unlock your Mac first: keydillo can't read your keys while it's locked.") }
     try keychain.save(next)
     services = next
-    snapshot.value = next
+    refreshSnapshot()
+  }
+
+  /// What the proxy sees: each key asks as its project's "Ask for Touch ID" setting says.
+  func refreshSnapshot() {
+    snapshot.value = services.map { var s = $0; s.approval = access(for: s.project).keyMode; return s }
   }
 
   // MARK: Readout (GUI only)

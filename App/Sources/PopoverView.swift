@@ -112,7 +112,6 @@ struct PopoverView: View {
       }
       HStack(spacing: 6) {
         Button("Deny") { model.deny(p) }.buttonStyle(SmallButtonStyle())
-        Button(model.windowUpgrades.contains(p.id) ? "15 min ✓" : "15 min") { model.allowWindow(p) }.buttonStyle(SmallButtonStyle())
         Spacer()
         Text("Touch ID to allow").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }
