@@ -17,7 +17,8 @@ struct SettingsView: View {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
         .labelsHidden().fixedSize()
-        Text("Each project can change this on its page. With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        (Text("Each project can change this on its page. ").foregroundColor(Theme.secondary)
+         + Text("Note: With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").foregroundColor(Theme.danger)).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))

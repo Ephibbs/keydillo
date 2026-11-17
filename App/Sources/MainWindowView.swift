@@ -227,15 +227,23 @@ struct MainWindowView: View {
       }
       Text(folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
-           : "Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
+           : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
     }
-    .alert("Ask once for \(project)?", isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
-      Button("Continue with Touch ID") { Task { await model.setAccess(project, .always) }; confirmAlways = nil }
-      Button("Cancel", role: .cancel) { confirmAlways = nil }
-    } message: {
-      Text("Any program in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use its keys until keydillo quits, even when your Mac is locked.")
+    .sheet(isPresented: Binding(get: { confirmAlways == project }, set: { if !$0 { confirmAlways = nil } })) {
+      VStack(alignment: .leading, spacing: 14) {
+        Text("Ask once for \(project)?").font(.system(size: 17, weight: .semibold))
+        Text("Note: Any program in \(folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "the folder") can use its keys until keydillo quits, even when your Mac is locked.")
+          .font(.system(size: 13)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+        HStack {
+          Spacer()
+          Button("Cancel") { confirmAlways = nil }.buttonStyle(SecondaryButtonStyle()).keyboardShortcut(.cancelAction)
+          Button("Continue with Touch ID") { confirmAlways = nil; Task { await model.setAccess(project, .always) } }
+            .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+        }
+      }
+      .padding(24).frame(width: 400).background(Theme.background).foregroundStyle(Theme.text)
     }
   }
 

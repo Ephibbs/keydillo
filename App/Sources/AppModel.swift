@@ -687,7 +687,7 @@ final class AppModel {
       return ChangeProposal(title: "Use your \(s.displayName) key in \(target) too", requester: requester,
                             rows: [(label: "Projects", old: s.project, new: "\(s.project), \(target)")],
                             note: r.why, warning: "Programs in \(target) will be able to use this key, sent only to \(s.allHosts.isEmpty ? "its site" : s.allHosts.joined(separator: ", ")).",
-                            touchReason: "let \(target) use your \(s.displayName) key (\(s.project))") { [weak self] ctx in
+                            touchReason: "let \(target) use your \(s.displayName) key (\(s.project))", loosens: true) { [weak self] ctx in
         guard let self else { return "" }
         let value = try self.keychain.secret(for: s.name, context: ctx)
         try self.keychain.setSecret(value, for: name, label: s.displayName)
@@ -707,7 +707,7 @@ final class AppModel {
       let short = { (p: String) in (p as NSString).abbreviatingWithTildeInPath }
       return ChangeProposal(title: "Move \(project) to a new folder", requester: requester, rows: [(label: "Folder", old: short(old), new: short(new))],
                             note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Ask once per project\": programs in the new folder will use its keys without asking again." : nil,
-                            touchReason: "move \(project)'s keys to \(short(new))") { [weak self] _ in
+                            touchReason: "move \(project)'s keys to \(short(new))", loosens: access(for: project) == .always) { [weak self] _ in
         guard let self else { return "" }
         try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new; c.folderChosen = true }; return c })
         self.unlocks.close(project)

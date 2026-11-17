@@ -13,6 +13,8 @@ struct ChangeProposal: Identifiable {
   var warning: String?
   /// Shown in the Touch ID prompt after "keydillo is trying to".
   var touchReason: String
+  /// Lets the key be used more widely (another project, another folder): shown as a red action, Decline is the default.
+  var loosens = false
   var apply: (LAContext) async throws -> String
 }
 
@@ -44,7 +46,7 @@ struct ChangeWindow: View {
       .padding(12).frame(maxWidth: .infinity, alignment: .leading)
       .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
       if let n = proposal.note { Text(n).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true) }
-      if let w = proposal.warning { Text(w).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
+      if let w = proposal.warning { Text("Note: " + w).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       if let error { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
       HStack(spacing: 8) {
         Spacer()
@@ -62,3 +64,4 @@ struct ChangeWindow: View {
     }
   }
 }
+
