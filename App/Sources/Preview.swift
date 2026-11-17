@@ -57,7 +57,9 @@ enum Preview {
       try? FileManager.default.createDirectory(atPath: d + "/beta", withIntermediateDirectories: true)
       try? "ACME_API_KEY=acme_FAKEpreview0123456789\nWIDGET_TOKEN=wdg_FAKEpreview0123456789\nJWT_SECRET=FAKEjwtpreview0123456789abcdef\n".write(toFile: d + "/beta/.env", atomically: true, encoding: .utf8)
       wm.show("import", title: "Import keys") { ImportView(reviewOpen: true, inSetup: false, onlyPaths: [d + "/beta/.env"]) {}.sheetCard() }
-    case "popover": DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
+    case "popover":
+      AppModel.shared.realKeyFiles = ["/Users/x/Desktop/voiceover/.env", "/Users/x/Desktop/notes-app/.env"]
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()
     }
   }

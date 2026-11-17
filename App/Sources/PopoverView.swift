@@ -25,7 +25,9 @@ struct PopoverView: View {
           .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)
       }
       if let c = model.portConflict { portCard(c) }
-      if !model.realKeyFiles.isEmpty { realKeysCard }
+      if !model.realKeyFiles.isEmpty {
+        if dismissedRealKeys == realKeysSignature { realKeysLine } else { realKeysCard }
+      }
       ForEach(model.pending) { p in pendingCard(p) }
 
       if !model.openProjects.isEmpty {
@@ -87,11 +89,34 @@ struct PopoverView: View {
     .task { await model.refreshGrants() }
   }
 
-  var realKeysCard: some View {
+  /// Hidden until the set of files changes.
+  @AppStorage("dismissedRealKeys") private var dismissedRealKeys = ""
+  var realKeysSignature: String { model.realKeyFiles.sorted().joined(separator: "|") }
+  var realKeysTitle: String {
     let names = model.realKeyFiles.map { (($0 as NSString).deletingLastPathComponent as NSString).lastPathComponent }
-    return VStack(alignment: .leading, spacing: 10) {
+    return "Real keys are back in \(names.count == 1 ? names[0] + "'s .env" : "\(names.count) .env files")"
+  }
+
+  var realKeysLine: some View {
+    Button { StatusItem.shared?.close(); WindowManager.shared.showImport(only: model.realKeyFiles) } label: {
+      HStack(spacing: 4) {
+        Text(realKeysTitle + " ·").foregroundStyle(Theme.secondary)
+        Text("Review").underline()
+      }
+      .font(.system(size: 12))
+    }
+    .buttonStyle(.plain).padding(.horizontal, 16).padding(.bottom, 10)
+  }
+
+  var realKeysCard: some View {
+    VStack(alignment: .leading, spacing: 10) {
       VStack(alignment: .leading, spacing: 3) {
-        Text("Real keys are back in \(names.count == 1 ? names[0] + "'s .env" : "\(names.count) .env files")").font(.system(size: 14, weight: .semibold))
+        HStack(alignment: .top) {
+          Text(realKeysTitle).font(.system(size: 14, weight: .semibold))
+          Spacer()
+          Button { dismissedRealKeys = realKeysSignature } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
+            .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Hide. It comes back if other files change.").accessibilityLabel("Hide")
+        }
         Text("Something wrote real values over the placeholders (for example `vercel env pull`). Lock them away again?")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
