@@ -45,6 +45,7 @@ enum Preview {
     case "readout":
       wm.showReadout(project: "Notes", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
+    case "restore": wm.showRestore()
     case "change":
       let p = ChangeProposal(title: "Change how your Anthropic key is sent", requester: "Claude Code",
                              rows: [(label: "Header", old: "Authorization", new: "x-api-key"), (label: "Prefix", old: "Bearer ", new: "")],

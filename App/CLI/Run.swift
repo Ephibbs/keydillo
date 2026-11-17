@@ -282,7 +282,7 @@ enum Runner {
     }
     for (k, svc) in wanted.sorted(by: { $0.key < $1.key }) {
       if let v = values[svc] { env[k] = v }
-      else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved, or keydillo is paused), so the program gets the keydillo placeholder.\n".utf8)) }
+      else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved, or keydillo isn't running), so the program gets the keydillo placeholder.\n".utf8)) }
     }
   }
 
@@ -770,9 +770,7 @@ final class MitmProxy: @unchecked Sendable {
         // Refused connections leave NWConnection waiting forever: answer right away instead of hanging.
         guard !answered else { if case .failed = st { c.cancel() }; return }
         answered = true; upstream.cancel()
-        let paused: Bool = { if case .status(let st)? = try? ControlSocket.send(.status) { return st.proxyState == "paused" }; return false }()
         let r = !toApp ? HTTPResponse.error(502, "couldn't reach \(host)")
-          : paused ? HTTPResponse.error(503, "keydillo is paused, so it isn't handing out keys", code: "keydillo_paused", hint: "Resume keydillo from the menu bar, then try again.")
           : HTTPResponse.error(503, "the keydillo app isn't running, so the key couldn't be added", code: "keydillo_not_running",
                                hint: "Open keydillo (it restarts by itself within a few seconds if it crashed) and try again.")
         c.send(content: r.serialized(), completion: .contentProcessed { _ in c.cancel() })

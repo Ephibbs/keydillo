@@ -11,7 +11,7 @@ struct PopoverView: View {
         Spacer()
         HStack(spacing: 6) {
           StatusDot(on: model.proxyRunning)
-          Text(model.proxyRunning ? "On · :\(String(model.port))" : (model.paused ? "Paused" : "Off"))
+          Text(model.proxyRunning ? "On · :\(String(model.port))" : "Off")
         }
         .font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }
@@ -72,7 +72,7 @@ struct PopoverView: View {
       Divider().overlay(Theme.hairline).padding(.top, 8)
       VStack(alignment: .leading, spacing: 0) {
         menuRow("Open keydillo…") { StatusItem.shared?.close(); WindowManager.shared.showMain() }
-        menuRow(model.paused ? "Resume proxy" : "Pause proxy") { model.togglePause() }
+        menuRow("Put my real keys back…") { StatusItem.shared?.close(); WindowManager.shared.showRestore() }
         menuRow("Quit") { NSApp.terminate(nil) }
       }
       .padding(6)

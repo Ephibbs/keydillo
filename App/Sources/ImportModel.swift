@@ -265,26 +265,31 @@ final class ImportModel {
   // MARK: Uninstall
 
   /// Writes real values back in place of keydillo placeholders in every tracked file.
-  static func restoreRealValues(model: AppModel) async -> String {
-    guard let ctx = await model.authenticate("put your real keys back into your .env files") else { return "Cancelled." }
+  /// Puts real values back in place of placeholders, for one project or (nil) everything. The way to stop using keydillo.
+  static func restoreRealValues(model: AppModel, project: String? = nil) async -> String {
+    let whose = project.map { "\($0)'s" } ?? "your"
+    guard let ctx = await model.authenticate("put \(whose) real keys back into .env files (programs will see them again)") else { return "Cancelled." }
     var restored = 0
     for path in trackedFiles {
       guard var text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
       var lines = text.components(separatedBy: "\n")
       var changed = false
       for (i, line) in lines.enumerated() {
-        guard let service = Placeholder.service(in: line), let eq = line.firstIndex(of: "="),
+        guard let service = Placeholder.service(in: line), project == nil || model.service(named: service)?.project == project,
+              let eq = line.firstIndex(of: "="),
               line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces).hasPrefix(Placeholder.prefix),
               let value = try? model.keychain.secret(for: service, context: ctx) else { continue }
         lines[i] = String(line[...eq]) + String(decoding: value, as: UTF8.self)
         changed = true
       }
       if changed {
-        text = ImportScanner.stripKeydilloLines(lines.joined(separator: "\n"))
+        let joined = lines.joined(separator: "\n")
+        // Keep keydillo's header while other projects' placeholders remain in the file.
+        text = joined.contains(Placeholder.prefix) ? joined : ImportScanner.stripKeydilloLines(joined)
         if (try? text.write(toFile: path, atomically: true, encoding: .utf8)) != nil { restored += 1 }
       }
     }
-    return "Restored real keys in \(restored) file\(restored == 1 ? "" : "s")."
+    return restored == 0 ? "Nothing to put back\(project.map { " for \($0)" } ?? "")." : "Put real keys back in \(restored) file\(restored == 1 ? "" : "s")."
   }
 
   static func slug(_ envName: String) -> String {

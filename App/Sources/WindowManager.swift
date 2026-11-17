@@ -80,6 +80,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
     return kr.id
   }
 
+  func showRestore() {
+    show("restore", title: "Put real keys back") { RestoreView().sheetCard() }
+  }
+
   func showImport(only: [String]? = nil) {
     show("import", title: "Import keys") { ImportView(inSetup: false, onlyPaths: only) { WindowManager.shared.close("import") }.sheetCard() }
   }

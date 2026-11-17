@@ -302,9 +302,6 @@ final class AppModel {
     startProxy()
   }
 
-  func togglePause() {
-    if paused { startProxy() } else { server?.stop(); paused = true; proxyState = "paused" }
-  }
 
   var proxyRunning: Bool { proxyState == "ready" && !paused }
 
@@ -513,7 +510,6 @@ final class AppModel {
       // Only keydillo's own signed `kd` may receive values, and only launch-time keys, each approved like any request.
       guard ProcessLookup.isKeydilloBinary(caller.pid) else { return .error("launch-time values are only given to keydillo's own kd command") }
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read keys yet.") }
-      guard !paused else { return .error("keydillo is paused, so it isn't handing out keys. Resume it from the menu bar.") }
       let command = ProcessLookup.arguments(of: caller.pid).dropFirst().filter { $0 != "run" && $0 != "--" }.prefix(4).joined(separator: " ")
       var out: [String: String] = [:]
       for name in names {

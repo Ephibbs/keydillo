@@ -37,6 +37,7 @@ struct SettingsView: View {
         HStack {
           Button("Import keys…") { WindowManager.shared.showImport() }.buttonStyle(SmallButtonStyle())
           Button("Undo last import") { Task { undoStatus = await ImportModel.undoLast(model: model) } }.buttonStyle(SmallButtonStyle())
+          Button("Put my real keys back…") { WindowManager.shared.showRestore() }.buttonStyle(SmallButtonStyle())
           if let undoStatus { Text(undoStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
         }
       }
