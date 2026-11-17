@@ -7,7 +7,7 @@
 
 <h3 align="center">Let AI use your keys without seeing them</h3>
 
-<p align="center">Don’t let AI expose your secrets. Get set up in seconds and forget about it.</p>
+<p align="center">Don’t let AI expose your secrets.<br />Get set up in seconds and forget about it.</p>
 
 <p align="center"><img src="docs/assets/demo.gif" alt="Claude Code runs kd python voiceover.py, keydillo asks for Touch ID to use the ElevenLabs key, and the voiceover is saved" width="760"></p>
 
