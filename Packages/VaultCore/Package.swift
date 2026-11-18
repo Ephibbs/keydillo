@@ -9,6 +9,8 @@ let package = Package(
     .target(name: "VaultCore", swiftSettings: [.swiftLanguageMode(.v5)]),
     // Test-only proxy with an auto-approver, used by tests/compat. Never shipped.
     .executableTarget(name: "kd-testproxy", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    // Test-only browser host with in-memory logins and an approver that says yes, used by the browser tool's tests. Never shipped.
+    .executableTarget(name: "kd-testbrowser", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .testTarget(name: "VaultCoreTests", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
   ]
 )
