@@ -8,5 +8,6 @@ What's planned after the first release, roughly in order.
 4. **Go and Rust under `kd`.** An optional, system-wide keydillo certificate so programs that only trust the macOS Keychain work under `kd`. It needs one admin prompt and only covers sites your keys are for.
 5. **Background programs under `kd`.** Programs that detach right away (pm2, tmux) will keep working after `kd` exits.
 6. **Keys in shell profiles.** Find keys exported in `~/.zshrc`, `~/.zprofile`, `~/.bashrc` and similar, offer them in the import window, and swap only the value for a placeholder, with a backup and "Put my real keys back" support.
+7. **Touch ID for risky API calls.** keydillo's proxy already sees every request a key is used for, so it could ask for Touch ID on calls that spend money or can't be undone, such as Stripe charges and refunds, deletes, or permission changes, and let reads through without a prompt. Per key, with sensible defaults for common providers.
 
 Ideas or requests: open an issue.
