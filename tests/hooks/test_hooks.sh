@@ -167,5 +167,18 @@ EXP
 ok "terminal: Ctrl-C stops the command kd runs" '[[ $(expect $T/ctrlc.exp $DEV 2>&1 | tail -1) == *"took "[1-3] ]]'
 ok "terminal: the command kd runs can read the keyboard" '[[ $(expect $T/stdin.exp $DEV 2>&1) == *"got:hello"* ]]'
 
+# 16. kd sets the project's base-URL and key variables for programs that don't read .env (Go, Rust), never over the user's own.
+mkdir -p $T/goproj $T/gwproj
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\n' > $T/goproj/.env
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\nEX_BASE_URL=https://my-gateway.example\n' > $T/gwproj/.env
+export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"http://localhost:7787/ex","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
+ok "base URL: kd sets the provider's base-URL variable for this project's key" '[[ $(cd $T/goproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "http://localhost:7787/ex" ]]'
+ok "base URL: and the key variable to its placeholder" '[[ $(cd $T/goproj && $DEV run -- printenv EX_KEY 2>/dev/null) == "keydillo:ex:run-with-kd" ]]'
+ok "base URL: a base URL the user set in .env is left alone" '[[ -z $(cd $T/gwproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "base URL: one set in the environment is left alone" '[[ $(cd $T/goproj && EX_BASE_URL=https://mine.example $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "https://mine.example" ]]'
+ok "base URL: outside the project nothing is set" '[[ -z $(cd $T/other && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "nested: kd inside kd doesn't call the outer kd 'your proxy'" '[[ $($DEV run -- $DEV run -- true 2>&1) != *"your proxy"* ]]'
+unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
+
 print "\n$pass passed, $fail failed"
 exit $fail

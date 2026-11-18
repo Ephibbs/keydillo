@@ -356,6 +356,24 @@ enum Runner {
 
   /// Launch-time keys (database URLs, JWT secrets…): the program reads them as it starts, so kd puts the real value
   /// in its environment (after the app's approval). .env loaders don't override variables that are already set.
+  /// Programs that don't read .env files or trust kd's certificate (Go, Rust) still work when their SDK reads a
+  /// base-URL variable: for this project's keys, kd sets that variable to keydillo's local address (keydillo makes the
+  /// real HTTPS call) and the key variable to its placeholder. Never overrides a value the user set, in the
+  /// environment or in the project's env files.
+  static func setBaseURLs(services: [ServiceSummary], env0: [String: String], into env: inout [String: String]) {
+    let entries = projectEnvEntries(from: FileManager.default.currentDirectoryPath)
+    let inFiles = Dictionary(entries.map { ($0.0, $0.1) }, uniquingKeysWith: { _, last in last })
+    for (name, value) in entries {
+      guard !Placeholder.isRandomLaunchValue(value), let svc = Placeholder.service(in: value),
+            let s = services.first(where: { $0.name == svc }), s.launchTime != true, !s.host.isEmpty else { continue }
+      if env0[name] == nil { env[name] = value }
+      let be = s.baseURLEnvName
+      guard !be.isEmpty, env0[be] == nil else { continue }
+      if let fileValue = inFiles[be], fileValue != s.baseURL { continue }   // the user's own base URL (a gateway)
+      env[be] = s.baseURL
+    }
+  }
+
   static func fillLaunchValues(services: [ServiceSummary], env0: [String: String], shipped: Bool, into env: inout [String: String]) {
     let launch = Set(services.filter { $0.launchTime == true }.map(\.name))
     guard !launch.isEmpty else { return }
@@ -446,7 +464,9 @@ enum Runner {
     }
     do { try ensureCA(hosts: MitmProxy.knownHosts(services) + MitmProxy.guessedDomains(services)) } catch { fail(error.localizedDescription) }
     let appPort = (shipped ? nil : env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) }) ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
-    let upstreamProxy = UpstreamProxy.fromEnvironment(env0)
+    // Inside another kd (kd in an npm script run with kd), the outer kd's proxy isn't the user's own proxy.
+    let nested = env0["KEYDILLO_RUN"] == "1"
+    let upstreamProxy = nested ? nil : UpstreamProxy.fromEnvironment(env0)
     if let up = upstreamProxy {
       FileHandle.standardError.write(Data("keydillo run: also sending traffic through your proxy at \(up.host):\(up.port). Requests to other sites go through it as before. Requests keydillo signs go through the keydillo app, which uses your Mac's proxy settings; a debugging proxy there (Charles, Proxyman, mitmproxy) can see the real key.\n".utf8))
     }
@@ -480,10 +500,13 @@ enum Runner {
     for svc in services { for h in MitmProxy.hosts(of: svc) { hostMap[h, default: []].append(svc.name) } }
     env["KEYDILLO_RUN_MAP"] = String(decoding: (try? JSONSerialization.data(withJSONObject: hostMap)) ?? Data("{}".utf8), as: UTF8.self)
     env["KEYDILLO_RUN_PORT"] = String(appPort)
-    env["NODE_OPTIONS"] = ((env0["NODE_OPTIONS"].map { $0 + " " }) ?? "") + "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
+    let preload = "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
+    let nodeOptions = (env0["NODE_OPTIONS"] ?? "").replacingOccurrences(of: preload, with: "").trimmingCharacters(in: .whitespaces)
+    env["NODE_OPTIONS"] = (nodeOptions.isEmpty ? "" : nodeOptions + " ") + preload
     env["KEYDILLO_CA"] = runExtra.path
     env["PYTHONPATH"] = shims.path + (env0["PYTHONPATH"].map { ":" + $0 } ?? "")
 
+    setBaseURLs(services: services, env0: env0, into: &env)
     fillLaunchValues(services: services, env0: env0, shipped: shipped, into: &env)
     active = proxy
     return (proxy, env)
