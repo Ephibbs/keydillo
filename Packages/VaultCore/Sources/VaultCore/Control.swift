@@ -16,6 +16,21 @@ public enum ControlRequest: Codable, Equatable {
   case launchValues([String])
   /// Asks the user to approve a change to a key or project, shown in a window and approved with Touch ID.
   case requestChange(ChangeRequest)
+  /// `kd` keeps serving programs its command left running in the background (pm2, nohup, tmux) after it returns,
+  /// and tells the app so the Access page can list them and end their access. `ended` when they've all exited.
+  case backgroundRun(BackgroundRun)
+}
+
+public struct BackgroundRun: Codable, Equatable, Sendable {
+  public var pid: Int32
+  public var startTime: UInt64
+  public var command: String
+  public var programs: [String]
+  public var folder: String
+  public var ended: Bool
+  public init(pid: Int32, startTime: UInt64, command: String, programs: [String], folder: String, ended: Bool = false) {
+    self.pid = pid; self.startTime = startTime; self.command = command; self.programs = programs; self.folder = folder; self.ended = ended
+  }
 }
 
 public struct ChangeRequest: Codable, Equatable {

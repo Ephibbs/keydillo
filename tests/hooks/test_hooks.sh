@@ -38,9 +38,20 @@ DEV=~/Desktop/keydillo/App/build/Build/Products/Release/keydillo
 export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"x","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
 python3 -m http.server 18734 --bind 127.0.0.1 >/dev/null 2>&1 & HS=$!; sleep 1
 ok "kd: plain http:// to a non-local address works" '[[ $($DEV run -- curl -s -o /dev/null -w "%{http_code}" --max-time 8 http://0.0.0.0:18734/ 2>/dev/null) == 200 ]]'
+
+# 6b. A program the command leaves running in the background (nohup, pm2) keeps kd's proxy, and kd returns at once.
+start=$EPOCHSECONDS
+$DEV run -- sh -c "nohup sh -c 'sleep 3; curl -s -o /dev/null -w %{http_code} --max-time 8 http://0.0.0.0:18734/ > $T/bg.out' >/dev/null 2>&1 &" 2>$T/bg.err
+took=$(( EPOCHSECONDS - start ))
+ok "background: kd returns right away instead of waiting for the background program" '[[ $took -lt 3 ]]'
+ok "background: kd says the background program keeps its keys" '[[ $(cat $T/bg.err) == *"in the background"* ]]'
+for i in {1..20}; do [[ -s $T/bg.out ]] && break; sleep 0.5; done
+ok "background: after kd returned, the program still gets through kd's proxy" '[[ $(cat $T/bg.out 2>/dev/null) == 200 ]]'
+for i in {1..10}; do pgrep -f "__run-core" >/dev/null || break; sleep 0.5; done
+ok "background: the proxy process ends once the program exits" '! pgrep -f "__run-core" >/dev/null'
 kill $HS 2>/dev/null
 $DEV run -- sh -c 'curl -s -o /dev/null --max-time 8 https://example.com/; sleep 6' >/dev/null 2>&1 & KDP=$!; sleep 3
-RUNPID=$(pgrep -f "keydillo run -- sh -c curl" | head -1)
+RUNPID=$(pgrep -f "__run-core .* sh -c curl" | head -1)
 PORTS=($(lsof -nP -a -p $RUNPID -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1{split($9,a,":"); print a[2]}'))
 refused=1
 for p in $PORTS; do

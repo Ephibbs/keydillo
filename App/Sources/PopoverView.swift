@@ -76,8 +76,8 @@ struct PopoverView: View {
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
       }
 
-      if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
-        let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
+      if !model.activeGrants.isEmpty || !model.openProjects.isEmpty || !model.backgroundRuns.isEmpty {
+        let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count + model.backgroundRuns.count
         Button {
           StatusItem.shared?.close(); WindowManager.shared.showMain()
           NotificationCenter.default.post(name: .showAccess, object: nil)

@@ -34,7 +34,7 @@ if (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent } ?? ""
     exit(0)
   }
   if args.first == "--" { args.removeFirst() }
-  Runner.run(args)
+  Runner.launch(args)
 }
 guard let cmd = args.first else { print(usage); exit(0) }
 args.removeFirst()
@@ -82,7 +82,14 @@ case "env":
 
 case "run":
   if args.first == "--" { args.removeFirst() }
-  Runner.run(args)
+  Runner.launch(args)
+
+case "__run-core":
+  // Started by `kd`/`keydillo run`: runs the command behind the proxy and reports its exit status on a pipe.
+  guard let fdText = args.first, let fd = Int32(fdText) else { fail("internal: missing status pipe") }
+  args.removeFirst()
+  if args.first == "--" { args.removeFirst() }
+  Runner.run(args, statusFD: fd)
 
 case "hook":
   // Claude Code hooks. No argument: PreToolUse (steer direct calls to `kd`). post: explain a rejected placeholder.

@@ -61,6 +61,10 @@ enum Preview {
       AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
+    case "background":
+      AppModel.shared.backgroundRuns = [getpid(): BackgroundRun(pid: getpid(), startTime: ProcessLookup.startTime(of: getpid()), command: "pm2 start server.js", programs: ["PM2 v5.4.2: God Daemon"], folder: "/Users/you/Desktop/voiceover")]
+      wm.showMain()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .showAccess, object: nil) }
     case "access":
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .showAccess, object: nil) }
