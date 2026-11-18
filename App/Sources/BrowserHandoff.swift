@@ -85,10 +85,11 @@ final class BrowserHandoff: @unchecked Sendable {
     WindowManager.shared.show("handoff-\(s.id)", title: "Claude needs you", floating: true, onClose: { s.macDone = true }) {
       VStack(alignment: .leading, spacing: 12) {
         Text("Claude needs you in the browser").font(.system(size: 17, weight: .semibold))
-        Text(s.reason).font(.system(size: 14))
+        Text(s.reason).font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
         Text(phone ? "On \(site). Use the browser window here, or open keydillo on your iPhone. Claude can't see what you type."
                    : "On \(site). Use the browser window here. Claude can't see what you type.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          .fixedSize(horizontal: false, vertical: true)
         HStack {
           Button("Show browser") {
             NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").first?.activate()

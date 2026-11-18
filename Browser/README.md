@@ -11,6 +11,7 @@ It is [Playwright MCP](https://github.com/microsoft/playwright-mcp) (Microsoft, 
 - `fill_login { login }`: checks the page is on the login's saved site, asks for Touch ID, fills the username, password and 2FA code if one is saved, and submits.
 - `fill_new_password { login }`: for sign-ups. Generates a strong password, saves it after Touch ID, and types it into the new-password and confirm fields.
 - `start_key_capture`, then `save_new_key { name, host?, project? }`: Claude clicks "Create key" on a provider's site; every new value on the page is hidden from it; `save_new_key` saves the key as a normal keydillo key after Touch ID and returns the `.env` lines.
+- `hand_off_to_user { reason }`: for captchas, 2FA prompts, emailed codes and passkeys. keydillo shows a "Claude needs you" window on the Mac and, with a paired iPhone, streams the page to the phone, where taps and typing go back to the browser. Returns when the user taps Done. Claude never sees the stream or what was typed.
 - Every other Playwright MCP tool, filtered: passwords and keys show as `••••••••` / `[key hidden …abcd]`, and the network, console and run-code tools are removed.
 
 ## How it fits together
@@ -65,7 +66,10 @@ On a key page, everything already there is the baseline. Anything new that isn't
 | `browser_evaluate` works on other pages | By design |
 | A password or key drawn in an image or canvas, or transformed by the page, isn't caught by masking | Open (screenshots stay off on key pages) |
 | A key shown on a page that doesn't look like a key page, in no known format, before any "create key" click | Open: the exposure check catches it afterwards |
-| Captchas, passkeys, SSO pop-ups, and Google (blocks automated browsers) | Open: phone hand-off planned |
+| Captchas, 2FA, emailed codes: `hand_off_to_user` on the Mac or the paired iPhone (frames sealed to a per-session phone key, inputs signed and numbered, one Face ID per session) | Done; protocol tested (5 PhoneLink tests), tool tested end to end with a pretend phone, iPhone screen tested in the simulator over a folder. Not tested over CloudKit or on a device |
+| Hand-off live view is a downscaled desktop page with no zoom, about one frame a second over CloudKit | Open |
+| The hand-off reason is Claude's text, shown on the phone inside keydillo's own wording | Accepted |
+| Passkeys and Google sign-in (blocks automated browsers) | Open |
 | Real sites | Open: needs Evan's accounts |
 | App size: bundled Node adds about 105 MB (arm64 only for now) | Open |
 

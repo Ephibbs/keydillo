@@ -121,6 +121,8 @@ final class BrowserService {
 // MARK: Views
 
 struct LoginsView: View {
+  /// Screen previews only.
+  static var previewLogins: [LoginRecord]?
   @State private var logins: [LoginRecord] = []
   @State private var adding = false
 
@@ -164,7 +166,7 @@ struct LoginsView: View {
     .onAppear(perform: reload)
   }
 
-  func reload() { logins = BrowserService.shared.logins }
+  func reload() { logins = Self.previewLogins ?? BrowserService.shared.logins }
 }
 
 struct AddLoginView: View {
