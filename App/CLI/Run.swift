@@ -215,27 +215,54 @@ enum Runner {
     return (id as! SecIdentity)
   }
 
+  nonisolated(unsafe) static var exitWatch: DispatchSourceProcess?
+
+  /// Starts `command` (through /usr/bin/env, so PATH lookup works) with `env`, in this process group, with default
+  /// signal handling (kd itself ignores Ctrl-C, and the command must not inherit that).
+  static func spawn(_ command: [String], env: [String: String]) throws -> pid_t {
+    var attr: posix_spawnattr_t?
+    posix_spawnattr_init(&attr); defer { posix_spawnattr_destroy(&attr) }
+    var defaults = sigset_t(); sigemptyset(&defaults)
+    for s in [SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE, SIGTSTP, SIGTTIN, SIGTTOU] { sigaddset(&defaults, s) }
+    posix_spawnattr_setsigdefault(&attr, &defaults)
+    var mask = sigset_t(); sigemptyset(&mask)
+    posix_spawnattr_setsigmask(&attr, &mask)
+    posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+    let argv = (["/usr/bin/env"] + command).map { strdup($0) } + [nil]
+    let envp = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+    defer { argv.forEach { free($0) }; envp.forEach { free($0) } }
+    var pid: pid_t = 0
+    let rc = posix_spawn(&pid, "/usr/bin/env", nil, &attr, argv, envp)
+    guard rc == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(rc)) }
+    return pid
+  }
+
   static func run(_ command: [String]) -> Never {
     guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
     let (proxy, env) = prepare()
-    let child = Process()
-    child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    child.arguments = command
-    child.environment = env
-    child.terminationHandler = { p in
+    // The command runs in kd's own process group, attached to the terminal like any command: Ctrl-C reaches it, and it
+    // can read from the keyboard. (Foundation's Process puts children in a group of their own, where neither works.)
+    signal(SIGINT, SIG_IGN); signal(SIGQUIT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
+    let pid: pid_t
+    do { pid = try spawn(command, env: env) } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
+    let exitWatch = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
+    exitWatch.setEventHandler {
+      var ws: Int32 = 0
+      _ = waitpid(pid, &ws, 0)
+      let sig = ws & 0x7f
+      let status: Int32 = sig == 0 ? (ws >> 8) & 0xff : 128 + sig
       // Programs the command started in the background (daemons, nohup, pm2) keep their keys and network
       // until they exit too.
       proxy.scanDescendants()
-      let status = p.terminationStatus
       let wait = DispatchSource.makeTimerSource(queue: .main)
       wait.schedule(deadline: .now(), repeating: 2)
       wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
       wait.resume()
       Runner.keepAlive = wait
     }
-    signal(SIGINT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
-    do { try child.run() } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
-    proxy.childPid = child.processIdentifier
+    exitWatch.resume()
+    Runner.exitWatch = exitWatch
+    proxy.childPid = pid
     let scan = DispatchSource.makeTimerSource(queue: .global())
     scan.schedule(deadline: .now() + 1, repeating: 2)
     scan.setEventHandler { proxy.scanDescendants() }
