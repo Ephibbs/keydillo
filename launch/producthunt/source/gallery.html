@@ -1,0 +1,97 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#888;font-family:Inter,sans-serif;-webkit-font-smoothing:antialiased;color:#111}
+.s{width:1270px;height:760px;background:#fff;position:relative;overflow:hidden;margin-bottom:20px}
+.brand{position:absolute;left:64px;top:52px;display:flex;align-items:center;gap:12px;font-weight:600;font-size:22px;letter-spacing:-.01em}
+.brand .mk{height:15px;width:auto}
+h1{font-size:62px;line-height:1.06;letter-spacing:-.035em;font-weight:650}
+h2{font-size:40px;line-height:1.12;letter-spacing:-.03em;font-weight:620}
+.sub{color:#737373;font-size:22px;line-height:1.45}
+code,.mono{font-family:"JetBrains Mono",monospace}
+.card{background:#f5f5f5;border-radius:18px;padding:28px 32px;font:20px/1.9 "JetBrains Mono",monospace}
+.card .c{color:#9a9a9a}
+.card b{font-weight:600}
+.pill{display:inline-flex;align-items:center;height:40px;padding:0 18px;border-radius:999px;background:#f5f5f5;font-size:16px;font-weight:500}
+.top{position:absolute;left:64px;right:64px;top:110px}
+.foot{position:absolute;left:64px;bottom:48px;color:#737373;font-size:17px}
+/* 1 */
+#s1 .l{position:absolute;left:64px;top:190px;width:560px}
+#s1 .l .sub{margin-top:24px;max-width:500px}
+#s1 .r{position:absolute;left:676px;top:200px;width:530px}
+#s1 .run{margin-top:14px;background:#111;color:#f0f0f0;border-radius:14px;padding:18px 28px;font:20px "JetBrains Mono",monospace}
+#s1 .run span{color:#8f8f8f}
+#s1 .pills{position:absolute;left:64px;bottom:52px;display:flex;gap:10px}
+/* 2 */
+.flow{position:absolute;left:64px;right:64px;top:272px;display:grid;grid-template-columns:1fr 64px 1fr 64px 1fr;align-items:stretch}
+.box{border:1.5px solid #ebebeb;border-radius:18px;padding:26px 26px 28px;height:320px;display:flex;flex-direction:column}
+.box.k{background:#111;color:#f0f0f0;border-color:#111}
+.box h3{font-size:20px;font-weight:600;margin-bottom:6px}
+.box p{color:#737373;font-size:16px;line-height:1.45}
+.box.k p{color:#a3a3a3}
+.box h3{font-size:22px}.box p{font-size:17px}.box .v{margin-top:auto;background:#f5f5f5;border-radius:10px;padding:12px 14px;font:15px/1.5 "JetBrains Mono",monospace;white-space:nowrap}
+.box.k .v{background:#262626}
+.ar{display:grid;place-items:center;color:#b5b5b5;font-size:28px}
+.box .tid{margin-top:auto;display:flex;align-items:center;gap:12px;font-size:16px}
+.tid svg{width:34px;height:34px;color:#ff375f}
+/* 3,4 */
+.cap{position:absolute;left:64px;top:110px;width:1142px}
+.cap .sub{margin-top:12px}
+.shot{position:absolute;left:50%;transform:translateX(-50%)}
+#s3 .shot{top:236px;width:900px}
+#s4 .shot{top:232px;width:900px}
+/* 5 */
+.sec{position:absolute;left:64px;right:64px;top:220px;display:grid;grid-template-columns:1fr 1fr;column-gap:56px}
+.sec div{display:grid;grid-template-columns:32px 1fr;padding:22px 0;border-top:1px solid #ebebeb;font-size:20px;line-height:1.35}
+.sec i{font-style:normal;font-weight:700}
+.y i{color:#1e8e3e}.w i{color:#b26b00}.n i{color:#9a9a9a}
+.sec span{display:block;color:#737373;font-size:16px;margin-top:3px}
+</style></head><body>
+
+<div class="s" id="s1">
+<div class="brand"><svg class="mk" viewBox="4.5 49.5 94.5 20.0" aria-hidden="true"><mask id="a" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g fill="#000"><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#a)"/></svg>keydillo</div>
+<div class="l"><h1>Let AI use your keys without seeing them</h1>
+<p class="sub">A Mac menu-bar app. Your <code>.env</code> holds placeholders, the real keys stay in the Keychain behind Touch ID.</p></div>
+<div class="r"><div class="card"><span class="c"># .env</span><br>OPENAI_API_KEY=<b>keydillo:openai</b><br>ANTHROPIC_API_KEY=<b>keydillo:anthropic</b><br>STRIPE_SECRET_KEY=<b>keydillo:stripe</b></div>
+<div class="run"><span>$</span> kd npm run dev</div></div>
+<div class="pills"><span class="pill">Free and MIT licensed</span><span class="pill">Local, no account</span><span class="pill">No telemetry</span></div>
+</div>
+
+<div class="s" id="s2">
+<div class="brand"><svg class="mk" viewBox="4.5 49.5 94.5 20.0" aria-hidden="true"><mask id="b" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g fill="#000"><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#b)"/></svg>keydillo</div>
+<div class="top"><h2>The real key is added on the way out</h2><p class="sub" style="margin-top:12px">Put <code>kd</code> in front of a command. keydillo swaps the placeholder only for that key's own host.</p></div>
+<div class="flow">
+<div class="box"><h3>Your program</h3><p>Claude, Cursor or your app only ever has the placeholder.</p><div class="v">Bearer keydillo:openai</div></div>
+<div class="ar">→</div>
+<div class="box k"><h3>keydillo on your Mac</h3><p>Checks the host, asks for Touch ID, adds the key from the Keychain.</p><div class="tid"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10.5 20v-7a1.5 1.5 0 0 1 3 0v4"/><path d="M7.5 18.5V13a4.5 4.5 0 0 1 9 0v2.5"/><path d="M16.5 18.5v-.5"/><path d="M4.5 15v-2a7.5 7.5 0 0 1 15 0v3"/><path d="M13.5 20.5v-.5"/><path d="M6.2 6.6A7.5 7.5 0 0 0 4.6 9"/><path d="M8.5 4.9A7.5 7.5 0 0 1 17.8 6.6"/></svg>Once per session by default</div></div>
+<div class="ar">→</div>
+<div class="box"><h3>api.openai.com</h3><p>Gets the real key. Any other host would need a new Touch ID.</p><div class="v">Bearer sk-proj-••••••••</div></div>
+</div>
+</div>
+
+<div class="s" id="s3">
+<div class="brand"><svg class="mk" viewBox="4.5 49.5 94.5 20.0" aria-hidden="true"><mask id="c" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g fill="#000"><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#c)"/></svg>keydillo</div>
+<div class="cap"><h2>Works inside Claude Code</h2><p class="sub">Claude puts <code>kd</code> in front for you. Cursor and Codex work with <code>kd</code> too.</p></div>
+<img class="shot" src="frame-touchid.png">
+</div>
+
+<div class="s" id="s4">
+<div class="brand"><svg class="mk" viewBox="4.5 49.5 94.5 20.0" aria-hidden="true"><mask id="d" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g fill="#000"><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#d)"/></svg>keydillo</div>
+<div class="cap"><h2>Every key in one place, by project</h2><p class="sub">See where each key is sent and when it was last used.</p></div>
+<img class="shot" src="app-main.png">
+</div>
+
+<div class="s" id="s5">
+<div class="brand"><svg class="mk" viewBox="4.5 49.5 94.5 20.0" aria-hidden="true"><mask id="e" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g fill="#000"><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#e)"/></svg>keydillo</div>
+<div class="top"><h2>What it protects, and what it doesn't</h2></div>
+<div class="sec">
+<div class="y"><i>✓</i><p>AI agents never see your real API keys<span>The .env only holds placeholders.</span></p></div>
+<div class="w"><i>!</i><p>Launch-time keys aren't fully hidden<span>Database URLs and JWT secrets reach the program you start.</span></p></div>
+<div class="y"><i>✓</i><p>Committing .env leaks nothing<span>Only the placeholder is in the file.</span></p></div>
+<div class="w"><i>!</i><p>Go and Rust clients need a base URL<span>They ignore kd's certificate, so call localhost:7787 instead.</span></p></div>
+<div class="y"><i>✓</i><p>Keys only go to their own host<span>A new host needs your Touch ID.</span></p></div>
+<div class="n"><i>✕</i><p>An approved session can still use a key<span>keydillo guards the key, not what is done with it.</span></p></div>
+<div class="y"><i>✓</i><p>Other apps can't read your keys<span>Private Keychain group, behind Touch ID.</span></p></div>
+<div class="n"><i>✕</i><p>Copies from before you installed it<span>Old .env files, shell and git history. Rotate those keys.</span></p></div>
+</div>
+</div>
+</body></html>
