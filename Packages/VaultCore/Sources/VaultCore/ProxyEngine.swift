@@ -481,8 +481,8 @@ public struct PlaceholderSubstitution {
   var regex: NSRegularExpression {
     let name = NSRegularExpression.escapedPattern(for: service)
     // An optional key-format prefix like "sk-" or "sk_test_" belongs to the placeholder; "bot" in "/botkeydillo:x" doesn't.
-    let hint = NSRegularExpression.escapedPattern(for: Placeholder.hint)
-    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?:(?::|%3A|%3a)\(hint))?(?![A-Za-z0-9\\-])")
+    // The tail after the name (old or new hint, zero padding) is part of the placeholder too.
+    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?:(?::|%3A|%3a)(?:0+-)?(?:run-with-kd|start-with-keydillo-run))?(?![A-Za-z0-9\\-])")
   }
 
   public func apply(_ s: String, urlEncoded: Bool) -> String {
@@ -493,10 +493,17 @@ public struct PlaceholderSubstitution {
 
   public func apply(_ body: Data) -> Data {
     guard body.range(of: Data("keydillo".utf8)) != nil, let text = String(data: body, encoding: .utf8) else {
-      // Not UTF-8 (binary upload): swap exact byte runs only.
+      // Not UTF-8 (binary upload): swap each "keydillo:<name>" and the tail that belongs to it (":0…-run-with-kd").
       var out = body
-      for needle in [Placeholder.value(for: service), Placeholder.prefix + service].map({ Data($0.utf8) }) {
-        while let r = out.range(of: needle) { out.replaceSubrange(r, with: Data(value.utf8)) }
+      let needle = Data((Placeholder.prefix + service).utf8)
+      let nameChars = Set("abcdefghijklmnopqrstuvwxyz0123456789-".utf8), tailChars = nameChars.union([UInt8(ascii: ":")])
+      var from = out.startIndex
+      while let r = out.range(of: needle, in: from..<out.endIndex) {
+        var end = r.upperBound
+        if end < out.endIndex, nameChars.contains(out[end]) { from = end; continue }   // a longer name, not this one
+        if end < out.endIndex, out[end] == UInt8(ascii: ":") { while end < out.endIndex, tailChars.contains(out[end]) { end += 1 } }
+        out.replaceSubrange(r.lowerBound..<end, with: Data(value.utf8))
+        from = out.index(r.lowerBound, offsetBy: value.utf8.count)
       }
       return out
     }
