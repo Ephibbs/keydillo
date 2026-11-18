@@ -132,5 +132,29 @@ export KEYDILLO_TEST_SERVICES='[{"name":"jwt-secret","displayName":"JWT","projec
 ok "launch-time: kd run from a monorepo root says which package .env it can't fill" '[[ $(cd $T/root2 && $DEV run -- true 2>&1) == *"apps/web/.env has launch-time key JWT_SECRET"* ]]'
 unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
 
+# 15. kd behaves like the command in a terminal: Ctrl-C stops it and it can read the keyboard.
+cat > $T/ctrlc.exp <<'EXP'
+set timeout 10
+set env(KEYDILLO_TEST_APP_PORT) 1
+set env(KEYDILLO_TEST_SERVICES) {[]}
+set start [clock seconds]
+spawn [lindex $argv 0] run -- sleep 30
+sleep 1
+send "\003"
+expect eof
+puts "took [expr [clock seconds] - $start]"
+EXP
+cat > $T/stdin.exp <<'EXP'
+set timeout 8
+set env(KEYDILLO_TEST_APP_PORT) 1
+set env(KEYDILLO_TEST_SERVICES) {[]}
+spawn [lindex $argv 0] run -- sh -c "read x; echo got:\$x"
+sleep 1
+send "hello\r"
+expect eof
+EXP
+ok "terminal: Ctrl-C stops the command kd runs" '[[ $(expect $T/ctrlc.exp $DEV 2>&1 | tail -1) == *"took "[1-3] ]]'
+ok "terminal: the command kd runs can read the keyboard" '[[ $(expect $T/stdin.exp $DEV 2>&1) == *"got:hello"* ]]'
+
 print "\n$pass passed, $fail failed"
 exit $fail
