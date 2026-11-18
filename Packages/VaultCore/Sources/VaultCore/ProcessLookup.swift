@@ -180,7 +180,7 @@ public enum ProcessLookup {
     return false
   }
 
-  static func name(of pid: Int32) -> String {
+  public static func name(of pid: Int32) -> String {
     var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
     if proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 {
       return URL(fileURLWithPath: String(cString: buf)).lastPathComponent
@@ -197,7 +197,11 @@ public enum ProcessLookup {
     return r == Int32(MemoryLayout<proc_bsdinfo>.size) ? info : nil
   }
 
-  static func parentPid(of pid: Int32) -> Int32 { Int32(bsdInfo(pid)?.pbi_ppid ?? 0) }
+  /// Process group. A background job a shell script starts (`cmd &`, `nohup cmd &`) stays in the script's group even
+  /// after the script exits, and other programs can't join a group in another session.
+  public static func processGroup(of pid: Int32) -> Int32 { Int32(bsdInfo(pid)?.pbi_pgid ?? 0) }
+
+  public static func parentPid(of pid: Int32) -> Int32 { Int32(bsdInfo(pid)?.pbi_ppid ?? 0) }
   /// Every process id on the Mac.
   public static func allPids() -> [Int32] {
     let n = proc_listallpids(nil, 0)
@@ -282,7 +286,7 @@ public extension ProcessLookup {
   }
 
   /// True when `pid` runs keydillo's own command-line binary, signed by the same team as this process.
-  static func isKeydilloBinary(_ pid: Int32) -> Bool {
+  public static func isKeydilloBinary(_ pid: Int32) -> Bool {
     guard pid > 0, path(of: pid).hasSuffix("/bin/keydillo") else { return false }
     guard let mine = signingTeam(nil) else { return false }
     return signingTeam(pid) == mine
@@ -296,6 +300,7 @@ public extension ProcessLookup {
     // kd [--why "…"] <command> / keydillo run [--why "…"] [--] <command>
     var rest = args
     if rest.first == "run" { rest.removeFirst() }
+    if rest.first == "__run-core" { rest.removeFirst(min(2, rest.count)) }   // kd's proxy process: __run-core <fd> -- <command>
     rest = splitWhy(rest).rest
     if rest.first == "--" { rest.removeFirst() }
     guard let cmd = rest.first, !cmd.hasPrefix("-") else { return nil }

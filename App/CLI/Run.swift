@@ -188,6 +188,13 @@ enum Runner {
     }
   }
 
+  /// The proxy process outlives `kd` for background programs: stop writing to the terminal and ignore its hangup.
+  static func detachFromTerminal() {
+    signal(SIGHUP, SIG_IGN)
+    let null = open("/dev/null", O_RDWR)
+    if null >= 0 { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null) }
+  }
+
   static func cleanup() { try? FileManager.default.removeItem(at: runDir) }
 
   /// Leaf certificate for `host`, signed by the CA, loaded in memory only.
@@ -254,7 +261,38 @@ enum Runner {
     return pid
   }
 
-  static func run(_ command: [String]) -> Never {
+  /// What `kd` runs: starts the proxy process (`__run-core`), which runs the command, and returns as soon as the
+  /// command exits, with its status. If the command left programs running in the background, the proxy process stays
+  /// behind for them (it's not tied to this terminal), so the shell isn't held up.
+  static func launch(_ command: [String]) -> Never {
+    guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
+    var fds: [Int32] = [0, 0]
+    guard pipe(&fds) == 0 else { fail("couldn't start: \(String(cString: strerror(errno)))") }
+    let me = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let argv = ["keydillo", "__run-core", String(fds[1]), "--"] + command
+    var actions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&actions)
+    posix_spawn_file_actions_addclose(&actions, fds[0])
+    var pid: pid_t = 0
+    let cargs = argv.map { strdup($0) } + [nil]
+    let rc = posix_spawn(&pid, me, &actions, nil, cargs, environ)
+    cargs.forEach { free($0) }
+    posix_spawn_file_actions_destroy(&actions)
+    close(fds[1])
+    guard rc == 0 else { fail("couldn't start: \(String(cString: strerror(rc)))") }
+    // Ctrl-C reaches the command itself (same process group); we just wait for its status.
+    signal(SIGINT, SIG_IGN)
+    signal(SIGTERM) { _ in exit(143) }
+    var status: Int32 = 0
+    let n = read(fds[0], &status, MemoryLayout<Int32>.size)
+    if n == MemoryLayout<Int32>.size { exit(status) }
+    // The proxy process ended without reporting (it failed early): use its own exit status.
+    var ws: Int32 = 0
+    if waitpid(pid, &ws, 0) == pid, (ws & 0x7f) == 0 { exit((ws >> 8) & 0xff) }
+    exit(1)
+  }
+
+  static func run(_ command: [String], statusFD: Int32 = -1) -> Never {
     guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
     let (proxy, env) = prepare()
     // The command runs in kd's own process group, attached to the terminal like any command: Ctrl-C reaches it, and it
@@ -271,9 +309,32 @@ enum Runner {
       // Programs the command started in the background (daemons, nohup, pm2) keep their keys and network
       // until they exit too.
       proxy.scanDescendants()
+      guard statusFD >= 0 else {
+        let wait = DispatchSource.makeTimerSource(queue: .main)
+        wait.schedule(deadline: .now(), repeating: 2)
+        wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
+        wait.resume()
+        Runner.keepAlive = wait
+        return
+      }
+      // Give kd its status right away, so the terminal is free again.
+      var s = status; _ = write(statusFD, &s, MemoryLayout<Int32>.size); close(statusFD)
+      guard proxy.anyKnownAlive else { cleanup(); exit(status) }
+      // Programs left running in the background keep their keys until they exit, or until the user ends it in keydillo.
+      let names = proxy.knownNames()
+      FileHandle.standardError.write(Data("kd: keys stay available to \(names.joined(separator: ", ")) in the background until \(names.count == 1 ? "it exits" : "they exit"). End it on keydillo's Access page.\n".utf8))
+      Runner.detachFromTerminal()
+      let me = BackgroundRun(pid: getpid(), startTime: ProcessLookup.startTime(of: getpid()), command: command.joined(separator: " "),
+                             programs: names, folder: FileManager.default.currentDirectoryPath)
+      _ = try? ControlSocket.send(.backgroundRun(me))
       let wait = DispatchSource.makeTimerSource(queue: .main)
-      wait.schedule(deadline: .now(), repeating: 2)
-      wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
+      wait.schedule(deadline: .now() + 2, repeating: 2)
+      wait.setEventHandler {
+        guard !proxy.anyKnownAlive else { return }
+        var done = me; done.ended = true
+        _ = try? ControlSocket.send(.backgroundRun(done))
+        cleanup(); exit(status)
+      }
       wait.resume()
       Runner.keepAlive = wait
     }
@@ -282,7 +343,7 @@ enum Runner {
     forwardSignals(to: pid)
     proxy.childPid = pid
     let scan = DispatchSource.makeTimerSource(queue: .global())
-    scan.schedule(deadline: .now() + 1, repeating: 2)
+    scan.schedule(deadline: .now() + 0.3, repeating: 0.5)
     scan.setEventHandler { proxy.scanDescendants() }
     scan.resume()
     Runner.scanner = scan
@@ -557,8 +618,18 @@ final class MitmProxy: @unchecked Sendable {
   /// (daemons, nohup, pm2), and the proxy stays up while any of them is alive.
   var known: [Int32: UInt64] = [:]
 
+  /// This run's process group (the job the terminal gave kd) and when it started.
+  let runGroup = getpgrp()
+  let runStart = ProcessLookup.startTime(of: getpid())
+
+  /// True for a process in kd's own job (same process group) that started after kd: a background program the command
+  /// left behind (`nohup cmd &`) whose parent has already exited.
+  func inRunGroup(_ pid: Int32) -> Bool {
+    pid != getpid() && runGroup > 1 && ProcessLookup.processGroup(of: pid) == runGroup && ProcessLookup.startTime(of: pid) >= runStart
+  }
+
   func allowed(_ pid: Int32) -> Bool {
-    if ProcessLookup.isDescendant(pid, of: childPid) { remember(pid); return true }
+    if ProcessLookup.isDescendant(pid, of: childPid) || inRunGroup(pid) { remember(pid); return true }
     lock.lock(); let ks = known; lock.unlock()
     for (k, start) in ks where ProcessLookup.startTime(of: k) == start && ProcessLookup.isDescendant(pid, of: k) { remember(pid); return true }
     return false
@@ -571,7 +642,16 @@ final class MitmProxy: @unchecked Sendable {
 
   /// Records every current descendant of the command, so ones that later detach keep working.
   func scanDescendants() {
-    for pid in ProcessLookup.allPids() where pid != childPid && ProcessLookup.isDescendant(pid, of: childPid) { remember(pid) }
+    for pid in ProcessLookup.allPids() where pid != childPid && (ProcessLookup.isDescendant(pid, of: childPid) || inRunGroup(pid)) { remember(pid) }
+  }
+
+  /// Names of the background programs still running (for the Access page and kd's note).
+  func knownNames() -> [String] {
+    lock.lock(); let ks = known; lock.unlock()
+    let alive = ks.filter { ProcessLookup.startTime(of: $0.key) == $0.value }.map(\.key)
+    // Show the top of each tree: a program whose parent is another listed program is part of it.
+    let tops = alive.filter { !alive.contains(ProcessLookup.parentPid(of: $0)) }
+    return Array(Set(tops.map { ProcessLookup.name(of: $0) })).sorted()
   }
 
   var anyKnownAlive: Bool {

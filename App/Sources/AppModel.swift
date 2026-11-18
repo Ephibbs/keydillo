@@ -442,7 +442,26 @@ final class AppModel {
 
   func endAccess(session: String) async { await engine.gate.revoke(session: session); await refreshGrants() }
 
+  /// `kd` runs whose command left programs running in the background (pm2, nohup, tmux), keyed by kd's proxy pid.
+  var backgroundRuns: [Int32: BackgroundRun] = [:]
+
+  /// Drops background runs whose proxy process has gone.
+  func pruneBackgroundRuns() {
+    for (pid, r) in backgroundRuns where ProcessLookup.startTime(of: pid) != r.startTime { backgroundRuns[pid] = nil }
+  }
+
+  /// Stops a background run's proxy, so the programs it served lose their keys.
+  func endBackgroundRun(_ pid: Int32) {
+    guard let r = backgroundRuns[pid] else { return }
+    // Only signal keydillo's own proxy process, and only the one that registered (not a reused pid).
+    if ProcessLookup.startTime(of: pid) == r.startTime, ProcessLookup.isKeydilloBinary(pid) { kill(pid, SIGTERM) }
+    backgroundRuns[pid] = nil
+    events.insert(ActivityEvent(date: Date(), service: "keydillo", method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: "ended background access for \(r.programs.joined(separator: ", "))"), at: 0)
+  }
+
   func endAllAccess() async {
+    for pid in backgroundRuns.keys { endBackgroundRun(pid) }
     await engine.gate.revokeAll()
     unlocks.closeAll()
     await refreshGrants(); refreshOpenProjects()
@@ -709,6 +728,11 @@ final class AppModel {
                                     outcome: .sent, status: 0, note: "given to the program as it started"), at: 0)
       }
       return .values(out)
+    case .backgroundRun(let r):
+      // Believed only from keydillo's own signed binary, about itself.
+      guard caller.pid == r.pid, ProcessLookup.isKeydilloBinary(caller.pid) else { return .error("not allowed") }
+      if r.ended { backgroundRuns[r.pid] = nil } else { backgroundRuns[r.pid] = r }
+      return .changed("ok")
     case .requestChange(let r):
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't change keys yet.") }
       let who = caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : "an unidentified program")

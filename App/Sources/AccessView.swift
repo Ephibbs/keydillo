@@ -34,14 +34,14 @@ struct AccessView: View {
       HStack {
         Text("Access").font(.system(size: 22, weight: .semibold))
         Spacer()
-        if !programs.isEmpty || !model.openProjects.isEmpty {
+        if !programs.isEmpty || !model.openProjects.isEmpty || !model.backgroundRuns.isEmpty {
           Button("End all") { Task { await model.endAllAccess() } }.buttonStyle(SmallButtonStyle(destructive: true))
         }
       }
       Text("Programs and projects that can use keys right now without a new Touch ID prompt. Ending one makes it ask again.")
         .font(.system(size: 13)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
 
-      if programs.isEmpty && model.openProjects.isEmpty {
+      if programs.isEmpty && model.openProjects.isEmpty && model.backgroundRuns.isEmpty {
         Text("Nothing has access right now. Every key will ask before it's used.")
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.top, 8)
       }
@@ -50,6 +50,16 @@ struct AccessView: View {
           ForEach(programs) { p in
             row(title: p.name, detail: (p.purpose.map { "“\($0)” · " } ?? "") + p.keys.joined(separator: ", ") + (p.expires.map { " · until \($0.formatted(date: .omitted, time: .shortened))" } ?? " · until it quits")) {
               Task { await model.endAccess(session: p.id) }
+            }
+          }
+        }
+      }
+      if !model.backgroundRuns.isEmpty {
+        section("Background programs started with kd") {
+          ForEach(model.backgroundRuns.values.sorted { $0.pid < $1.pid }, id: \.pid) { r in
+            row(title: r.programs.joined(separator: ", "),
+                detail: "From kd \(r.command) in \((r.folder as NSString).abbreviatingWithTildeInPath) · until \(r.programs.count == 1 ? "it exits" : "they exit")") {
+              model.endBackgroundRun(r.pid)
             }
           }
         }
@@ -68,7 +78,7 @@ struct AccessView: View {
     .padding(.horizontal, 32).padding(.top, 34).padding(.bottom, 24)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
-      while !Task.isCancelled { await model.refreshGrants(); model.refreshOpenProjects(); try? await Task.sleep(for: .seconds(5)) }
+      while !Task.isCancelled { await model.refreshGrants(); model.refreshOpenProjects(); model.pruneBackgroundRuns(); try? await Task.sleep(for: .seconds(5)) }
     }
   }
 
