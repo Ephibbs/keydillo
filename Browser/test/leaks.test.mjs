@@ -185,6 +185,15 @@ test('page script copies the password into a fetch: request is stopped', async (
   assert.ok(site.posts.slice(n).some((p) => p.path === '/session'), 'real sign-in should still go through');
 });
 
+test('page script sends the password over a WebSocket: stopped', async () => {
+  await call('browser_navigate', { url: `${base}/login-ws` });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(site.wsMessages.includes('hello'), 'ordinary WebSocket traffic should pass');
+  await call('fill_login', { login: 'demo' });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!site.wsMessages.some((m) => m.includes('Hunter2')), 'password went out over the WebSocket');
+});
+
 test('javascript: navigation is blocked', async () => {
   const r = await call('browser_navigate', { url: 'javascript:alert(1)' });
   assert.ok(r.isError);

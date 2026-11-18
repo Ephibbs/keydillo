@@ -181,8 +181,26 @@ export class Guard {
    * password into a fetch. Any request carrying a filled password, in its URL or body, is aborted unless
    * it goes to an endpoint the user approved for that login.
    */
+  carriesPassword(text) {
+    return [...this.passwords].some((p) => variants(p).some((v) => text.includes(v)));
+  }
+
   async install(context) {
     await context.addInitScript(CLIPBOARD_BLOCK);
+    // WebSockets too: a page script could send the password over one instead of a request.
+    await context.routeWebSocket(() => true, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => {
+        const t = typeof m === 'string' ? m : Buffer.from(m).toString('latin1');
+        if (this.passwords.size && this.carriesPassword(t)) {
+          this.blocked.push(ws.url());
+          ws.close({ code: 1008, reason: 'blocked by keydillo' });
+          return;
+        }
+        server.send(m);
+      });
+      server.onMessage((m) => ws.send(m));
+    });
     await context.route('**/*', async (route) => {
       const req = route.request();
       if (isWebStore(req.url())) return route.abort('blockedbyclient');

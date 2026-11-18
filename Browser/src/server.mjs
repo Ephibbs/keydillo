@@ -63,6 +63,9 @@ async function getContext() {
     viewport: null,
     acceptDownloads: false, // no key files (AWS-style .csv) land on disk
     args: ['--disable-extensions', '--disable-features=PasswordManagerOnboarding,AutofillServerCommunication'],
+    // Playwright tells Chrome to use a mock keychain, which leaves the profile's cookies effectively unencrypted on
+    // disk. When the app runs the tool for real, let Chrome encrypt them with its own Keychain item instead.
+    ...(appMode && !flag('--headless') ? { ignoreDefaultArgs: ['--use-mock-keychain'] } : {}),
   });
   context.on('close', () => { context = undefined; });
   await guard.install(context);
