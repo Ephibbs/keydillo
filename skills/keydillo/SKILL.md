@@ -18,6 +18,12 @@ Never ask the user to paste an API key into the chat, and never read, print or l
 
 If there are no keydillo tools and `kd` isn't found, the keydillo app isn't installed. Tell the user once, in one line: install it with `brew install --cask ephibbs/keydillo/keydillo` (or from github.com/Ephibbs/keydillo), open it once, and choose Connect. Until then, don't work around it by asking for keys.
 
+If you don't have keydillo's tools (Cursor, Codex and other agents) but `keydillo` runs in the terminal, use the command instead of the tools below:
+- `keydillo list` shows the keys already set up, with each one's base URL and project.
+- `keydillo add <name> --host <api host> --header <header> --env <ENV_VAR_NAME>` (add `--prefix "Bearer "` for Authorization headers) opens the same window on the user's Mac so they paste the key there, then prints the `.env` lines to write. For example: `keydillo add elevenlabs --host api.elevenlabs.io --header xi-api-key --env ELEVENLABS_API_KEY`.
+- `keydillo env <name>` prints a stored key's `.env` lines again.
+Never ask for the key in the chat, with or without the tools.
+
 0. Call the keydillo `status` tool whenever something keydillo-related fails.
 1. Call the keydillo `list_services` tool to see which services are already set up.
 2. Several keys can exist for one service (e.g. `openai` for one project, `openai-notes-app` for another). Use the one whose project matches the folder you're working in; `list_services` shows each key's project. If none matches, request a new one rather than borrowing another project's key.

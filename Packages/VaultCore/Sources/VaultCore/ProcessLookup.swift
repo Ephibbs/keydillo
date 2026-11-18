@@ -34,13 +34,13 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
     return "\(pid)|\(startTime)"
   }
 
-  /// True when the agent is Claude Code as signed by Anthropic (set by `describe`).
+  /// True when the agent's code signature matches its maker (set by `describe`): Claude Code by Anthropic, Cursor by Anysphere.
   public var agentVerified = false
 
   /// What the approval prompt calls the caller. "Claude Code" only when Anthropic's signature checks out;
   /// anything else is shown by its file name, so a program can't borrow a trusted name by renaming itself.
   public var friendlyName: String {
-    if agentVerified { return "Claude Code" }
+    if agentVerified { return ProcessLookup.verifiedName(agent) ?? "Claude Code" }
     if let agent { return "\(agent) (unverified)" }
     // A program named like an AI tool (e.g. a file called "Claude Code") is tagged too.
     let squashed = name.lowercased().replacingOccurrences(of: " ", with: "")
@@ -111,8 +111,8 @@ public enum ProcessLookup {
       if parent <= 1 || parent == cur { break }
       cur = parent
     }
-    if let a = p.agentPid, (p.agent ?? "").lowercased().hasPrefix("claude") {
-      p.agentVerified = signingTeam(a) == anthropicTeam
+    if let a = p.agentPid, let team = verifiedTeam(p.agent) {
+      p.agentVerified = signingTeam(a) == team
     }
     // Requests that come through keydillo's own proxy (`kd`, or a Claude Code session's routing) arrive from the
     // keydillo command, not the program that made them. Name the program it serves, after checking it really is
@@ -196,6 +196,19 @@ import Security
 public extension ProcessLookup {
   /// Anthropic's Apple team ID, which signs Claude Code.
   static let anthropicTeam = "Q6L2SF6YDW"
+  /// Apple developer teams that sign each agent we name without "(unverified)".
+  static let agentTeams: [(prefix: String, team: String, name: String)] = [
+    ("claude", anthropicTeam, "Claude Code"),
+    ("cursor", "VDXQ22DGB9", "Cursor"),   // Anysphere, Inc.
+  ]
+  static func verifiedTeam(_ agent: String?) -> String? {
+    guard let a = agent?.lowercased() else { return nil }
+    return agentTeams.first { a.hasPrefix($0.prefix) }?.team
+  }
+  public static func verifiedName(_ agent: String?) -> String? {
+    guard let a = agent?.lowercased() else { return nil }
+    return agentTeams.first { a.hasPrefix($0.prefix) }?.name
+  }
 
   /// The command line of `pid`.
   static func arguments(of pid: Int32) -> [String] {

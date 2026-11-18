@@ -513,6 +513,16 @@ final class CallerNameTests: XCTestCase {
     XCTAssertEqual(verified.friendlyName, "Claude Code")
     XCTAssertEqual(ClientProcess(pid: 1, name: "python3").friendlyName, "python3")
   }
+
+  func testCursorIsNamedOnlyWhenItsSignatureChecksOut() {
+    var cursor = ClientProcess(pid: 1, name: "keydillo", agent: "Cursor", agentPid: 2)
+    XCTAssertEqual(cursor.friendlyName, "Cursor (unverified)")
+    cursor.agentVerified = true
+    XCTAssertEqual(cursor.friendlyName, "Cursor")
+    XCTAssertEqual(ProcessLookup.verifiedTeam("Cursor"), "VDXQ22DGB9")
+    XCTAssertNil(ProcessLookup.verifiedTeam("codex"))
+    XCTAssertEqual(ClientProcess(pid: 1, name: "keydillo", agent: "codex", agentPid: 2).friendlyName, "codex (unverified)")
+  }
 }
 
 final class MCPTests: XCTestCase {
