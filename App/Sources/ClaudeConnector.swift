@@ -27,7 +27,7 @@ enum ClaudeConnector {
 
   /// Other AI tools with keydillo's skill installed for every project (`npx skills add -g`).
   static var otherAgentsWithSkill: [String] {
-    [(".cursor/skills/keydillo/SKILL.md", "Cursor"), (".codex/skills/keydillo/SKILL.md", "Codex")]
+    [(".cursor/skills/keydillo/SKILL.md", "Cursor")]
       .filter { FileManager.default.fileExists(atPath: home.appendingPathComponent($0.0).path) }.map(\.1)
   }
 
