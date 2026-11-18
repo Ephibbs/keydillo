@@ -41,8 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     term.resume()
     AppDelegate.termSource = term
     // Opened by hand while the keep-alive agent is on: let launchd run keydillo so crashes are restarted.
+    // If launchd can't start it (say the agent was registered by a copy that has since moved), run here instead.
     if !preview && !Handover.underLaunchd && MainActor.assumeIsolated({ AppModel.agent.status == .enabled }) {
-      Handover.toLaunchd(); exit(0)
+      if Handover.toLaunchd() { exit(0) }
+      Handover.repair()
     }
     MainActor.assumeIsolated {
       AppModel.shared.noteUncleanExit()
@@ -67,11 +69,30 @@ enum Handover {
   static let label = "com.studiokillswitch.keydillo.agent"
   static var underLaunchd: Bool { ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == label }
 
-  /// Asks launchd to (re)start the keep-alive copy of keydillo.
-  static func toLaunchd() {
+  /// Asks launchd to (re)start the keep-alive copy of keydillo, and waits up to 5 s for it to come up.
+  /// Returns false if it didn't: the caller should keep running rather than quit and leave nothing open.
+  @discardableResult
+  static func toLaunchd() -> Bool {
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
     p.arguments = ["kickstart", "gui/\(getuid())/\(label)"]
-    try? p.run()
+    guard (try? p.run()) != nil else { return false }
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else { return false }
+    let me = getpid(), id = Bundle.main.bundleIdentifier ?? ""
+    for _ in 0..<50 {
+      if NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != me }) { return true }
+      Thread.sleep(forTimeInterval: 0.1)
+    }
+    return false
+  }
+
+  /// Registers the keep-alive agent again from this copy, so the next login starts the app where it is now.
+  /// The copy launchd starts right away sees this one running and quits.
+  static func repair() {
+    Task { @MainActor in
+      try? await AppModel.agent.unregister()
+      try? AppModel.agent.register()
+    }
   }
 }
