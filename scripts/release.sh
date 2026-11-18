@@ -26,4 +26,19 @@ xcrun notarytool submit $OUT/keydillo.zip --keychain-profile keydillo-notary --w
 xcrun stapler staple "$APP"
 rm $OUT/keydillo.zip && ditto -c -k --keepParent "$APP" $OUT/keydillo.zip
 spctl -a -vv "$APP"
-echo "Done: $OUT/keydillo.zip"
+
+# The drag-to-Applications disk image (needs `brew install create-dmg`; it lays out the window through Finder).
+command -v create-dmg >/dev/null || { echo "Install create-dmg: brew install create-dmg"; exit 1; }
+BG=$OUT/dmg-background; mkdir -p $BG
+swift ../scripts/dmg-background.swift $BG >/dev/null
+tiffutil -cathidpicheck $BG/background.png $BG/background@2x.png -out $BG/background.tiff >/dev/null
+mkdir -p $OUT/dmg-src && ditto "$APP" $OUT/dmg-src/keydillo.app
+create-dmg --volname "keydillo" --background $BG/background.tiff --window-pos 200 120 --window-size 660 422 \
+  --icon-size 128 --text-size 13 --icon "keydillo.app" 180 185 --hide-extension "keydillo.app" \
+  --app-drop-link 480 185 --no-internet-enable $OUT/keydillo.dmg $OUT/dmg-src >/dev/null
+rm -rf $OUT/dmg-src $BG
+codesign --force --timestamp --sign "$ID" $OUT/keydillo.dmg
+xcrun notarytool submit $OUT/keydillo.dmg --keychain-profile keydillo-notary --wait
+xcrun stapler staple $OUT/keydillo.dmg
+spctl -a -vv -t open --context context:primary-signature $OUT/keydillo.dmg
+echo "Done: $OUT/keydillo.zip and $OUT/keydillo.dmg"
