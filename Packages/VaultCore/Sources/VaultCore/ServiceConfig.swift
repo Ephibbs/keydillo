@@ -66,6 +66,9 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// For JWT, session and encryption secrets: the random, development-only value written into .env in place of the
   /// real one (not a secret). The real value stays in the Keychain for deploys.
   public var devValue: String?
+  /// A Postgres connection string: programs connect to keydillo on this Mac instead, and keydillo logs in to the
+  /// real database with this value (the password never reaches the program).
+  public var database: Bool?
   public var isLaunchTime: Bool { launchTime == true }
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?

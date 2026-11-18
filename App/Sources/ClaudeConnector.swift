@@ -236,6 +236,7 @@ enum ClaudeConnector {
   4. Call the API through the local base URL keydillo returns, e.g. `http://localhost:7787/elevenlabs/v1/...`. keydillo adds the key and the user approves with Touch ID.
   5. In code, read the base URL from an env var such as `ELEVENLABS_BASE_URL` and fall back to the real host when it's unset, so production works with a real key set in the host's settings.
   5a. JWT, session and encryption secrets in `.env` may hold a development-only value that keydillo wrote (the real one is kept for deploys). That's normal for local work: use it as is, and never copy it into production settings.
+  5c. A Postgres `DATABASE_URL` (or similar) may point at keydillo on this Mac, like `postgresql://database-url@127.0.0.1:7788/app?sslmode=disable`. That's normal: keydillo logs in to the real database, so programs never see the password. Use it as is, with or without `kd`. If the connection is refused, keydillo isn't running: tell the user in one line. Never ask for the real database URL.
   5b. Some placeholders are launch-time keys (database URLs, JWT and signing secrets): `kd` puts the real value in the program's environment when it starts. Never print, echo or log environment variables in a keydillo project, and never write code that does.
   6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly must be started with `kd <command>`; tell the user to do the same in their own Terminal.
 

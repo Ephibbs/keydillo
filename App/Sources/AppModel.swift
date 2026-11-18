@@ -394,7 +394,7 @@ final class AppModel {
     let paths = ImportModel.trackedFiles
     var managed: [String: Set<String>] = [:]
     // Dev values are meant to sit in .env in plain text, so they never count as real keys coming back.
-    for s in services where s.devValue == nil { if let f = s.folder { managed[f, default: []].insert(s.envVarName) } }
+    for s in services where s.devValue == nil && s.database != true { if let f = s.folder { managed[f, default: []].insert(s.envVarName) } }
     let found = await Task.detached { ImportModel.filesWithRealKeys(paths, managed: managed) }.value
     if found != realKeyFiles { realKeyFiles = found }
   }
@@ -427,6 +427,39 @@ final class AppModel {
     srv.onStateChange = { [weak self] s in Task { @MainActor in self?.proxyState = s } }
     server = srv
     do { try srv.start(); paused = false } catch { proxyState = "failed: \(error.localizedDescription)" }
+    startDatabaseProxy()
+  }
+
+  /// keydillo's local Postgres endpoint, one port above the HTTP proxy.
+  var databasePort: UInt16 { port &+ 1 }
+  var databaseProxy: PostgresProxy?
+
+  /// Marks a launch-time Postgres key as connecting through keydillo, and swaps its placeholder in the project's
+  /// env files for the local address (only lines holding this key's placeholder).
+  func switchToDatabaseProxy(_ svc: ServiceConfig, local: String) {
+    var s = svc; s.database = true
+    try? addImported([s])
+    var files = Set(ImportModel.trackedFiles)
+    if let f = svc.folder { for p in ImportScanner.envFiles(in: f, maxDepth: 2) { files.insert(p) } }
+    for path in files {
+      guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+      var changed = false
+      let lines = text.components(separatedBy: "\n").map { line -> String in
+        guard let eq = line.firstIndex(of: "="), Placeholder.service(in: String(line[line.index(after: eq)...])) == svc.name else { return line }
+        changed = true
+        return String(line[...eq]) + local
+      }
+      if changed { try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8) }
+    }
+  }
+
+  func startDatabaseProxy() {
+    databaseProxy?.stop()
+    guard let engine else { return }
+    let db = PostgresProxy(port: databasePort) { name, database, caller in
+      await engine.databaseLogin(name, database: database, client: caller)
+    }
+    do { try db.start(); databaseProxy = db } catch { databaseProxy = nil }
   }
 
   func movePort(to p: UInt16) {
@@ -723,7 +756,18 @@ final class AppModel {
       for svc in keys {
         let name = svc.name
         guard let d = try? keychain.secret(for: name, context: ctx) else { continue }
-        out[name] = String(decoding: d, as: UTF8.self)
+        let value = String(decoding: d, as: UTF8.self)
+        // Postgres URLs move to keydillo's local endpoint the first time they're used, so the password stops
+        // reaching the program from then on.
+        if svc.database != true, let target = PostgresURL.parse(value) {
+          let local = PostgresURL.local(service: name, target: target, port: databasePort)
+          switchToDatabaseProxy(svc, local: local)
+          out[name] = local
+          events.insert(ActivityEvent(date: Date(), service: name, method: "START", path: command, process: caller.displayName, pid: caller.pid,
+                                      outcome: .sent, status: 0, note: "now connects through keydillo; the program no longer sees the password"), at: 0)
+          continue
+        }
+        out[name] = value
         events.insert(ActivityEvent(date: Date(), service: name, method: "START", path: command, process: caller.displayName, pid: caller.pid,
                                     outcome: .sent, status: 0, note: "given to the program as it started"), at: 0)
       }

@@ -579,6 +579,31 @@ final class DevValueTests: XCTestCase {
   }
 }
 
+final class PostgresProxyTests: XCTestCase {
+  func testLocalURLKeepsDatabaseAndProgramOptionsButNoSecrets() {
+    let t = PostgresURL.parse("postgresql://postgres.abcd:FAKEpass%21@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&connection_limit=1")!
+    XCTAssertEqual(t.host, "aws-0-us-east-1.pooler.supabase.com"); XCTAssertEqual(t.port, 6543)
+    XCTAssertEqual(t.user, "postgres.abcd"); XCTAssertEqual(t.password, "FAKEpass!"); XCTAssertEqual(t.sslmode, "require")
+    let local = PostgresURL.local(service: "database-url", target: t, port: 7788)
+    XCTAssertEqual(local, "postgresql://database-url@127.0.0.1:7788/postgres?pgbouncer=true&connection_limit=1&sslmode=disable")
+    XCTAssertFalse(local.contains("FAKEpass")); XCTAssertFalse(local.contains("supabase"))
+    XCTAssertTrue(PostgresURL.isLocal(local, port: 7788))
+    XCTAssertFalse(PostgresURL.isLocal("postgres://u:p@db.example.com:5432/x", port: 7788))
+    XCTAssertNil(PostgresURL.parse("mysql://u:p@h/db"))
+    XCTAssertEqual(PostgresURL.parse("postgres://u@h/db")?.sslmode, "prefer")
+  }
+
+  func testSCRAMMatchesTheRFCExample() {
+    // RFC 7677, section 3 (with SHA-256).
+    let s = SCRAM(password: "pencil", user: "user", nonce: "rOprNGfwEbeRWgbNEkqO")
+    XCTAssertEqual(s.clientFirst, "n,,n=user,r=rOprNGfwEbeRWgbNEkqO")
+    let final = s.clientFinal(serverFirst: "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+    XCTAssertEqual(final, "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=")
+    XCTAssertTrue(s.verify(serverFinal: "v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="))
+    XCTAssertFalse(s.verify(serverFinal: "v=AAAATRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
