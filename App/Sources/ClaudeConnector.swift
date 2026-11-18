@@ -23,8 +23,30 @@ enum ClaudeConnector {
     return plugins.keys.contains("keydillo@keydillo")
   }
 
+  enum Status: Equatable { case connected, needsReconnecting, notConnected }
+
+  /// Whether Claude Code is set up to use this copy of keydillo: the plugin, or Connect's skill, hooks and MCP server
+  /// all pointing at this app.
+  static var status: Status {
+    if pluginInstalled { return .connected }
+    guard FileManager.default.fileExists(atPath: skillURL.path) else { return .notConnected }
+    if ShellIntegration.isTranslocated { return .needsReconnecting }
+    let hooksOK: Bool = {
+      guard let d = try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
+            let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+            let hooks = root["hooks"] as? [String: Any] else { return false }
+      let ours = ["PreToolUse", "PostToolUse"].flatMap { (hooks[$0] as? [[String: Any]] ?? []).filter(isOurs) }
+      let commands = ours.flatMap { ($0["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String } }
+      return commands.count >= 2 && commands.allSatisfy { $0.contains(cliPath) }
+    }()
+    return hooksOK && registeredMCPCommand == cliPath ? .connected : .needsReconnecting
+  }
+
   /// Returns an error message, or nil on success.
   static func connect() async -> String? {
+    // A copy opened straight from Downloads or the disk image runs from a temporary path that disappears; Claude Code
+    // would keep pointing at it.
+    if ShellIntegration.isTranslocated { return "Move keydillo to your Applications folder, open it from there, then choose Connect." }
     if pluginInstalled { disconnect(); return nil }   // the plugin already brings the skill, tools and hook
     do {
       try registerMCP()
@@ -64,25 +86,39 @@ enum ClaudeConnector {
 
   /// Keeps an installed skill current with this version of keydillo.
   static func refreshSkillIfInstalled() {
+    if ShellIntegration.isTranslocated { return }   // never write a temporary path into Claude Code's settings
     if pluginInstalled {   // avoid running two copies of the skill, tools and hook
       if FileManager.default.fileExists(atPath: skillURL.path) { disconnect() }
       return
     }
     guard let current = try? String(contentsOf: skillURL, encoding: .utf8) else { return }
     if current != skill { try? skill.write(to: skillURL, atomically: true, encoding: .utf8) }
-    try? installHook()   // connected users get the hook and newer settings too
+    try? installHook()   // connected users get the hook and newer settings too, pointing at this copy of the app
+    // Earlier versions could register a temporary path (a copy run from Downloads); point the MCP server here again.
+    if registeredMCPCommand.map({ $0 != cliPath }) ?? false { try? registerMCP() }
   }
 
-  static var hookCommand: String { "'\(cliPath)' hook" }
+  /// Runs keydillo's hook only while the app is installed, so removing keydillo (drag to Trash, brew uninstall) never
+  /// leaves Claude Code with a failing hook on every command.
+  static var hookCommand: String { "if [ -x '\(cliPath)' ]; then exec '\(cliPath)' hook; fi" }
+
+  /// The command Claude Code runs for keydillo's MCP server, from ~/.claude.json.
+  static var registeredMCPCommand: String? {
+    guard let d = try? Data(contentsOf: home.appendingPathComponent(".claude.json")),
+          let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+          let servers = root["mcpServers"] as? [String: Any], let kd = servers["keydillo"] as? [String: Any] else { return nil }
+    return kd["command"] as? String
+  }
 
   /// keydillo's hook commands, by Claude Code event.
   static var hookEntries: [(event: String, matcher: String?, command: String)] {
-    [("PreToolUse", "Bash|WebFetch", hookCommand), ("PostToolUse", "Bash", hookCommand + " post")]
+    [("PreToolUse", "Bash|WebFetch", hookCommand), ("PostToolUse", "Bash", "if [ -x '\(cliPath)' ]; then exec '\(cliPath)' hook post; fi")]
   }
   static func isOurs(_ entry: [String: Any]) -> Bool {
     ((entry["hooks"] as? [[String: Any]]) ?? []).contains { h in
       guard let c = h["command"] as? String, c.contains("keydillo") else { return false }
       return c.hasSuffix(" hook") || c.hasSuffix(" hook session-start") || c.hasSuffix(" hook post")
+        || c.hasSuffix(" hook; fi") || c.hasSuffix(" hook post; fi")
     }
   }
 

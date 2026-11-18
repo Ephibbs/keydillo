@@ -75,6 +75,7 @@ struct PopoverView: View {
         Text(model.services.isEmpty ? "No keys yet." : "\(model.services.count) key\(model.services.count == 1 ? "" : "s") in keydillo. Nothing has access right now.")
           .font(.system(size: 13)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 12)
       }
+      claudeStatusLine
 
       if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
         let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
@@ -106,6 +107,43 @@ struct PopoverView: View {
     .background(Theme.background)
     .foregroundStyle(Theme.text)
     .task { await model.refreshGrants() }
+  }
+
+  @State private var claudeStatus = ClaudeConnector.status
+  @State private var reconnecting = false
+  @State private var reconnectNote: String?
+
+  /// Whether Claude Code is set up to use this copy of keydillo, with a one-click fix when it isn't.
+  @ViewBuilder var claudeStatusLine: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      switch claudeStatus {
+      case .connected:
+        HStack(spacing: 6) { StatusDot(on: true); Text("Claude Code connected") }
+          .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      case .needsReconnecting, .notConnected:
+        Button {
+          reconnecting = true
+          Task {
+            reconnectNote = await ClaudeConnector.connect()
+            claudeStatus = ClaudeConnector.status
+            reconnecting = false
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Text(claudeStatus == .notConnected ? "Claude Code not connected ·" : "⚠︎ Claude Code needs reconnecting ·")
+              .foregroundStyle(claudeStatus == .notConnected ? Theme.secondary : Theme.danger)
+            Text(reconnecting ? "Connecting…" : (claudeStatus == .notConnected ? "Connect" : "Reconnect")).underline()
+          }
+          .font(.system(size: 12))
+        }
+        .buttonStyle(.plain).disabled(reconnecting)
+      }
+      if let reconnectNote {
+        Text(reconnectNote).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(.horizontal, 16).padding(.bottom, 10)
+    .onAppear { claudeStatus = ClaudeConnector.status }
   }
 
   /// The card shrinks to one line when hidden, until the set of files changes. It never goes away while real keys remain.

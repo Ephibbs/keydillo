@@ -22,6 +22,10 @@ ok "pre: npm install doesn't" '[[ $(pre "npm install" $T/proj) == *"exit=0"* ]]'
 ok "pre: git and cat don't" '[[ $(pre "git status && cat .env" $T/proj) == *"exit=0"* ]]'
 ok "pre: a path into a project counts" '[[ $(pre "python3 $T/proj/sub/run.py" $T/other) == *"exit=2"* ]]'
 ok "pre: outside projects nothing is stopped" '[[ $(pre "python3 x.py" $T/other) == *"exit=0"* ]]'
+# The hook command Connect writes: runs keydillo only while it's installed, and keeps its "stop" exit code.
+wrapped() { print -r -- "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$1\"},\"cwd\":\"$2\"}" | sh -c "if [ -x '$3' ]; then exec '$3' hook; fi" 2>&1; print "exit=$?" }
+ok "hook command: still stops a command when keydillo is installed" '[[ $(wrapped "python3 sub/run.py" $T/proj "$B") == *"exit=2"* ]]'
+ok "hook command: silent and harmless once keydillo is uninstalled" '[[ $(wrapped "python3 sub/run.py" $T/proj /nonexistent/keydillo) == "exit=0" ]]'
 
 # 5. Post-command check: real providers don't echo the key, so it looks at the command, folder and error.
 postc() { python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]},"cwd":sys.argv[2],"tool_response":{"stdout":sys.argv[3],"stderr":""}}))' "$1" "$2" "$3" | "$B" hook post }
@@ -155,6 +159,14 @@ expect eof
 EXP
 ok "terminal: Ctrl-C stops the command kd runs" '[[ $(expect $T/ctrlc.exp $DEV 2>&1 | tail -1) == *"took "[1-3] ]]'
 ok "terminal: the command kd runs can read the keyboard" '[[ $(expect $T/stdin.exp $DEV 2>&1) == *"got:hello"* ]]'
+
+# 17. A signal sent to kd itself reaches the command, and kd exits with the command's status.
+export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[]'
+$DEV run -- sh -c 'trap "exit 42" TERM; sleep 30 & wait' & K=$!; sleep 2; kill -TERM $K; wait $K; st=$?
+ok "signals: SIGTERM to kd stops the command and kd returns its status" '[[ $st == 42 ]] && ! pgrep -f "sleep 30" >/dev/null'
+$DEV run -- sh -c 'sleep 31' & K=$!; sleep 2; kill -HUP $K; wait $K; st=$?
+ok "signals: SIGHUP to kd (terminal closed) stops the command" '[[ $st == 129 ]] && ! pgrep -f "sleep 31" >/dev/null'
+unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
 
 print "\n$pass passed, $fail failed"
 exit $fail
