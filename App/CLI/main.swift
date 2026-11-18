@@ -22,6 +22,11 @@ keydillo: let AI tools use your API keys without seeing them.
   keydillo run -- <command>             Run a command; placeholder keys it sends to their API are swapped for the real key
   kd <command>                          Short for keydillo run -- <command>
   keydillo mcp                          Run as an MCP server (used by Claude Code)
+  keydillo browser-mcp                  keydillo's browser as an MCP server: Claude signs in, signs up and creates
+                                        API keys without seeing passwords or keys
+  keydillo login list                   Saved website logins (no passwords)
+  keydillo login add [name] [--site S] [--username U]
+                                        Opens keydillo so you can type a website login
 
 There is no command to print a key. Use the Readout in the app.
 """
@@ -47,6 +52,34 @@ switch cmd {
 case "mcp":
   let parent = ProcessLookup.describe(getppid())
   MCPServer(requester: parent.agent ?? parent.name).run()
+
+case "browser-mcp":
+  switch send(.startBrowser) {
+  case .browser(let sock): BrowserRelay.run(socket: sock)
+  case .error(let m): fail(m)
+  default: fail("unexpected reply")
+  }
+
+case "login":
+  let sub = args.first ?? "list"
+  if !args.isEmpty { args.removeFirst() }
+  switch sub {
+  case "list":
+    guard case .logins(let list) = send(.listLogins) else { fail("unexpected reply") }
+    if list.isEmpty { print("No website logins yet. Add one with: keydillo login add") }
+    for l in list { print("\(l.name)\t\(l.site)\t\(l.username)\(l.hasTotp ? "\t2FA" : "")") }
+  case "add":
+    if args.contains(where: { $0 == "--password" }) { fail("passwords are never passed on the command line. Type it in the window that opens.") }
+    let name = args.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
+    print("Opening keydillo. Type the login there.")
+    switch send(.addLogin(AddLoginRequest(name: name, site: flag(args, "site"), username: flag(args, "username"), requester: "keydillo CLI"))) {
+    case .changed: print("Saved.")
+    case .declined: fail("cancelled")
+    case .error(let m): fail(m)
+    default: fail("unexpected reply")
+    }
+  default: fail("usage: keydillo login list | keydillo login add [name] [--site S] [--username U]")
+  }
 
 case "list":
   guard case .services(let list) = send(.listServices) else { fail("unexpected reply") }

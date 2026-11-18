@@ -483,13 +483,22 @@ final class AppModel {
     let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw VaultError.invalidConfig("Paste the key first") }
     guard await authenticate("save your \(config.displayName) key") != nil else { return false }
+    try saveApproved(config, secret: trimmed)
+    return true
+  }
+
+  /// Stores a key the user already approved with Touch ID (the browser tool's captured keys ask in the broker).
+  func saveApproved(_ config: ServiceConfig, secret: String) throws {
+    guard storageSecure else { throw VaultError.invalidConfig(Self.insecureMessage) }
+    try config.validate()
+    let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { throw VaultError.invalidConfig("empty key") }
     try keychain.setSecret(Data(trimmed.utf8), for: config.name, label: config.displayName)
     // A rotated key must not keep using the old value held in memory for an open project.
     if let old = service(named: config.name) { unlocks.close(old.project) }
     unlocks.close(config.project)
     try persist(services.filter { $0.name != config.name } + [config])
     clearRejected(config.name)
-    return true
   }
 
   /// Rule edits that change where a key can go need Touch ID too.
@@ -727,6 +736,17 @@ final class AppModel {
         WindowManager.shared.show(wid, title: proposal.title, floating: true, onClose: { finish(.declined) }) {
           ChangeWindow(proposal: proposal) { finish($0) }.sheetCard()
         }
+      }
+    case .startBrowser:
+      do { return .browser(socket: try BrowserService.shared.start()) } catch { return .error(error.localizedDescription) }
+    case .listLogins:
+      return .logins(BrowserService.shared.logins.map(LoginSummary.init))
+    case .addLogin(var r):
+      guard storageSecure else { return .error(Self.insecureMessage) }
+      r.requester = caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : nil)
+      let req = r
+      return await withCheckedContinuation { cont in
+        WindowManager.shared.showAddLogin(prefill: req) { ok in cont.resume(returning: ok ? .changed("Saved. Call list_logins to see it.") : .declined) }
       }
     case .requestSecret(let r):
       guard servicesLoaded else { return .error("The Mac is locked, so keydillo can't read or add keys yet. Tell the user and retry after they unlock.") }
