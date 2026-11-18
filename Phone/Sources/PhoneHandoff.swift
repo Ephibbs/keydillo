@@ -75,7 +75,7 @@ struct HandoffSection: View {
           Text(h.title).font(.headline)
           Text(URL(string: h.url)?.host ?? h.url).font(.subheadline).foregroundStyle(.secondary)
           Button { Task { await handoffs.join(h) } } label: { Text("Open browser").frame(maxWidth: .infinity) }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PillButton(primary: true))
         }
         .padding(.vertical, 6)
       }
@@ -96,11 +96,12 @@ struct HandoffSessionView: View {
             let fit = fitted(handoffs.frameSize, in: geo.size)
             Image(uiImage: img).resizable().scaledToFit()
               .frame(width: fit.width, height: fit.height)
-              .position(x: geo.size.width / 2, y: geo.size.height / 2)
               .contentShape(Rectangle())
+              // Before .position, so the tap is measured in the image's own space.
               .onTapGesture(coordinateSpace: .local) { p in
                 handoffs.send(.tap, x: min(max(p.x / fit.width, 0), 1), y: min(max(p.y / fit.height, 0), 1))
               }
+              .position(x: geo.size.width / 2, y: geo.size.height / 2)
           }
         } else {
           Spacer()
