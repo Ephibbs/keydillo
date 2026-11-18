@@ -63,6 +63,9 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var launchTime: Bool?
   /// The user chose this folder in keydillo (with Touch ID), so it counts as the project's folder even without a keydillo .env.
   public var folderChosen: Bool?
+  /// For JWT, session and encryption secrets: the random, development-only value written into .env in place of the
+  /// real one (not a secret). The real value stays in the Keychain for deploys.
+  public var devValue: String?
   public var isLaunchTime: Bool { launchTime == true }
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?

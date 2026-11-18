@@ -544,6 +544,41 @@ final class SelfExplainingPlaceholderTests: XCTestCase {
   }
 }
 
+final class DevValueTests: XCTestCase {
+  func testWhichSecretsGetDevValues() {
+    for n in ["JWT_SECRET", "NEXTAUTH_SECRET", "AUTH_SECRET", "SESSION_SECRET", "COOKIE_SECRET", "ENCRYPTION_KEY", "CRON_SECRET", "SECRET_KEY_BASE"] {
+      XCTAssertTrue(ImportScanner.devValueCapable(name: n, value: "FAKE0123456789abcdef0123456789ab"), n)
+    }
+    XCTAssertTrue(ImportScanner.devValueCapable(name: "APP_KEY", value: "base64:RkFLRTAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWI="))
+    XCTAssertFalse(ImportScanner.devValueCapable(name: "APP_KEY", value: "FAKEsomeVendorAppKey0123456789"), "another service's app key")
+    for (n, v) in [("STRIPE_WEBHOOK_SECRET", "whsec_FAKE0123456789abcdef"), ("DATABASE_URL", "postgres://u:p@h/db"), ("DB_PASSWORD", "FAKEpass0123456789"),
+                   ("AWS_SECRET_ACCESS_KEY", "FAKE0123456789abcdef0123"), ("OPENAI_API_KEY", "sk-proj-FAKE0123456789abcdef"), ("JWT_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----")] {
+      XCTAssertFalse(ImportScanner.devValueCapable(name: n, value: v), n)
+    }
+  }
+
+  func testDevValuesKeepTheShapeOfTheOriginal() {
+    let hex = ImportScanner.makeDevValue(like: String(repeating: "a1", count: 32))
+    XCTAssertEqual(hex.count, 64); XCTAssertTrue(hex.allSatisfy { $0.isHexDigit })
+    let laravel = ImportScanner.makeDevValue(like: "base64:" + Data(repeating: 7, count: 32).base64EncodedString())
+    XCTAssertTrue(laravel.hasPrefix("base64:")); XCTAssertEqual(Data(base64Encoded: String(laravel.dropFirst(7)))?.count, 32)
+    let short = ImportScanner.makeDevValue(like: "abc")
+    XCTAssertEqual(short.count, 32, "at least 32 characters")
+    XCTAssertNotEqual(ImportScanner.makeDevValue(like: "x"), ImportScanner.makeDevValue(like: "x"), "random each time")
+  }
+
+  func testRewriteWritesTheDevValueInPlainText() {
+    let out = ImportScanner.rewrite("JWT_SECRET=FAKErealSecret0123456789abcdef\nOPENAI_API_KEY=sk-proj-FAKE0123456789abcdef\n",
+      replacements: ["JWT_SECRET": (service: "jwt-secret", baseURL: nil, baseURLEnvName: nil),
+                     "OPENAI_API_KEY": (service: "openai", baseURL: "http://localhost:7787/openai/v1", baseURLEnvName: "OPENAI_BASE_URL")],
+      devValues: ["JWT_SECRET": "devOnlyValue0123456789abcdefghij"])
+    XCTAssertTrue(out.contains("JWT_SECRET=devOnlyValue0123456789abcdefghij"))
+    XCTAssertFalse(out.contains("FAKErealSecret"))
+    XCTAssertFalse(out.contains("JWT_SECRET=keydillo:"))
+    XCTAssertTrue(ImportScanner.keysBack(out, file: "/p/.env", managed: ["OPENAI_API_KEY"]).isEmpty)
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")

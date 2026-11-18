@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Finds API keys in .env files so they can be moved into keydillo.
 public enum ImportScanner {
@@ -189,11 +190,44 @@ public enum ImportScanner {
         || (value.hasPrefix("eyJ") && value.count > 200 && (Data(base64Encoded: value).flatMap { String(data: $0, encoding: .utf8) }?.contains("private_key") ?? false)) {
       return "a credentials file your app signs with"
     }
+    // Rails' SECRET_KEY_BASE and Laravel's APP_KEY (always "base64:…") sign and encrypt the app's own data.
+    if n.contains("SECRET_KEY_BASE") || (n == "APP_KEY" && value.hasPrefix("base64:")) { return "used by your app itself" }
     if ["JWT", "NEXTAUTH", "AUTH_SECRET", "SESSION", "COOKIE", "CSRF", "ENCRYPTION", "ENCRYPT", "CRON", "PASSWORD", "PASSWD",
         "PASSPHRASE", "SALT", "PRIVATE_KEY", "MASTER_KEY", "SERVICE_ACCOUNT", "DATABASE_URL", "DB_"].contains(where: { n.contains($0) }) {
       return "used by your app itself"
     }
     return nil
+  }
+
+  /// App secrets that only need to be consistent within one environment (JWT, session, cookie, CSRF, encryption,
+  /// cron secrets), so local development can use its own random value. Not webhook or signing secrets (they must
+  /// match the sender's), passwords, database URLs, private keys or credentials files.
+  public static func devValueCapable(name: String, value: String) -> Bool {
+    guard localUse(name: name, value: value) == "used by your app itself" else { return false }
+    let n = name.uppercased()
+    if ["PASSWORD", "PASSWD", "PASSPHRASE", "PRIVATE_KEY", "MASTER_KEY", "SERVICE_ACCOUNT", "DATABASE_URL", "DB_"].contains(where: { n.contains($0) }) { return false }
+    if value.contains("://") || value.contains("\n") || value.hasPrefix("-----") { return false }
+    return ["JWT", "NEXTAUTH", "AUTH_SECRET", "SESSION", "COOKIE", "CSRF", "ENCRYPTION", "ENCRYPT", "CRON", "SECRET_KEY_BASE", "APP_KEY"]
+      .contains { n.contains($0) }
+  }
+
+  /// A random value shaped like `original`: same "base64:" prefix and encoding (hex or base64) and the same length,
+  /// at least 32 characters, so apps that check a secret's format or length keep working.
+  public static func makeDevValue(like original: String) -> String {
+    var head = "", body = original
+    if body.hasPrefix("base64:") { head = "base64:"; body = String(body.dropFirst(7)) }
+    let length = max(32, body.count)
+    let isHex = !body.isEmpty && body.allSatisfy { $0.isHexDigit }
+    let alphabet = Array(isHex ? "0123456789abcdef" : (head.isEmpty ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                                                                   : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"))
+    if !head.isEmpty, let decoded = Data(base64Encoded: body) {
+      var bytes = [UInt8](repeating: 0, count: max(32, decoded.count))
+      _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+      return head + Data(bytes).base64EncodedString()
+    }
+    var bytes = [UInt8](repeating: 0, count: length)
+    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    return String(bytes.map { alphabet[Int($0) % alphabet.count] })
   }
 
   /// "sk-proj-abc…" → "sk-proj-", "sk_live_x" → "sk_live_", "xai-…" → "xai-". Letters-only segments, at most two.
@@ -330,13 +364,19 @@ public enum ImportScanner {
 
   /// Replaces imported values with placeholders and adds base-URL lines. Returns the new file text.
   public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787,
-                             prefixes: [String: String] = [:], lengths: [String: Int] = [:], launchNames: Set<String> = []) -> String {
+                             prefixes: [String: String] = [:], lengths: [String: Int] = [:], launchNames: Set<String> = [],
+                             devValues: [String: String] = [:]) -> String {
     var lines = text.components(separatedBy: "\n")
     if !lines.contains(headerStart) { lines = header(port: port) + lines }
     var added: [String] = []
     for (i, raw) in lines.enumerated() {
       guard let (name, _) = assignment(raw), let r = replacements[name] else { continue }
       let exported = raw.trimmingCharacters(in: .whitespaces).hasPrefix("export ")
+      if let dev = devValues[name] {
+        // A development-only value, written as is: nothing to fill in, no base URL.
+        lines[i] = (exported ? "export " : "") + "\(name)=\(envValueText(dev))"
+        continue
+      }
       // As long as the original key (minus the kept prefix), so length checks at startup still pass.
       let length = max(0, (lengths[name] ?? 0) - (prefixes[name] ?? "").count)
       let placeholder = launchNames.contains(name) ? Placeholder.launchValue(for: r.service) : Placeholder.value(for: r.service, length: length)

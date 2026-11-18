@@ -78,7 +78,7 @@ struct ImportView: View {
         Color.clear.onAppear { UIProbe.set("import-list-height", g.size.height) }
           .onChange(of: g.size.height) { _, h in UIProbe.set("import-list-height", h) }
       })
-      Text("Keys marked \"not fully hidden\" (database URLs, JWT and signing secrets) are unticked: kd gives them to the app when it starts, and the running program can see them. Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, put kd in front: kd npm run dev. Files tracked by git will show the change in your next commit.")
+      Text("JWT, session and encryption secrets get a dev-only value in .env, and the real one stays in keydillo for deploys. Keys marked \"not fully hidden\" (database URLs, passwords, webhook and signing secrets) are unticked: kd gives them to the app when it starts, and the running program can see them. Settings like PORT and public keys (publishable, anon, NEXT_PUBLIC_…) are left alone. After importing, restart running dev servers so they read the new values. If an app reads a key directly, put kd in front: kd npm run dev. Files tracked by git will show the change in your next commit.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
@@ -110,9 +110,22 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.isPublic)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
+          if ImportScanner.devValueCapable(name: k.name, value: k.value) {
+            // JWT, session and encryption secrets: a dev-only value by default, or keep the real one if the app needs it.
+            Menu {
+              Button("Dev value in .env (recommended)") { im.keepReal.remove(k.id) }
+              Button("Keep the current value (kd gives it to the app)") { im.keepReal.insert(k.id) }
+            } label: {
+              Text(im.usesDevValue(k) ? "Dev value in .env" : "Not fully hidden: kd gives it to the app")
+                .font(.system(size: 12)).foregroundStyle(im.usesDevValue(k) ? Theme.secondary : Theme.danger)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help("Dev value: .env gets a new random value for local use, and the real one stays in keydillo for deploys. Keep the current value if your app shares this secret with production, such as a shared database or auth service, or data you already encrypted locally.")
+          } else {
           Text(k.inFrontend ? "In frontend code: anyone can read it" : (k.localOnly != nil ? "Not fully hidden: kd gives it to the app" : (k.isPublic ? "Public, left as is" : (k.service?.displayName ?? "Site set on first use"))))
             .font(.system(size: 12)).foregroundStyle(k.localOnly != nil || k.inFrontend ? Theme.danger : Theme.secondary).lineLimit(1)
             .help(k.inFrontend ? ImportScanner.frontendNote(k.name) : (k.localOnly != nil ? "Used by your app itself (\(k.localOnly!)). kd gives it to the program when it starts, after Touch ID each time. Anything started with kd in this project can read it." : ""))
+          }
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
         .onAppear { UIProbe.add("import-rows", 1) }
