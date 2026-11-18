@@ -49,6 +49,7 @@ enum Preview {
     case "readout":
       wm.showReadout(project: "voiceover", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
+    case "pairphone": wm.show("pair", title: "Pair iPhone") { PairPhoneView {} }
     case "restore": wm.showRestore()
     case "project":
       wm.showMain()

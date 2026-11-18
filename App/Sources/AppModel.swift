@@ -484,6 +484,7 @@ final class AppModel {
     guard !trimmed.isEmpty else { throw VaultError.invalidConfig("Paste the key first") }
     guard await authenticate("save your \(config.displayName) key") != nil else { return false }
     try keychain.setSecret(Data(trimmed.utf8), for: config.name, label: config.displayName)
+    if PhoneApprovals.shared.ready, !config.isLaunchTime { try? PhoneApprovals.shared.storeCopy(config.name, Data(trimmed.utf8)) }
     // A rotated key must not keep using the old value held in memory for an open project.
     if let old = service(named: config.name) { unlocks.close(old.project) }
     unlocks.close(config.project)
@@ -923,16 +924,50 @@ final class ModelApprover: Approver, @unchecked Sendable {
         return .approved(ctx)
       } catch { return .denied }
     }
-    if Self.screenLocked { return .unavailable("the Mac is locked") }
+    // A paired iPhone gets the request too (and is the only way to answer while the Mac is locked).
+    let phone = PhoneApprovals.shared
+    let copy = phone.ready ? phone.copy(of: request.service) : nil
+    let mode = await MainActor.run { model?.service(named: request.service)?.approval ?? .eachRequest }
+    if Self.screenLocked {
+      guard let copy else { return .unavailable("the Mac is locked") }
+      switch await phone.ask(request, wrapped: copy, mac: nil, cancelMac: {}) {
+      case .phone(.approved(let value)):
+        guard let value else { return .denied }
+        phone.hold(request.service, value, approval: mode)
+        return .approved(nil)
+      case .phone(.denied): return .denied
+      default: return .unavailable("the Mac is locked and the paired iPhone didn't answer")
+      }
+    }
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Deny"
     let project = await MainActor.run { model?.service(named: request.service)?.project ?? "" }
     let pending = PendingApproval(request: request, context: ctx, project: project)
     await MainActor.run { model?.showPending(pending) }
     defer { Task { @MainActor in model?.clearPending(pending.id) } }
+    if let copy {
+      let reason = request.reason
+      let result = await phone.ask(request, wrapped: copy, mac: {
+        (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+      }, cancelMac: { ctx.invalidate() })
+      switch result {
+      case .mac(approved: true):
+        await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }
+        if let kc = model?.keychain { phone.refreshCopy(request.service, context: ctx, keychain: kc) }
+        return .approved(ctx)
+      case .phone(.approved(let value)):
+        guard let value else { return .denied }
+        phone.hold(request.service, value, approval: mode)
+        return .approved(nil)
+      default:
+        return .denied
+      }
+    }
     do {
       guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.reason) else { return .denied }
       await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }
+      // Keys added or rotated after pairing get their phone copy the first time they're approved here.
+      if let kc = model?.keychain { phone.refreshCopy(request.service, context: ctx, keychain: kc) }
       return .approved(ctx)
     } catch {
       return .denied
