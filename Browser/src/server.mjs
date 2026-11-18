@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { Guard } from './guard.mjs';
 import { fillLogin } from './fill.mjs';
 import { fillNewPassword } from './signup.mjs';
+import { handOff } from './handoff.mjs';
 import { Store } from './store.mjs';
 import { AppStore } from './app-store.mjs';
 import net from 'node:net';
@@ -103,6 +104,16 @@ const ownTools = [
     },
   },
   {
+    name: 'hand_off_to_user',
+    description:
+      "When the page needs the user: a captcha, a 2FA prompt or code, a code sent by email or text, a passkey, or anything you can't or shouldn't do. keydillo shows the page to the user on their Mac and on their paired iPhone, they do it, and this returns when they say they're done. You don't see what they type. Take a snapshot afterwards.",
+    inputSchema: {
+      type: 'object',
+      properties: { reason: { type: 'string', description: 'What the user needs to do, e.g. "Solve the captcha" or "Enter the code GitHub emailed you"' } },
+      required: ['reason'],
+    },
+  },
+  {
     name: 'request_login',
     description:
       "When the user wants you to sign in somewhere and list_logins has no login for that site: opens keydillo on the user's Mac so they can type the username and password themselves. You never see the password. Then call fill_login.",
@@ -170,6 +181,11 @@ const handleCall = (req) => serial(async () => {
     if (name === 'fill_login') {
       await getContext();
       const r = await fillLogin({ context, store, guard, login: args.login });
+      return guard.scrubResult(text(r.message, !r.ok));
+    }
+    if (name === 'hand_off_to_user') {
+      await getContext();
+      const r = await handOff({ context, store, reason: String(args.reason || 'Finish this step in the browser') });
       return guard.scrubResult(text(r.message, !r.ok));
     }
     if (name === 'request_login') {

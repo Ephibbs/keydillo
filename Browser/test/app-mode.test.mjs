@@ -102,3 +102,18 @@ test('app mode: request_login opens the app window and the new login can be used
   assert.ok(events.some((e) => e.event === 'requestLogin' && e.name === 'acme'));
   assert.match((await call('list_logins')).text, /"acme"/);
 });
+
+test('app mode: hand_off_to_user streams frames and applies the user\'s taps and typing', { skip }, async () => {
+  await call('browser_navigate', { url: `${base}/verify` });
+  const r = await call('hand_off_to_user', { reason: 'Enter the code GitHub emailed you' });
+  assert.ok(!r.isError, r.text);
+  assert.match(r.text, /finished on their iPhone/);
+  assert.doesNotMatch(r.text, /424242/);
+  const start = events.find((e) => e.event === 'handoffStart');
+  assert.equal(start.reason, 'Enter the code GitHub emailed you'); assert.match(start.url, /\/verify$/);
+  const frames = events.filter((e) => e.event === 'handoffFrame');
+  assert.ok(frames.length >= 3 && frames[0].bytes > 1000 && frames[0].width > 0, JSON.stringify(frames));
+  assert.ok(events.some((e) => e.event === 'handoffEnd'));
+  const post = site.posts.at(-1);
+  assert.equal(post.path, '/verify-code'); assert.equal(post.f.code, '424242'); assert.equal(post.f.human, 'yes');
+});

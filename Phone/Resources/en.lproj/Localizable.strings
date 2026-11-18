@@ -1,3 +1,4 @@
 /* Push notification for a new request. The body is the Mac's own title, e.g. "Claude Code wants to use your OpenAI key". */
 "KD_ASK_TITLE" = "keydillo";
 "KD_ASK_BODY" = "%@";
+"KD_HANDOFF_TITLE" = "keydillo browser";

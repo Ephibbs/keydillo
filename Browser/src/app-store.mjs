@@ -39,6 +39,9 @@ export class AppStore {
   secret(name, lp) { return this.call('secret', { login: name, page: lp.page, action: lp.action }); }
   approve(name, lp) { return this.call('approvePage', { login: name, page: lp.page, action: lp.action }); }
   saveNew(name, { site, username, password }) { return this.call('saveNew', { login: name, site, username, password }); }
+  handoffStart(reason, url) { return this.call('handoffStart', { reason, url }); }
+  handoffFrame(session, frame) { return this.call('handoffFrame', { session, ...frame }); }
+  handoffEnd(session) { return this.call('handoffEnd', { session }); }
   requestLogin({ login, site, username }) { return this.call('requestLogin', { login, site, username }); }
   async saveKey(name, host, value, extra = {}) { return (await this.call('saveKey', { name, host, value, ...extra })).placeholder; }
 }

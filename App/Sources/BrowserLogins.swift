@@ -56,7 +56,8 @@ final class BrowserService {
             WindowManager.shared.showAddLogin(prefill: AddLoginRequest(name: name, site: site, username: username, requester: "Claude")) { cont.resume(returning: $0) }
           }
         }
-      })
+      },
+      handoff: { op, args in try await BrowserHandoff.shared.handle(op, args) })
     let h = BrowserHost(paths: .init(node: tool.node, server: tool.server, dataDir: support, socket: BrowserHost.defaultSocket), broker: broker)
     try h.ensureRunning()
     host = h

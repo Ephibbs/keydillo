@@ -67,6 +67,9 @@ final class PhoneApprovals: @unchecked Sendable {
     return (s.macID, signer)
   }
 
+  /// For hand-offs (BrowserHandoff.swift).
+  func handoffIdentity() throws -> (id: String, signer: SoftwareSigner) { try identity() }
+
   func makeOffer() throws -> PairingOffer {
     let me = try identity()
     return PairingOffer(macID: me.id, macName: Host.current().localizedName ?? "Mac", macSigningKey: me.signer.publicKey)

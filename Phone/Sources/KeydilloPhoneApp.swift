@@ -13,7 +13,7 @@ struct KeydilloPhoneApp: App {
   var body: some Scene {
     WindowGroup {
       RootView().environment(store)
-        .onChange(of: phase) { _, p in if p == .active { Task { await store.refresh() } } }
+        .onChange(of: phase) { _, p in if p == .active { Task { await store.refresh(); await HandoffStore.shared.refresh() } } }
     }
   }
 }
@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
   // A new request arrived (CloudKit push).
   func application(_ app: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
     await PhoneStore.shared.refresh()
+    await HandoffStore.shared.refresh()
     return .newData
   }
 
@@ -39,6 +40,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
   func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse) async {
     await PhoneStore.shared.refresh()
+    await HandoffStore.shared.refresh()
   }
 }
 
@@ -107,7 +109,8 @@ struct RequestsView: View {
       if let m = store.message {
         Section { Text(m).font(.footnote).foregroundStyle(.secondary) }
       }
-      if store.waiting.isEmpty {
+      HandoffSection()
+      if store.waiting.isEmpty && HandoffStore.shared.pending.isEmpty {
         Section {
           VStack(alignment: .leading, spacing: 6) {
             Text("No requests waiting").font(.headline)
@@ -122,7 +125,7 @@ struct RequestsView: View {
       }
     }
     .listStyle(.insetGrouped)
-    .refreshable { await store.refresh() }
+    .refreshable { await store.refresh(); await HandoffStore.shared.refresh() }
     .navigationTitle(store.mac?.name ?? "keydillo")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {

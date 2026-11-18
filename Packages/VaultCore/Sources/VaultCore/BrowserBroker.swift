@@ -25,13 +25,19 @@ public final class BrowserBroker: @unchecked Sendable {
   let note: @Sendable (String) -> Void
   /// Opens keydillo's window for the user to type a login (name, site, username are suggestions). true when saved.
   let requestLogin: @Sendable (String?, String?, String?) async -> Bool
+  /// Hand-offs to the user (Mac window and paired iPhone): `handoffStart`, `handoffFrame`, `handoffEnd`.
+  let handoff: @Sendable (String, [String: Any]) async throws -> Any
   private let lock = NSLock()
 
   public init(store: LoginPersistence, approve: @escaping @Sendable (String) async -> LAContext?,
               saveKey: @escaping @Sendable (CapturedKey) async throws -> String, note: @escaping @Sendable (String) -> Void = { _ in },
-              requestLogin: @escaping @Sendable (String?, String?, String?) async -> Bool = { _, _, _ in false }) {
+              requestLogin: @escaping @Sendable (String?, String?, String?) async -> Bool = { _, _, _ in false },
+              handoff: @escaping @Sendable (String, [String: Any]) async throws -> Any = { _, _ in throw HandoffUnavailable() }) {
     self.store = store; self.approve = approve; self.saveKey = saveKey; self.note = note; self.requestLogin = requestLogin
+    self.handoff = handoff
   }
+
+  public struct HandoffUnavailable: Error, CustomStringConvertible { public init() {}; public var description: String { "hand-offs aren't available" } }
 
   struct Failure: Error { let message: String }
 
@@ -128,6 +134,9 @@ public final class BrowserBroker: @unchecked Sendable {
       let ok = await requestLogin(o["login"] as? String, o["site"] as? String, o["username"] as? String)
       guard ok else { throw Failure(message: "The user closed the window without saving a login.") }
       return [:] as [String: Any]
+
+    case "handoffStart", "handoffFrame", "handoffEnd":
+      do { return try await handoff(o["op"] as! String, o) } catch { throw Failure(message: String(describing: error)) }
 
     default:
       throw Failure(message: "unknown op")

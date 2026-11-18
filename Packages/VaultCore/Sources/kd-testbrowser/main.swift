@@ -39,7 +39,29 @@ let broker = BrowserBroker(
     logins.logins.append(LoginRecord(name: name ?? "added", site: site ?? "", username: user ?? ""))
     logins.secrets[name ?? "added"] = LoginSecret(password: "typed-by-user-123")
     return true
+  },
+  handoff: { op, args in
+    switch op {
+    case "handoffStart":
+      log(["event": "handoffStart", "reason": args["reason"] as? String ?? "", "url": args["url"] as? String ?? ""])
+      return ["session": "s1", "phone": true]
+    case "handoffFrame":
+      let n = HandoffScript.next()
+      log(["event": "handoffFrame", "n": n, "bytes": (args["jpeg"] as? String)?.count ?? 0, "width": args["width"] as? Int ?? 0])
+      switch n {
+      case 1: return ["inputs": [["action": "tap", "x": 0.5, "y": 0.9]], "done": false]
+      case 2: return ["inputs": [["action": "text", "text": "424242"], ["action": "key", "text": "Enter"]], "done": false]
+      default: return ["inputs": [] as [Any], "done": true]
+      }
+    default:
+      log(["event": op]); return [:] as [String: Any]
+    }
   })
+
+enum HandoffScript {
+  nonisolated(unsafe) static var n = 0
+  static func next() -> Int { n += 1; return n }
+}
 
 let host = BrowserHost(paths: .init(node: node, server: server, dataDir: dir, socket: socket), broker: broker, extraArgs: ["--headless"])
 do { try host.ensureRunning() } catch { log(["event": "error", "text": "\(error)"]); exit(1) }
