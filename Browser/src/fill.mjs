@@ -100,7 +100,7 @@ class Stop extends Error {}
 
 export async function fillLogin({ context, store, guard, login }) {
   const meta = await store.meta(login);
-  if (!meta) return { ok: false, message: `No saved login named "${login}". Call list_logins to see the names.` };
+  if (!meta) return { ok: false, message: `No saved login named "${login}". Call list_logins to see the names, or request_login to have the user add one.` };
   const site = meta.site;
 
   const found = await findFrame(context, site);

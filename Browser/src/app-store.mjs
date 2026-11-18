@@ -39,5 +39,6 @@ export class AppStore {
   secret(name, lp) { return this.call('secret', { login: name, page: lp.page, action: lp.action }); }
   approve(name, lp) { return this.call('approvePage', { login: name, page: lp.page, action: lp.action }); }
   saveNew(name, { site, username, password }) { return this.call('saveNew', { login: name, site, username, password }); }
+  requestLogin({ login, site, username }) { return this.call('requestLogin', { login, site, username }); }
   async saveKey(name, host, value, extra = {}) { return (await this.call('saveKey', { name, host, value, ...extra })).placeholder; }
 }

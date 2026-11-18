@@ -9,6 +9,10 @@ const run = (bin, args) => new Promise((resolve, reject) => {
 /** Talks to the kdlogin helper, which owns the Keychain items and the Touch ID prompt. */
 export class Store {
   constructor(helper) { this.helper = helper; }
+  /** Standalone mode has no window to show: the user adds logins in a terminal. */
+  async requestLogin({ login, site }) {
+    throw new Error(`Ask the user to run: bin/kdlogin add ${login || '<name>'} --site ${site || '<https://site>'}`);
+  }
   async list() { return JSON.parse(await run(this.helper, ['list'])); }
   async meta(name) { return (await this.list()).find((l) => l.name === name); }
   /** Prompts Touch ID (naming the page if it's new for this login). Returns { password, totp? }. */

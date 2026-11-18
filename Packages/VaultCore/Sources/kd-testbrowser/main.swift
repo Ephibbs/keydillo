@@ -33,7 +33,13 @@ let broker = BrowserBroker(
     log(["event": "saveKey", "name": key.name, "host": key.host, "value": key.value, "project": key.project ?? ""])
     return "keydillo:\(key.name)"
   },
-  note: { log(["event": "note", "text": $0]) })
+  note: { log(["event": "note", "text": $0]) },
+  requestLogin: { name, site, user in
+    log(["event": "requestLogin", "name": name ?? "", "site": site ?? "", "username": user ?? ""])
+    logins.logins.append(LoginRecord(name: name ?? "added", site: site ?? "", username: user ?? ""))
+    logins.secrets[name ?? "added"] = LoginSecret(password: "typed-by-user-123")
+    return true
+  })
 
 let host = BrowserHost(paths: .init(node: node, server: server, dataDir: dir, socket: socket), broker: broker, extraArgs: ["--headless"])
 do { try host.ensureRunning() } catch { log(["event": "error", "text": "\(error)"]); exit(1) }

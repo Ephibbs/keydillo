@@ -95,3 +95,10 @@ test('app mode: captured key goes to the app as a keydillo key', { skip }, async
   assert.equal(e.value, 'Q7mZp2Lx9KvT4rW8nYb3HcJ6dF1sGa5E'); assert.equal(e.project, 'demo-app');
   assert.match(r.text, /keydillo:acme/); assert.doesNotMatch(r.text, /Q7mZp2Lx9KvT4rW8/);
 });
+
+test('app mode: request_login opens the app window and the new login can be used', { skip }, async () => {
+  const r = await call('request_login', { login: 'acme', site: base, username: 'evan' });
+  assert.ok(!r.isError, r.text);
+  assert.ok(events.some((e) => e.event === 'requestLogin' && e.name === 'acme'));
+  assert.match((await call('list_logins')).text, /"acme"/);
+});

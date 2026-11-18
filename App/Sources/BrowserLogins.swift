@@ -16,7 +16,7 @@ final class BrowserService {
   var logins: [LoginRecord] { keychain.loadLogins() }
 
   /// Where the tool lives: inside the signed app bundle. A debug build can point at a checkout instead.
-  static func toolPaths() -> (node: String, server: String)? {
+  nonisolated static func toolPaths() -> (node: String, server: String)? {
     #if DEBUG
     if let root = UserDefaults.standard.string(forKey: "browserDevRoot") {
       return ("/opt/homebrew/bin/node", (root as NSString).appendingPathComponent("src/server.mjs"))
@@ -29,7 +29,7 @@ final class BrowserService {
   }
 
   /// The tool's code ships inside the app, so the app's signature covers it. Refuse to start it if the bundle was changed.
-  static func bundleIntact() -> Bool {
+  nonisolated static func bundleIntact() -> Bool {
     #if DEBUG
     if UserDefaults.standard.string(forKey: "browserDevRoot") != nil { return true }
     #endif
@@ -49,7 +49,14 @@ final class BrowserService {
       store: keychain,
       approve: { reason in await MainActor.run { AppModel.shared }.authenticate(reason) },
       saveKey: { key in try await MainActor.run { BrowserService.shared }.saveCaptured(key) },
-      note: { text in Task { @MainActor in BrowserService.shared.log(text) } })
+      note: { text in Task { @MainActor in BrowserService.shared.log(text) } },
+      requestLogin: { name, site, username in
+        await withCheckedContinuation { cont in
+          Task { @MainActor in
+            WindowManager.shared.showAddLogin(prefill: AddLoginRequest(name: name, site: site, username: username, requester: "Claude")) { cont.resume(returning: $0) }
+          }
+        }
+      })
     let h = BrowserHost(paths: .init(node: tool.node, server: tool.server, dataDir: support, socket: BrowserHost.defaultSocket), broker: broker)
     try h.ensureRunning()
     host = h

@@ -23,11 +23,14 @@ public final class BrowserBroker: @unchecked Sendable {
   let saveKey: @Sendable (CapturedKey) async throws -> String
   /// Logged for the Activity list.
   let note: @Sendable (String) -> Void
+  /// Opens keydillo's window for the user to type a login (name, site, username are suggestions). true when saved.
+  let requestLogin: @Sendable (String?, String?, String?) async -> Bool
   private let lock = NSLock()
 
   public init(store: LoginPersistence, approve: @escaping @Sendable (String) async -> LAContext?,
-              saveKey: @escaping @Sendable (CapturedKey) async throws -> String, note: @escaping @Sendable (String) -> Void = { _ in }) {
-    self.store = store; self.approve = approve; self.saveKey = saveKey; self.note = note
+              saveKey: @escaping @Sendable (CapturedKey) async throws -> String, note: @escaping @Sendable (String) -> Void = { _ in },
+              requestLogin: @escaping @Sendable (String?, String?, String?) async -> Bool = { _, _, _ in false }) {
+    self.store = store; self.approve = approve; self.saveKey = saveKey; self.note = note; self.requestLogin = requestLogin
   }
 
   struct Failure: Error { let message: String }
@@ -120,6 +123,11 @@ public final class BrowserBroker: @unchecked Sendable {
                                                       keysURL: o["keysUrl"] as? String, project: o["project"] as? String))
       note("saved new API key \(name) for \(host)")
       return ["placeholder": placeholder]
+
+    case "requestLogin":
+      let ok = await requestLogin(o["login"] as? String, o["site"] as? String, o["username"] as? String)
+      guard ok else { throw Failure(message: "The user closed the window without saving a login.") }
+      return [:] as [String: Any]
 
     default:
       throw Failure(message: "unknown op")

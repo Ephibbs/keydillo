@@ -100,6 +100,19 @@ const ownTools = [
     },
   },
   {
+    name: 'request_login',
+    description:
+      "When the user wants you to sign in somewhere and list_logins has no login for that site: opens keydillo on the user's Mac so they can type the username and password themselves. You never see the password. Then call fill_login.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        login: { type: 'string', description: 'Suggested name, e.g. "github"' },
+        site: { type: 'string', description: 'Suggested site, e.g. https://github.com' },
+        username: { type: 'string', description: 'Suggested username, if known' },
+      },
+    },
+  },
+  {
     name: 'fill_new_password',
     description:
       "When signing the user up for a new account: generates a strong password, saves it in keydillo after Touch ID, and types it into the sign-up form's password fields (including \"confirm password\"). You never see it. Fill in the email or username first; submit the form yourself afterwards. Later, sign in with fill_login and the same login name.",
@@ -155,6 +168,10 @@ const handleCall = (req) => serial(async () => {
       await getContext();
       const r = await fillLogin({ context, store, guard, login: args.login });
       return guard.scrubResult(text(r.message, !r.ok));
+    }
+    if (name === 'request_login') {
+      try { await store.requestLogin(args); } catch (e) { return text(e.message, true); }
+      return text(`Saved. Call fill_login with "${args.login || 'the new login'}" (list_logins shows the name).`);
     }
     if (name === 'fill_new_password') {
       await getContext();

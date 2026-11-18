@@ -75,7 +75,11 @@ enum ClaudeConnector {
 
   static func registerMCP() throws {
     let claude = claudeCommand
-    let cmd = "\(claude) mcp remove --scope user keydillo >/dev/null 2>&1; \(claude) mcp add --scope user keydillo -- '\(cliPath)' mcp"
+    var cmd = "\(claude) mcp remove --scope user keydillo >/dev/null 2>&1; \(claude) mcp add --scope user keydillo -- '\(cliPath)' mcp"
+    // keydillo's browser, when this build includes it: sign-ins, sign-ups and new API keys without Claude seeing them.
+    if BrowserService.toolPaths() != nil {
+      cmd += "; \(claude) mcp remove --scope user keydillo-browser >/dev/null 2>&1; \(claude) mcp add --scope user keydillo-browser -- '\(cliPath)' browser-mcp"
+    }
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
     p.arguments = ["-lc", cmd]
