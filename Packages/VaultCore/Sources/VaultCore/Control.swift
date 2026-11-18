@@ -207,9 +207,18 @@ public enum ControlSocket {
 /// Placeholder values written into .env files instead of real keys. `keydillo run` recognises them.
 public enum Placeholder {
   public static let prefix = "keydillo:"
-  /// Self-explaining, so a person who sends it to the real API sees why it failed.
-  public static let hint = "start-with-keydillo-run"
-  public static func value(for service: String) -> String { prefix + service + ":" + hint }
+  /// Self-explaining, so a person who sends it to the real API sees why it failed. It's at the end because
+  /// providers that echo a rejected key usually show its start and its last few characters ("sk-proj-…h-kd").
+  public static let hint = "run-with-kd"
+  /// Older installs wrote this hint; it's still recognised everywhere.
+  public static let oldHint = "start-with-keydillo-run"
+  /// `length`: the original key's length (after any kept format prefix). The placeholder is padded with zeros up to
+  /// it, so startup checks on a key's length still pass; the hint stays last.
+  public static func value(for service: String, length: Int = 0) -> String {
+    let base = prefix + service + ":"
+    let pad = max(0, length - base.count - hint.count - 1)
+    return base + (pad > 0 ? String(repeating: "0", count: pad) + "-" : "") + hint
+  }
   /// For launch-time keys: an unguessable tail, so if a program ever runs without the real value it gets a random
   /// secret, never a public string someone could use (for example to forge a token signed with it).
   public static func launchValue(for service: String) -> String {

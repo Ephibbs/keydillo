@@ -98,7 +98,7 @@ unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 
 # 10. Launch-time keys: kd puts the real value in the program's environment; .env loaders keep it.
 mkdir -p $T/web/src
-printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:start-with-keydillo-run\nPORT=3000\n' > $T/web/.env
+printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:run-with-kd\nPORT=3000\n' > $T/web/.env
 export KEYDILLO_TEST_SERVICES='[{"name":"jwt-secret","displayName":"JWT secret","project":"t","host":"","baseURL":"x","envVarName":"JWT_SECRET","baseURLEnvName":"X","launchTime":true}]'
 export KEYDILLO_TEST_LAUNCH_VALUES='{"jwt-secret":"s3cret-from-keychain"}' KEYDILLO_TEST_APP_PORT=1
 ok "launch-time: kd gives the program the real value" '[[ $(cd $T/web/src && $DEV run -- sh -c "echo \$JWT_SECRET" 2>/dev/null) == "s3cret-from-keychain" ]]'

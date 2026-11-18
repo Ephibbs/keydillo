@@ -330,14 +330,16 @@ public enum ImportScanner {
 
   /// Replaces imported values with placeholders and adds base-URL lines. Returns the new file text.
   public static func rewrite(_ text: String, replacements: [String: (service: String, baseURL: String?, baseURLEnvName: String?)], port: UInt16 = 7787,
-                             prefixes: [String: String] = [:], launchNames: Set<String> = []) -> String {
+                             prefixes: [String: String] = [:], lengths: [String: Int] = [:], launchNames: Set<String> = []) -> String {
     var lines = text.components(separatedBy: "\n")
     if !lines.contains(headerStart) { lines = header(port: port) + lines }
     var added: [String] = []
     for (i, raw) in lines.enumerated() {
       guard let (name, _) = assignment(raw), let r = replacements[name] else { continue }
       let exported = raw.trimmingCharacters(in: .whitespaces).hasPrefix("export ")
-      let placeholder = launchNames.contains(name) ? Placeholder.launchValue(for: r.service) : Placeholder.value(for: r.service)
+      // As long as the original key (minus the kept prefix), so length checks at startup still pass.
+      let length = max(0, (lengths[name] ?? 0) - (prefixes[name] ?? "").count)
+      let placeholder = launchNames.contains(name) ? Placeholder.launchValue(for: r.service) : Placeholder.value(for: r.service, length: length)
       lines[i] = (exported ? "export " : "") + "\(name)=\(prefixes[name] ?? "")\(placeholder)"
       if let base = r.baseURL, let envName = r.baseURLEnvName,
          !lines.contains(where: { assignment($0)?.0 == envName }), !added.contains(where: { $0.hasPrefix(envName + "=") }) {

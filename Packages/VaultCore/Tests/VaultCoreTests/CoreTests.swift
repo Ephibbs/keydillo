@@ -200,7 +200,7 @@ final class ControlTests: XCTestCase {
     let resp = try ControlSocket.send(.requestSecret(SecretRequest(service: "elevenlabs", host: "api.elevenlabs.io", header: "xi-api-key")), path: path)
     guard case .saved(let s, let lines) = resp else { return XCTFail("\(resp)") }
     XCTAssertEqual(s.baseURL, "http://localhost:7787/elevenlabs")
-    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs:start-with-keydillo-run"])
+    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs:run-with-kd"])
   }
 }
 
@@ -504,6 +504,46 @@ final class ScanLocationTests: XCTestCase {
   }
 }
 
+final class SelfExplainingPlaceholderTests: XCTestCase {
+  func testHintIsLastAndLengthMatchesTheOriginalKey() {
+    XCTAssertEqual(Placeholder.value(for: "openai"), "keydillo:openai:run-with-kd")
+    let padded = Placeholder.value(for: "openai", length: 156)
+    XCTAssertEqual(padded.count, 156)
+    XCTAssertTrue(padded.hasSuffix("-run-with-kd") && padded.hasPrefix("keydillo:openai:000"))
+    XCTAssertEqual(Placeholder.service(in: padded), "openai")
+    XCTAssertTrue(Placeholder.isPlaceholder("sk-proj-" + padded))
+    XCTAssertEqual(Placeholder.value(for: "openai", length: 5), "keydillo:openai:run-with-kd", "never shorter than the hint")
+  }
+
+  func testImportKeepsPrefixAndLength() {
+    let original = "sk-proj-" + String(repeating: "A", count: 148)
+    let out = ImportScanner.rewrite("OPENAI_API_KEY=\(original)\n",
+      replacements: ["OPENAI_API_KEY": (service: "openai", baseURL: nil, baseURLEnvName: nil)],
+      prefixes: ["OPENAI_API_KEY": "sk-proj-"], lengths: ["OPENAI_API_KEY": original.count])
+    let line = out.components(separatedBy: "\n").first { $0.hasPrefix("OPENAI_API_KEY=") }!
+    let value = String(line.dropFirst("OPENAI_API_KEY=".count))
+    XCTAssertEqual(value.count, original.count)
+    XCTAssertTrue(value.hasPrefix("sk-proj-keydillo:openai:") && value.hasSuffix("run-with-kd"))
+  }
+
+  func testProxySwapsNewPaddedAndOldPlaceholders() {
+    let sub = PlaceholderSubstitution(service: "openai", value: "REAL")
+    let padded = "sk-proj-" + Placeholder.value(for: "openai", length: 60)
+    XCTAssertEqual(sub.apply("Bearer " + padded, urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai:run-with-kd", urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai:" + Placeholder.oldHint, urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("x=" + padded.replacingOccurrences(of: ":", with: "%3A") + "&y=1", urlEncoded: true), "x=REAL&y=1")
+    // Another key whose name starts the same way is left alone.
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai-notes:run-with-kd", urlEncoded: false), "Bearer keydillo:openai-notes:run-with-kd")
+  }
+
+  func testBinaryBodiesSwapTheWholePlaceholder() {
+    var body = Data([0xFF, 0x00]); body.append(Data(("k=" + Placeholder.value(for: "openai", length: 40) + ";n=keydillo:openai-notes:run-with-kd").utf8))
+    let out = PlaceholderSubstitution(service: "openai", value: "REAL").apply(body)
+    XCTAssertEqual(out.dropFirst(2), Data("k=REAL;n=keydillo:openai-notes:run-with-kd".utf8))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
@@ -620,8 +660,8 @@ final class ImportTests: XCTestCase {
       "ANTHROPIC_API_KEY": ("anthropic", "http://localhost:7787/anthropic", "ANTHROPIC_BASE_URL"),
       "GOOGLE_CLIENT_SECRET": ("google-client-secret", nil, nil),
     ])
-    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic:start-with-keydillo-run"))
-    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret:start-with-keydillo-run"))
+    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic:run-with-kd"))
+    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret:run-with-kd"))
     XCTAssertTrue(out.contains("ANTHROPIC_BASE_URL=http://localhost:7787/anthropic"))
     XCTAssertTrue(out.contains("ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice"))
     XCTAssertTrue(out.contains("PORT=3000"))
@@ -794,7 +834,7 @@ final class ImportClassificationTests: XCTestCase {
     XCTAssertEqual(ImportScanner.formatPrefix("sk-ant-api03-xyz"), "sk-ant-api03-")
     XCTAssertEqual(ImportScanner.formatPrefix("abcdefghijklmnop"), "")
     let out = ImportScanner.rewrite("OPENAI_API_KEY=sk-proj-abc", replacements: ["OPENAI_API_KEY": ("openai", nil, nil)], prefixes: ["OPENAI_API_KEY": "sk-proj-"])
-    XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:start-with-keydillo-run"))
+    XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:run-with-kd"))
     XCTAssertEqual(PlaceholderSubstitution(service: "openai", value: "REAL").apply("Bearer sk-proj-keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
   }
 }

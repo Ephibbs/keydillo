@@ -79,6 +79,7 @@ final class ImportModel {
     var taken = Set(model.services.map(\.name))
     var replacementsByFile: [String: [String: (service: String, baseURL: String?, baseURLEnvName: String?)]] = [:]
     var prefixesByFile: [String: [String: String]] = [:]
+    var lengthsByFile: [String: [String: Int]] = [:]
 
     for key in chosen {
       let file = files.first { $0.path == key.file }!
@@ -119,7 +120,10 @@ final class ImportModel {
       let summary = cfg.map(model.summary)
       // Only add a base-URL line when the service's SDK actually reads one; otherwise it's noise.
       let readsEnv = cfg.map { $0.baseURLEnvName != nil || ImportScanner.convention(for: $0.name)?.env != nil } ?? false
-      if key.localOnly == nil { prefixesByFile[key.file, default: [:]][key.name] = key.keyPrefix }
+      if key.localOnly == nil {
+        prefixesByFile[key.file, default: [:]][key.name] = key.keyPrefix
+        lengthsByFile[key.file, default: [:]][key.name] = key.value.count
+      }
       replacementsByFile[key.file, default: [:]][key.name] =
         (name, summary?.baseURL, (cfg?.isProxyReady == true && readsEnv) ? summary?.baseURLEnvName : nil)
     }
@@ -133,7 +137,7 @@ final class ImportModel {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         backup.files.append(.init(path: path, text: text))
         let launch = Set(chosen.filter { $0.file == path && $0.localOnly != nil }.map(\.name))
-        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:], launchNames: launch)))
+        rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:], lengths: lengthsByFile[path] ?? [:], launchNames: launch)))
       }
       try model.keychain.setSecret(try JSONEncoder().encode(backup), for: Self.backupAccount(backup.date), label: "keydillo .env backup",
                                    service: Self.backupService)
