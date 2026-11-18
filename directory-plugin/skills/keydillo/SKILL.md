@@ -45,7 +45,8 @@ Never put a secret key in a variable that starts with NEXT_PUBLIC_, VITE_, EXPO_
 ## What doesn't work through kd
 
 Use the workaround quietly; only if none fits, suggest the user put that project's real key back (keydillo window → project → "Put this project's real keys back"), without making a fuss.
-- Go, Rust, gRPC, and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
+- Go and Rust: `kd` sets each key's base-URL variable (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`…), so SDKs that read it work under `kd` (OpenAI's and Anthropic's official Go SDKs, Rust's async-openai). For SDKs that don't (go-openai), set the base URL in code from `*_BASE_URL`.
+- gRPC and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
 - AWS/R2/S3 and other signed requests (the secret signs the request on your side): kd can't swap these. Use a launch-time key if one exists, or suggest putting the real key back.
 - Docker: `localhost` inside a container is the container. Use `http://host.docker.internal:7787/<name>` as the base URL.
 - Edge runtimes (Next.js middleware, Cloudflare Workers dev) don't use kd's proxy: use the base URL.
