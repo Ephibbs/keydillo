@@ -216,6 +216,23 @@ enum Runner {
   }
 
   nonisolated(unsafe) static var exitWatch: DispatchSourceProcess?
+  nonisolated(unsafe) static var signalSources: [DispatchSourceSignal] = []
+
+  /// A signal sent to kd itself (`kill <pid>`, a process manager stopping it, the terminal closing) goes on to the
+  /// command, and kd exits with the command's status once it stops. Ctrl-C in the terminal already reaches the
+  /// command directly (same process group), so SIGINT/SIGQUIT are passed on only when kd isn't the terminal's
+  /// foreground job, to avoid sending them twice.
+  static func forwardSignals(to child: pid_t) {
+    for sig in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
+      let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+      src.setEventHandler {
+        if sig == SIGINT || sig == SIGQUIT, isatty(0) != 0, tcgetpgrp(0) == getpgrp() { return }
+        kill(child, sig)
+      }
+      src.resume()
+      signalSources.append(src)
+    }
+  }
 
   /// Starts `command` (through /usr/bin/env, so PATH lookup works) with `env`, in this process group, with default
   /// signal handling (kd itself ignores Ctrl-C, and the command must not inherit that).
@@ -242,7 +259,7 @@ enum Runner {
     let (proxy, env) = prepare()
     // The command runs in kd's own process group, attached to the terminal like any command: Ctrl-C reaches it, and it
     // can read from the keyboard. (Foundation's Process puts children in a group of their own, where neither works.)
-    signal(SIGINT, SIG_IGN); signal(SIGQUIT, SIG_IGN); signal(SIGTERM) { _ in Runner.cleanup(); exit(143) }
+    for s in [SIGINT, SIGQUIT, SIGTERM, SIGHUP] { signal(s, SIG_IGN) }
     let pid: pid_t
     do { pid = try spawn(command, env: env) } catch { fail("couldn't start \(command[0]): \(error.localizedDescription)") }
     let exitWatch = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
@@ -262,6 +279,7 @@ enum Runner {
     }
     exitWatch.resume()
     Runner.exitWatch = exitWatch
+    forwardSignals(to: pid)
     proxy.childPid = pid
     let scan = DispatchSource.makeTimerSource(queue: .global())
     scan.schedule(deadline: .now() + 1, repeating: 2)

@@ -78,6 +78,7 @@ enum Preview {
     case "popover":
       AppModel.shared.realKeyFiles = ["/Users/x/Desktop/voiceover/.env", "/Users/x/Desktop/notes-app/.env"]
       AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
+      AppModel.shared.agentsSeen = ["Cursor": Date()]
       DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()
     }

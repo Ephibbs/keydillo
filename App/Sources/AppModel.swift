@@ -173,6 +173,7 @@ final class AppModel {
         guard let self else { return }
         self.events.insert(e, at: 0)
         if self.events.count > 1000 { self.events.removeLast() }
+        self.noteAgent(e.process)
         if e.note?.hasPrefix("key rejected") == true { self.rejected.insert(e.service); self.saveRejected() }
         await self.refreshGrants()
       }
@@ -633,7 +634,20 @@ final class AppModel {
     }
   }
 
+  /// AI tools seen using keydillo (other than Claude Code, whose setup is checked directly), with when they were last seen.
+  /// Shown in the menu bar as connected.
+  var agentsSeen: [String: Date] = (UserDefaults.standard.dictionary(forKey: "agentsSeen") as? [String: Date]) ?? [:]
+
+  func noteAgent(_ who: String) {
+    let w = who.lowercased()
+    guard let name = [("cursor", "Cursor"), ("codex", "Codex"), ("windsurf", "Windsurf"), ("gemini", "Gemini CLI"), ("opencode", "OpenCode"),
+                      ("aider", "Aider"), ("goose", "Goose")].first(where: { w.contains($0.0) })?.1 else { return }
+    agentsSeen[name] = Date()
+    UserDefaults.standard.set(agentsSeen, forKey: "agentsSeen")
+  }
+
   func handle(_ req: ControlRequest, caller: ClientProcess = .unknown) async -> ControlResponse {
+    if let agent = caller.agent { noteAgent(agent) }
     switch req {
     case .listServices:
       return .services(services.map(summary))
