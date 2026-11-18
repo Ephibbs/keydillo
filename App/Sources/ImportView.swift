@@ -110,7 +110,17 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.isPublic)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          if ImportScanner.devValueCapable(name: k.name, value: k.value) {
+          if PostgresURL.parse(k.value) != nil && k.localOnly != nil {
+            Menu {
+              Button("Connect through keydillo (recommended)") { im.keepReal.remove(k.id) }
+              Button("Give the real URL to the app (kd at start)") { im.keepReal.insert(k.id) }
+            } label: {
+              Text(im.usesDatabaseProxy(k) ? "Connects through keydillo" : "Not fully hidden: kd gives it to the app")
+                .font(.system(size: 12)).foregroundStyle(im.usesDatabaseProxy(k) ? Theme.secondary : Theme.danger)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help("Your app connects to keydillo on this Mac, and keydillo logs in to the real database, so the password never reaches the program. The program can still read and change the data.")
+          } else if ImportScanner.devValueCapable(name: k.name, value: k.value) {
             // JWT, session and encryption secrets: a dev-only value by default, or keep the real one if the app needs it.
             Menu {
               Button("Dev value in .env (recommended)") { im.keepReal.remove(k.id) }

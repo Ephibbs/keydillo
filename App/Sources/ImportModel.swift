@@ -14,6 +14,11 @@ final class ImportModel {
   /// App secrets (JWT, session, encryption) where the user chose to keep the real value instead of a dev value.
   var keepReal: Set<String> = []
   /// True when this key gets a development-only value in .env (the default for JWT, session and encryption secrets).
+  /// Postgres connection strings connect through keydillo's local endpoint instead (the default).
+  func usesDatabaseProxy(_ k: ImportScanner.Found) -> Bool {
+    k.localOnly != nil && PostgresURL.parse(k.value) != nil && !keepReal.contains(k.id)
+  }
+
   func usesDevValue(_ k: ImportScanner.Found) -> Bool {
     ImportScanner.devValueCapable(name: k.name, value: k.value) && !keepReal.contains(k.id)
   }
@@ -46,7 +51,8 @@ final class ImportModel {
     // Known services and keys keydillo already holds are selected by default; unknown ones are the user's call.
     let all: [ImportScanner.Found] = found.flatMap { $0.keys }
     // Every secret key is ticked: unknown providers get their site the first time they're used (approved with Touch ID).
-    selected = Set(all.filter { k in !k.isPublic && (k.localOnly == nil || ImportScanner.devValueCapable(name: k.name, value: k.value)) }.map { $0.id })
+    selected = Set(all.filter { k in !k.isPublic && (k.localOnly == nil || ImportScanner.devValueCapable(name: k.name, value: k.value)
+                                                     || PostgresURL.parse(k.value) != nil) }.map { $0.id })
     _ = model
     scanning = false
     scanned = true
@@ -113,7 +119,14 @@ final class ImportModel {
                                 upstreamHost: launch ? "" : (key.service?.host ?? ""), authHeader: launch ? "" : (key.service?.header ?? ""),
                                 authPrefix: launch ? "" : (key.service?.prefix ?? ""), envVarName: key.name, approval: model.defaultApproval.mode)
         if launch { cfg.launchTime = true }
-        if usesDevValue(key) { cfg.devValue = ImportScanner.makeDevValue(like: key.value) }
+        if usesDatabaseProxy(key), let target = PostgresURL.parse(key.value) {
+        // The program gets keydillo's local address; the real one stays in the Keychain.
+        if let i = newServices.firstIndex(where: { $0.name == name }) { newServices[i].database = true }
+        else if var s = model.service(named: name), s.database != true { s.database = true; newServices.append(s) }
+        devByFile[key.file, default: [:]][key.name] = PostgresURL.local(service: name, target: target, port: model.databasePort)
+      }
+      if usesDevValue(key) { cfg.devValue = ImportScanner.makeDevValue(like: key.value) }
+        if usesDatabaseProxy(key) { cfg.database = true; cfg.displayName = Self.title(key.name) }
         cfg.keyPageURL = key.service?.keyPage
         cfg.folder = file.folder
         if let conv = key.service.flatMap({ ImportScanner.convention(for: $0.service) }) {
@@ -153,7 +166,7 @@ final class ImportModel {
       for (path, reps) in replacementsByFile {
         let text = try String(contentsOfFile: path, encoding: .utf8)
         backup.files.append(.init(path: path, text: text))
-        let launch = Set(chosen.filter { $0.file == path && $0.localOnly != nil && !usesDevValue($0) }.map(\.name))
+        let launch = Set(chosen.filter { $0.file == path && $0.localOnly != nil && !usesDevValue($0) && !usesDatabaseProxy($0) }.map(\.name))
         rewritten.append((path, ImportScanner.rewrite(text, replacements: reps, port: model.port, prefixes: prefixesByFile[path] ?? [:], lengths: lengthsByFile[path] ?? [:], launchNames: launch,
                                                      devValues: devByFile[path] ?? [:])))
       }

@@ -395,7 +395,13 @@ enum Runner {
       values = v
     }
     for (k, svc) in wanted.sorted(by: { $0.key < $1.key }) {
-      if let v = values[svc] { env[k] = v }
+      if let v = values[svc] {
+        env[k] = v
+        // The app switched this Postgres URL to keydillo's local endpoint (and rewrote the .env line).
+        if PostgresURL.parse(v)?.host == "127.0.0.1", v.contains("sslmode=disable"), URLComponents(string: v)?.user == svc {
+          FileHandle.standardError.write(Data("kd: \(k) now connects through keydillo, so the program never sees the database password. Your .env was updated.\n".utf8))
+        }
+      }
       else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved, or keydillo isn't running), so the program gets the keydillo placeholder.\n".utf8)) }
     }
   }

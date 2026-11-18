@@ -339,8 +339,9 @@ public enum ImportScanner {
      "# key when a program sends one to its API. Put kd in front of commands that use these keys:",
      "# kd npm run dev. Claude Code does this for you.",
      "# If an API still says the key is invalid, the program skipped keydillo: call its *_BASE_URL",
-     "# (http://localhost:\(port)/...) instead. Launch-time keys (database URLs, JWT secrets) are given to",
-     "# the program by kd as it starts; it can see them. Never paste real keys here. AI agents: use keydillo.",
+     "# (http://localhost:\(port)/...) instead. Postgres URLs connect through keydillo on this Mac (if the",
+     "# connection is refused, open keydillo). Other launch-time keys are given to the program by kd as it",
+     "# starts; it can see them. Never paste real keys here. AI agents: use keydillo.",
      headerEnd]
   }
 

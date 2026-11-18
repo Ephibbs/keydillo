@@ -62,6 +62,35 @@ public final class ProxyEngine: @unchecked Sendable {
     self.session = URLSession(configuration: cfg, delegate: NoRedirects(), delegateQueue: nil)
   }
 
+  /// A program connecting to keydillo's local Postgres endpoint as `name`: approved like any key request
+  /// (Touch ID per the key's setting), then the real connection string is returned for keydillo to log in with.
+  public func databaseLogin(_ name: String, database: String, client: ClientProcess) async -> Result<PostgresTarget, PostgresProxy.Refusal> {
+    if let why = notReady?() { return .failure(PostgresProxy.Refusal(why)) }
+    guard let svc = services().first(where: { $0.name == name && $0.database == true }) else {
+      return .failure(PostgresProxy.Refusal("there's no database key named \(name) in keydillo"))
+    }
+    func log(_ outcome: ActivityEvent.Outcome, _ note: String?) {
+      onEvent(ActivityEvent(date: Date(), service: name, method: "CONNECT", path: "/" + database, process: client.displayName,
+                            pid: client.pid, outcome: outcome, status: outcome == .sent ? 200 : 403, note: note))
+    }
+    let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: "database", method: "CONNECT", path: "/" + database, client: client)
+    let ctx: LAContext?
+    switch await gate.authorize(svc, approval) {
+    case .approved(let c): ctx = c
+    case .denied: log(.denied, nil); return .failure(PostgresProxy.Refusal("the user declined this connection"))
+    case .unavailable(let why): log(.denied, why); return .failure(PostgresProxy.Refusal("can't ask for approval right now (\(why))"))
+    }
+    guard var secret = try? secrets.secret(for: name, context: ctx) else {
+      log(.failed, "key unavailable"); return .failure(PostgresProxy.Refusal("the database URL for \(name) couldn't be read"))
+    }
+    defer { secret.resetBytes(in: 0..<secret.count) }
+    guard let target = PostgresURL.parse(String(decoding: secret, as: UTF8.self)) else {
+      log(.failed, "not a Postgres URL"); return .failure(PostgresProxy.Refusal("the stored value for \(name) isn't a Postgres URL"))
+    }
+    log(.sent, "connected to \(target.host)")
+    return .success(target)
+  }
+
   /// Buffered convenience (tests, simple callers).
   public func handle(_ req: HTTPRequest, client: ClientProcess) async -> HTTPResponse {
     let sink = BufferSink()
