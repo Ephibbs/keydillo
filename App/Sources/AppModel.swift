@@ -392,7 +392,8 @@ final class AppModel {
     await checkExposed()
     let paths = ImportModel.trackedFiles
     var managed: [String: Set<String>] = [:]
-    for s in services { if let f = s.folder { managed[f, default: []].insert(s.envVarName) } }
+    // Dev values are meant to sit in .env in plain text, so they never count as real keys coming back.
+    for s in services where s.devValue == nil { if let f = s.folder { managed[f, default: []].insert(s.envVarName) } }
     let found = await Task.detached { ImportModel.filesWithRealKeys(paths, managed: managed) }.value
     if found != realKeyFiles { realKeyFiles = found }
   }
