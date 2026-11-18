@@ -10,6 +10,8 @@ What's planned after the first release, roughly in order.
 6. **Keys in shell profiles.** Find keys exported in `~/.zshrc`, `~/.zprofile`, `~/.bashrc` and similar, offer them in the import window, and swap only the value for a placeholder, with a backup and "Put my real keys back" support.
 7. **Touch ID for every change an API call makes (opt-in, per key).** A per-key option to ask for Touch ID on each mutating request (POST, PUT, PATCH, DELETE), such as Stripe charges and refunds, deletes or permission changes, while reads (GET) go through on the usual approval. Many APIs use POST for reads, such as OpenAI and Anthropic completions, so this suits APIs like Stripe and GitHub more than LLM APIs, and it stays off by default.
    - **Touch ID for a new kind of action.** keydillo would ask the first time a key does something it hasn't done before, grouping requests into patterns because IDs sit in paths (for example `POST /v1/refunds` or `/v1/customers/*`), and then remember it. A key that has only ever made charges couldn't quietly start issuing refunds.
+8. **Tokens in MCP server configs.** Find API tokens pasted into Claude Code, Cursor and Claude Desktop MCP configs and swap them for placeholders, which keydillo fills in through the proxy or when the server starts.
+9. **Git and GitHub.** A keydillo git credential helper and `gh` sign-in, so `git push` and `gh` work after Touch ID and the token never sits on disk.
 
 ## Exploring
 
