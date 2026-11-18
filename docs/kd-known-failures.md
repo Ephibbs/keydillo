@@ -10,7 +10,8 @@ no certificate involved.
 
 | Situation | What you see | What to do |
 |---|---|---|
-| Go, Rust, gRPC, or Python run with `-I` | A certificate error (`x509: certificate is not trusted`, `CERTIFICATE_VERIFY_FAILED`) | Use the base URL. |
+| Go and Rust | Works when the SDK reads its base-URL variable: `kd` sets `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` and the like for this project's keys. Checked: OpenAI's and Anthropic's official Go SDKs, and Rust's `async-openai`. | For SDKs that don't read it, such as `go-openai`, set the base URL in code from `<NAME>_BASE_URL`. |
+| gRPC, or Python run with `-I` | A certificate error (`x509: certificate is not trusted`, `CERTIFICATE_VERIFY_FAILED`) | Use the base URL. |
 | Next.js edge middleware, workers started with a clean environment | The provider rejects the key (401) | Use the base URL. |
 | Docker containers | The provider rejects the key, or `localhost` doesn't connect | Use `http://host.docker.internal:7787/<name>` as the base URL. `--env-file` skips `kd`. |
 | Programs that detach and keep running (pm2, `nohup … &`, tmux) | HTTPS calls fail after `kd` exits | Run them in the foreground under `kd`, or use the base URL. |
