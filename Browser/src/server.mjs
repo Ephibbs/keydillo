@@ -31,6 +31,7 @@ import { fillNewPassword } from './signup.mjs';
 import { Store } from './store.mjs';
 import { AppStore } from './app-store.mjs';
 import net from 'node:net';
+import { connectChrome } from './chrome.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -54,9 +55,21 @@ if (!fs.existsSync(prefsPath)) {
 const appMode = flag('--app');
 const store = appMode ? new AppStore(3) : new Store(opt('--helper', process.env.KDLOGIN_HELPER || path.join(here, '..', 'bin', 'kdlogin')));
 
+// --chrome: drive the user's own Chrome through the keydillo extension instead of launching a browser.
+const chromeMode = flag('--chrome');
+let relay;
+
 let context;
 async function getContext() {
   if (context) return context;
+  if (chromeMode) {
+    const c = await connectChrome(opt('--chrome-socket'));
+    relay = c.relay;
+    context = c.context;
+    c.browser.on('disconnected', () => { context = undefined; relay = undefined; });
+    await guard.install(context);
+    return context;
+  }
   context = await chromium.launchPersistentContext(profileDir, {
     channel: opt('--channel', 'chrome'),
     headless: flag('--headless'),
@@ -84,7 +97,7 @@ await inner.connect(a);
 const client = new Client({ name: 'keydillo-login', version: '0.1.0' });
 await client.connect(b);
 
-const guard = new Guard({ getContext: () => context, outputDir });
+const guard = new Guard({ getContext: () => context, outputDir, chromeMode });
 
 const ownTools = [
   {
@@ -163,9 +176,21 @@ let chain = Promise.resolve();
 const serial = (fn) => { const p = chain.then(fn, fn); chain = p.catch(() => {}); return p; };
 const text = (t, isError = false) => ({ content: [{ type: 'text', text: t }], isError });
 
+// Steps that handle a password or key. In the user's Chrome they refuse while anything else could read the page.
+const SECRET_STEPS = new Set(['fill_login', 'fill_new_password', 'start_key_capture', 'save_new_key']);
+async function sideDoorRefusal(name) {
+  if (!chromeMode || !SECRET_STEPS.has(name)) return null;
+  await getContext();
+  const doors = await relay.sideDoors();
+  if (!doors.length) return null;
+  return `keydillo won't ${name === 'save_new_key' || name === 'start_key_capture' ? 'capture a key' : 'fill a password'} in Chrome right now, because something else could read it:\n${doors.map((d, i) => `${i + 1}. ${d}`).join('\n')}\nAsk the user to fix this, then try again.`;
+}
+
 const handleCall = (req) => serial(async () => {
   const { name, arguments: args = {} } = req.params;
   try {
+    const door = await sideDoorRefusal(name);
+    if (door) return text(door, true);
     if (name === 'list_logins') return text(JSON.stringify(await store.list(), null, 2));
     if (name === 'fill_login') {
       await getContext();
