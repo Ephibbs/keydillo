@@ -11,6 +11,7 @@ let package = Package(
     .target(name: "PhoneLink", swiftSettings: [.swiftLanguageMode(.v5)]),
     // A pretend iPhone with software keys and a folder transport, for testing the Mac side without a phone. Never shipped.
     .executableTarget(name: "kd-fakephone", dependencies: ["PhoneLink"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    .executableTarget(name: "kd-fakemac", dependencies: ["PhoneLink"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .testTarget(name: "PhoneLinkTests", dependencies: ["PhoneLink"], swiftSettings: [.swiftLanguageMode(.v5)]),
   ]
 )
