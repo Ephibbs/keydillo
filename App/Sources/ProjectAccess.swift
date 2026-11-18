@@ -101,6 +101,8 @@ final class ProjectAwareSecrets: SecretProvider, @unchecked Sendable {
   }
 
   func secret(for name: String, context: LAContext?) throws -> Data {
+    // Approved on the paired iPhone: the value it released, held for that approval's lifetime.
+    if context == nil, let d = PhoneApprovals.shared.released(name) { return d }
     guard let project = projectOf(name), let open = store.valid(project) else { return try keychain.secret(for: name, context: context) }
     if let d = store.cached(project, service: name) { return d }
     let d = try keychain.secret(for: name, context: context ?? open.context)
