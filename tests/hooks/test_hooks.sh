@@ -177,6 +177,18 @@ $DEV run -- sh -c 'trap "exit 42" TERM; sleep 30 & wait' & K=$!; sleep 2; kill -
 ok "signals: SIGTERM to kd stops the command and kd returns its status" '[[ $st == 42 ]] && ! pgrep -f "sleep 30" >/dev/null'
 $DEV run -- sh -c 'sleep 31' & K=$!; sleep 2; kill -HUP $K; wait $K; st=$?
 ok "signals: SIGHUP to kd (terminal closed) stops the command" '[[ $st == 129 ]] && ! pgrep -f "sleep 31" >/dev/null'
+
+# 18. kd sets the project's base-URL and key variables for programs that don't read .env (Go, Rust), never over the user's own.
+mkdir -p $T/goproj $T/gwproj
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\n' > $T/goproj/.env
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\nEX_BASE_URL=https://my-gateway.example\n' > $T/gwproj/.env
+export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"http://localhost:7787/ex","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
+ok "base URL: kd sets the provider's base-URL variable for this project's key" '[[ $(cd $T/goproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "http://localhost:7787/ex" ]]'
+ok "base URL: and the key variable to its placeholder" '[[ $(cd $T/goproj && $DEV run -- printenv EX_KEY 2>/dev/null) == "keydillo:ex:run-with-kd" ]]'
+ok "base URL: a base URL the user set in .env is left alone" '[[ -z $(cd $T/gwproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "base URL: one set in the environment is left alone" '[[ $(cd $T/goproj && EX_BASE_URL=https://mine.example $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "https://mine.example" ]]'
+ok "base URL: outside the project nothing is set" '[[ -z $(cd $T/other && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "nested: kd inside kd doesn't call the outer kd 'your proxy'" '[[ $($DEV run -- $DEV run -- true 2>&1) != *"your proxy"* ]]'
 unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
 
 print "\n$pass passed, $fail failed"
