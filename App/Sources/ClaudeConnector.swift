@@ -25,6 +25,12 @@ enum ClaudeConnector {
 
   enum Status: Equatable { case connected, needsReconnecting, notConnected }
 
+  /// Other AI tools with keydillo's skill installed for every project (`npx skills add -g`).
+  static var otherAgentsWithSkill: [String] {
+    [(".cursor/skills/keydillo/SKILL.md", "Cursor"), (".codex/skills/keydillo/SKILL.md", "Codex")]
+      .filter { FileManager.default.fileExists(atPath: home.appendingPathComponent($0.0).path) }.map(\.1)
+  }
+
   /// Whether Claude Code is set up to use this copy of keydillo: the plugin, or Connect's skill, hooks and MCP server
   /// all pointing at this app.
   static var status: Status {

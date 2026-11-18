@@ -113,14 +113,22 @@ struct PopoverView: View {
   @State private var reconnecting = false
   @State private var reconnectNote: String?
 
-  /// Whether Claude Code is set up to use this copy of keydillo, with a one-click fix when it isn't.
+  /// AI tools that use keydillo: one quiet line for the ones that work, and a fix for Claude Code when its setup broke.
+  /// Tools never set up aren't mentioned.
+  var connectedAgents: [String] {
+    var out: [String] = claudeStatus == .connected ? ["Claude Code"] : []
+    let recent = model.agentsSeen.filter { $0.value > Date().addingTimeInterval(-30 * 24 * 3600) }.map(\.key)
+    for a in (recent + ClaudeConnector.otherAgentsWithSkill).sorted() where !out.contains(a) { out.append(a) }
+    return out
+  }
+
   @ViewBuilder var claudeStatusLine: some View {
     VStack(alignment: .leading, spacing: 4) {
-      switch claudeStatus {
-      case .connected:
-        HStack(spacing: 6) { StatusDot(on: true); Text("Claude Code connected") }
+      if !connectedAgents.isEmpty {
+        HStack(spacing: 6) { StatusDot(on: true); Text("Connected: " + connectedAgents.joined(separator: ", ")) }
           .font(.system(size: 12)).foregroundStyle(Theme.secondary)
-      case .needsReconnecting, .notConnected:
+      }
+      if claudeStatus == .needsReconnecting {
         Button {
           reconnecting = true
           Task {
@@ -130,9 +138,8 @@ struct PopoverView: View {
           }
         } label: {
           HStack(spacing: 4) {
-            Text(claudeStatus == .notConnected ? "Claude Code not connected ·" : "⚠︎ Claude Code needs reconnecting ·")
-              .foregroundStyle(claudeStatus == .notConnected ? Theme.secondary : Theme.danger)
-            Text(reconnecting ? "Connecting…" : (claudeStatus == .notConnected ? "Connect" : "Reconnect")).underline()
+            Text("⚠︎ Claude Code needs reconnecting ·").foregroundStyle(Theme.danger)
+            Text(reconnecting ? "Connecting…" : "Reconnect").underline()
           }
           .font(.system(size: 12))
         }
@@ -142,7 +149,7 @@ struct PopoverView: View {
         Text(reconnectNote).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       }
     }
-    .padding(.horizontal, 16).padding(.bottom, 10)
+    .padding(.horizontal, 16).padding(.bottom, connectedAgents.isEmpty && claudeStatus != .needsReconnecting ? 0 : 10)
     .onAppear { claudeStatus = ClaudeConnector.status }
   }
 
