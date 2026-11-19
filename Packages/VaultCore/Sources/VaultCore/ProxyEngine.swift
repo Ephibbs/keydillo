@@ -52,7 +52,7 @@ public final class ProxyEngine: @unchecked Sendable {
     self.approver = approver
     self.services = services
     self.secrets = secrets
-    self.gate = ApprovalGate(approver: approver)
+    self.gate = ApprovalGate(approver: approver, isAlive: { $0.sessionAlive })
     let cfg = URLSessionConfiguration.ephemeral
     cfg.httpCookieStorage = nil
     cfg.httpShouldSetCookies = false

@@ -83,12 +83,16 @@ public actor ApprovalGate {
   private var grants: [String: Grant] = [:]
   private let approver: Approver
   private let now: @Sendable () -> Date
+  /// Whether the program session a grant belongs to is still running. Grants of finished sessions are dropped.
+  private let isAlive: @Sendable (ClientProcess) -> Bool
   private var busy = false
   private var waiters: [CheckedContinuation<Void, Never>] = []
 
-  public init(approver: Approver, now: @escaping @Sendable () -> Date = { Date() }) {
+  public init(approver: Approver, now: @escaping @Sendable () -> Date = { Date() },
+              isAlive: @escaping @Sendable (ClientProcess) -> Bool = { _ in true }) {
     self.approver = approver
     self.now = now
+    self.isAlive = isAlive
   }
 
   func key(_ service: ServiceConfig, _ client: ClientProcess) -> String {
@@ -162,7 +166,9 @@ public actor ApprovalGate {
   }
 
   public func activeGrants() -> [(service: String, expires: Date?, client: ClientProcess?)] {
-    grants.compactMap { k, g in
+    // A finished session can't use its grant again (a new caller gets a new key), so stop listing it.
+    grants = grants.filter { _, g in g.client.map(isAlive) ?? true }
+    return grants.compactMap { k, g in
       if let e = g.expires, e <= now() { return nil }
       return (String(k.split(separator: "|").first ?? ""), g.expires, g.client)
     }

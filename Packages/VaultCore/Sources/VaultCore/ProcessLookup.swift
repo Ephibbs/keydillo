@@ -8,6 +8,8 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var agent: String?
   /// pid of that agent ancestor, used to scope "once per session" approvals.
   public var agentPid: Int32?
+  /// Start time of the agent ancestor, so a recycled pid is not mistaken for the same agent.
+  public var agentStart: UInt64 = 0
   /// Process start time, so a recycled pid is not mistaken for the same process.
   public var startTime: UInt64
   /// Full path of the calling executable.
@@ -28,10 +30,26 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var identified: Bool { pid > 0 && startTime > 0 }
 
   /// The process tree an approval belongs to. Another terminal, app or session gets its own prompt.
+  /// When an AI tool (claude, codex, cursor...) started the caller, that tool's whole tree is the session:
+  /// Claude Code runs each command in a fresh Unix session, so keying on that would ask again for every command.
   public var sessionKey: String {
     guard identified else { return "unidentified|\(UUID().uuidString)" }   // never matches a cached grant
-    if rootPid > 0 { return "\(rootPid)|\(rootStart)" }
+    if let s = sessionProcess { return "\(s.pid)|\(s.start)" }
     return "\(pid)|\(startTime)"
+  }
+
+  /// The process whose lifetime an approval follows: the AI tool, else the Unix session leader, else nil (the caller itself).
+  public var sessionProcess: (pid: Int32, start: UInt64)? {
+    if let a = agentPid, a > 0, agentStart > 0 { return (a, agentStart) }
+    if rootPid > 0 { return (rootPid, rootStart) }
+    return nil
+  }
+
+  /// False once the process an approval follows has exited (or its pid was reused).
+  public var sessionAlive: Bool {
+    guard identified else { return false }
+    let s = sessionProcess ?? (pid, startTime)
+    return ProcessLookup.startTime(of: s.pid) == s.start
   }
 
   /// True when the agent's code signature matches its maker (set by `describe`): Claude Code by Anthropic, Cursor by Anysphere.
@@ -104,9 +122,9 @@ public enum ProcessLookup {
     var cur = pid
     for _ in 0..<12 {
       let n = name(of: cur).lowercased()
-      if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur }
+      if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur; p.agentStart = startTime(of: cur) }
       // Claude Code's native installer names its binary after the version (…/claude/versions/2.1.319).
-      if p.agent == nil, path(of: cur).contains("/claude/versions/") { p.agent = "claude"; p.agentPid = cur }
+      if p.agent == nil, path(of: cur).contains("/claude/versions/") { p.agent = "claude"; p.agentPid = cur; p.agentStart = startTime(of: cur) }
       let parent = parentPid(of: cur)
       if parent <= 1 || parent == cur { break }
       cur = parent
@@ -120,7 +138,7 @@ public enum ProcessLookup {
     if p.agent == nil, let served = servedBy(pid) {
       if let owner = served.owner {
         let o = describe(owner)
-        p.agent = o.agent; p.agentPid = o.agentPid; p.agentVerified = o.agentVerified
+        p.agent = o.agent; p.agentPid = o.agentPid; p.agentStart = o.agentStart; p.agentVerified = o.agentVerified
         if p.agent == nil { p.name = o.name }
       } else if let command = served.command {
         p.name = command

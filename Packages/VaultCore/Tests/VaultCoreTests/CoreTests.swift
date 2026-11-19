@@ -732,6 +732,38 @@ final class CallerScopeTests: XCTestCase {
     _ = await gate.authorize(s, req(s, other))
     XCTAssertEqual(a.calls, 2, "another process tree gets its own prompt")
   }
+  func testOneAgentSessionSharesOneApproval() async {
+    // Claude Code starts each command in its own Unix session; all of them belong to the same claude process.
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    func cmd(_ pid: Int32, sid: Int32, agent: Int32) -> ClientProcess {
+      var c = ClientProcess(pid: pid, name: "keydillo", agent: "claude", agentPid: agent, startTime: UInt64(pid))
+      c.agentStart = UInt64(agent) * 7; c.rootPid = sid; c.rootStart = UInt64(sid); return c
+    }
+    for i in 0..<9 { _ = await gate.authorize(s, req(s, cmd(300 + Int32(i), sid: 300 + Int32(i), agent: 50))) }
+    XCTAssertEqual(a.calls, 1, "every command of one claude session uses the first approval")
+    let grants = await gate.activeGrants()
+    XCTAssertEqual(grants.count, 1)
+    _ = await gate.authorize(s, req(s, cmd(400, sid: 400, agent: 60)))
+    XCTAssertEqual(a.calls, 2, "another claude session asks again")
+    var recycled = cmd(401, sid: 401, agent: 50); recycled.agentStart = 999
+    _ = await gate.authorize(s, req(s, recycled))
+    XCTAssertEqual(a.calls, 3, "a reused agent pid is a new session")
+  }
+  func testFinishedSessionsAreNotListed() async {
+    let a = StubApprover()
+    let alive = Locked(Set<Int32>([10, 20]))
+    let gate = ApprovalGate(approver: a, isAlive: { c in alive.value.contains(c.rootPid) })
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    var c1 = ClientProcess(pid: 100, name: "curl", startTime: 5); c1.rootPid = 10; c1.rootStart = 1
+    var c2 = ClientProcess(pid: 200, name: "curl", startTime: 6); c2.rootPid = 20; c2.rootStart = 2
+    _ = await gate.authorize(s, req(s, c1)); _ = await gate.authorize(s, req(s, c2))
+    var grants = await gate.activeGrants()
+    XCTAssertEqual(grants.count, 2)
+    alive.value = [20]
+    grants = await gate.activeGrants()
+    XCTAssertEqual(grants.compactMap { $0.client?.rootPid }, [20])
+  }
   func testUnidentifiedCallersAreNeverCached() async {
     let a = StubApprover(); let gate = ApprovalGate(approver: a)
     let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .window(minutes: 15))
@@ -765,4 +797,11 @@ final class ImportClassificationTests: XCTestCase {
     XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:start-with-keydillo-run"))
     XCTAssertEqual(PlaceholderSubstitution(service: "openai", value: "REAL").apply("Bearer sk-proj-keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
   }
+}
+
+/// A tiny thread-safe box for test state read from @Sendable closures.
+final class Locked<T>: @unchecked Sendable {
+  private var v: T; private let l = NSLock()
+  init(_ v: T) { self.v = v }
+  var value: T { get { l.lock(); defer { l.unlock() }; return v } set { l.lock(); v = newValue; l.unlock() } }
 }
