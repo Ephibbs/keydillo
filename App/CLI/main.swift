@@ -19,8 +19,10 @@ keydillo: let AI tools use your API keys without seeing them.
   keydillo add <name> --host <host> --header <header> [--prefix "Bearer "] [--env NAME] [--project P]
                                         Opens keydillo so you can paste the key
   keydillo env <name>                   Placeholder .env lines for a service
-  keydillo run -- <command>             Run a command; placeholder keys it sends to their API are swapped for the real key
-  kd <command>                          Short for keydillo run -- <command>
+  keydillo run [--why "<reason>"] -- <command>
+                                        Run a command; placeholder keys it sends to their API are swapped for the real key.
+                                        --why (or KEYDILLO_WHY) is a few words on what it uses keys for, shown in approvals
+  kd [--why "<reason>"] <command>       Short for keydillo run -- <command>
   keydillo mcp                          Run as an MCP server (used by Claude Code)
 
 There is no command to print a key. Use the Readout in the app.
@@ -29,8 +31,10 @@ There is no command to print a key. Use the Readout in the app.
 var args = Array(CommandLine.arguments.dropFirst())
 // `kd <command>` is short for `keydillo run -- <command>`.
 if (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent } ?? "") == "kd" {
+  // `--why "…"` is read by the app from this process's command line; the command runs without it.
+  args = ProcessLookup.splitWhy(args).rest
   if args.isEmpty || args.first == "-h" || args.first == "--help" {
-    print("kd <command>: run a command so the keydillo placeholders it sends are swapped for your real keys (same as keydillo run -- <command>).")
+    print("kd [--why \"<reason>\"] <command>: run a command so the keydillo placeholders it sends are swapped for your real keys (same as keydillo run -- <command>). --why is a few words on what it uses keys for, shown when keydillo asks you.")
     exit(0)
   }
   if args.first == "--" { args.removeFirst() }
@@ -81,6 +85,7 @@ case "env":
   s.placeholderEnvLines.forEach { print($0) }
 
 case "run":
+  args = ProcessLookup.splitWhy(args).rest
   if args.first == "--" { args.removeFirst() }
   Runner.run(args)
 
@@ -95,7 +100,7 @@ case "whois":
   // Shows how keydillo names a process in approval prompts (for checking; prints no secrets).
   guard let pid = args.first.flatMap(Int32.init) else { fail("usage: keydillo whois <pid>") }
   let c = ProcessLookup.describe(pid)
-  print("name: \(c.name)\nagent: \(c.agent ?? "-")\nshown as: \(c.friendlyName)\nsession: \(c.rootPid)")
+  print("name: \(c.name)\nagent: \(c.agent ?? "-")\nshown as: \(c.friendlyName)\nsession: \(c.rootPid)\nsays: \(c.purpose ?? "-")")
   if args.contains("-v") { print("team self: \(ProcessLookup.signingTeam(nil) ?? "-") team pid: \(ProcessLookup.signingTeam(pid) ?? "-") args: \(ProcessLookup.arguments(of: pid))") }
 
 case "help", "-h", "--help":

@@ -21,6 +21,9 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var rootPath: String = ""
   /// Working directory of the caller, when readable (used for per-project rules).
   public var cwd: String?
+  /// What the AI says this run uses keys for (`kd --why "…"` or KEYDILLO_WHY), cleaned to one short line.
+  /// The AI's own words, never verified. Not part of `sessionKey`, so it never changes which approval applies.
+  public var purpose: String?
 
   public init(pid: Int32, name: String, agent: String? = nil, agentPid: Int32? = nil, startTime: UInt64 = 0) {
     self.pid = pid; self.name = name; self.agent = agent; self.agentPid = agentPid; self.startTime = startTime
@@ -144,6 +147,7 @@ public enum ProcessLookup {
         p.name = command
       }
     }
+    p.purpose = purpose(of: pid)
     // The caller's Unix session (a terminal tab, an agent's shell, an app) is what an approval belongs to.
     let sid = getsid(pid)
     if sid > 1 {
@@ -229,12 +233,15 @@ public extension ProcessLookup {
   }
 
   /// The command line of `pid`.
-  static func arguments(of pid: Int32) -> [String] {
+  static func arguments(of pid: Int32) -> [String] { commandLine(of: pid).args }
+
+  /// The command line and starting environment of `pid`.
+  static func commandLine(of pid: Int32) -> (args: [String], env: [String: String]) {
     var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
     var size = 0
-    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return [] }
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return ([], [:]) }
     var buf = [UInt8](repeating: 0, count: size)
-    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return [] }
+    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return ([], [:]) }
     let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
     var i = 4
     while i < size && buf[i] != 0 { i += 1 }   // executable path
@@ -246,7 +253,15 @@ public extension ProcessLookup {
       args.append(String(decoding: buf[start..<i], as: UTF8.self))
       i += 1
     }
-    return args
+    var env: [String: String] = [:]
+    while i < size && buf[i] != 0 {
+      let start = i
+      while i < size && buf[i] != 0 { i += 1 }
+      let entry = String(decoding: buf[start..<i], as: UTF8.self)
+      if let eq = entry.firstIndex(of: "=") { env[String(entry[..<eq])] = String(entry[entry.index(after: eq)...]) }
+      i += 1
+    }
+    return (args, env)
   }
 
   /// Apple team that signed `pid` (nil for the current process when `pid` is nil), or nil if unsigned.
@@ -278,11 +293,62 @@ public extension ProcessLookup {
     guard path(of: pid).hasSuffix("/bin/keydillo") || name(of: pid) == "keydillo" || name(of: pid) == "kd" else { return nil }
     guard let mine = signingTeam(nil), signingTeam(pid) == mine else { return nil }
     let args = Array(arguments(of: pid).dropFirst())
-    // kd <command> / keydillo run [--] <command>
+    // kd [--why "…"] <command> / keydillo run [--why "…"] [--] <command>
     var rest = args
     if rest.first == "run" { rest.removeFirst() }
+    rest = splitWhy(rest).rest
     if rest.first == "--" { rest.removeFirst() }
     guard let cmd = rest.first, !cmd.hasPrefix("-") else { return nil }
     return (nil, (cmd as NSString).lastPathComponent)
+  }
+
+  /// The nearest `kd`/`keydillo run` at or above `pid` that was given a reason (`--why`, else KEYDILLO_WHY).
+  static func purpose(of pid: Int32) -> String? {
+    var cur = pid
+    for _ in 0..<12 {
+      let n = name(of: cur)
+      if n == "keydillo" || n == "kd" || path(of: cur).hasSuffix("/bin/keydillo") {
+        let cl = commandLine(of: cur)
+        var rest = Array(cl.args.dropFirst())
+        let viaKd = ((cl.args.first ?? "") as NSString).lastPathComponent == "kd"
+        if !viaKd, rest.first == "run" { rest.removeFirst() }
+        if let why = splitWhy(rest).why ?? cl.env["KEYDILLO_WHY"].flatMap(cleanPurpose) { return why }
+      }
+      let parent = parentPid(of: cur)
+      if parent <= 1 || parent == cur { break }
+      cur = parent
+    }
+    return nil
+  }
+}
+
+public extension ProcessLookup {
+  static let maxPurposeLength = 60
+
+  /// Takes a leading `--why "…"` (or `--why=…`) off `kd`'s arguments. Anything after the command, or after `--`, is left alone.
+  static func splitWhy(_ args: [String]) -> (why: String?, rest: [String]) {
+    var why: String?
+    var i = 0
+    while i < args.count {
+      if args[i] == "--why" {
+        if i + 1 < args.count { why = cleanPurpose(args[i + 1]) }
+        i += 2
+      } else if args[i].hasPrefix("--why=") {
+        why = cleanPurpose(String(args[i].dropFirst(6)))
+        i += 1
+      } else { break }
+    }
+    return (why, Array(args[min(i, args.count)...]))
+  }
+
+  /// One line, no control characters, at most 60 characters (cut with …). Nil when nothing is left.
+  static func cleanPurpose(_ raw: String) -> String? {
+    let scalars = raw.unicodeScalars.map { s -> Character in
+      CharacterSet.controlCharacters.contains(s) || CharacterSet.newlines.contains(s)
+        || s.properties.generalCategory == .format ? " " : Character(s)
+    }
+    let line = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    guard !line.isEmpty else { return nil }
+    return line.count > maxPurposeLength ? String(line.prefix(maxPurposeLength - 1)) + "…" : line
   }
 }

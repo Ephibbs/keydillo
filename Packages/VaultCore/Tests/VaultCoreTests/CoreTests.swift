@@ -805,3 +805,61 @@ final class Locked<T>: @unchecked Sendable {
   init(_ v: T) { self.v = v }
   var value: T { get { l.lock(); defer { l.unlock() }; return v } set { l.lock(); v = newValue; l.unlock() } }
 }
+
+final class PurposeTests: XCTestCase {
+  func testWhyIsTakenOffTheFrontOnly() {
+    let a = ProcessLookup.splitWhy(["--why", "Generating voiceover", "npm", "run", "dev"])
+    XCTAssertEqual(a.why, "Generating voiceover"); XCTAssertEqual(a.rest, ["npm", "run", "dev"])
+    let b = ProcessLookup.splitWhy(["--why=Testing TTS", "--", "python", "tts.py"])
+    XCTAssertEqual(b.why, "Testing TTS"); XCTAssertEqual(b.rest, ["--", "python", "tts.py"])
+    let c = ProcessLookup.splitWhy(["npm", "run", "dev"])
+    XCTAssertNil(c.why); XCTAssertEqual(c.rest, ["npm", "run", "dev"])
+    // After `--` or the command, --why belongs to the command.
+    XCTAssertEqual(ProcessLookup.splitWhy(["--", "--why", "x"]).rest, ["--", "--why", "x"])
+    XCTAssertNil(ProcessLookup.splitWhy(["python", "--why", "x"]).why)
+    // A trailing --why with nothing after it is dropped.
+    XCTAssertEqual(ProcessLookup.splitWhy(["--why"]).rest, [])
+  }
+
+  func testWhyIsOneShortLine() {
+    XCTAssertEqual(ProcessLookup.cleanPurpose("Generating\nvoiceover\r\n\tnow"), "Generating voiceover now")
+    XCTAssertEqual(ProcessLookup.cleanPurpose("ok\u{1B}[31m red\u{202E}evil"), "ok [31m red evil")
+    XCTAssertNil(ProcessLookup.cleanPurpose(" \n\t "))
+    let long = ProcessLookup.cleanPurpose(String(repeating: "a", count: 100))!
+    XCTAssertEqual(long.count, 60); XCTAssertTrue(long.hasSuffix("…"))
+    XCTAssertEqual(ProcessLookup.cleanPurpose(String(repeating: "b", count: 60))!.count, 60)
+  }
+
+  func testPromptKeepsTheFactsFirstAndLabelsTheReason() {
+    var c = ClientProcess(pid: 1, name: "python3", agent: "claude", agentPid: 2, startTime: 1)
+    c.agentVerified = true
+    var r = ApprovalRequest(service: "voice", displayName: "Voice", host: "api.voice.test", method: "POST", path: "/v1/speech/abc", client: c)
+    XCTAssertFalse(r.reason.contains("says"))
+    r.client.purpose = "Generating voiceover for Slouchly"
+    XCTAssertEqual(r.reason, "let Claude Code use your Voice key (python3): POST api.voice.test/v1/speech/abc — Claude Code says: “Generating voiceover for Slouchly”")
+    r.method = "START"; r.path = "VOICE_API_KEY"
+    XCTAssertTrue(r.reason.hasPrefix("give Claude Code your Voice as it starts"))
+    XCTAssertTrue(r.reason.hasSuffix("— Claude Code says: “Generating voiceover for Slouchly”"))
+  }
+
+  func testReusedApprovalTakesTheNewReasonWithoutAsking() async {
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    var c = ClientProcess(pid: 42, name: "kd", agent: "claude", agentPid: 7, startTime: 1)
+    c.agentStart = 5; c.purpose = "First run"
+    var r = ApprovalRequest(service: "x", displayName: "X", host: "h", method: "GET", path: "/", client: c)
+    _ = await gate.authorize(s, r)
+    // A later command in the same Claude session: new process, new reason, same approval.
+    r.client.pid = 43; r.client.purpose = "Second run"
+    _ = await gate.authorize(s, r)
+    XCTAssertEqual(a.calls, 1)
+    var purposes = await gate.activeGrants().map { $0.client?.purpose }
+    XCTAssertEqual(purposes, ["Second run"])
+    // A run with no reason keeps the last one.
+    r.client.pid = 44; r.client.purpose = nil
+    _ = await gate.authorize(s, r)
+    XCTAssertEqual(a.calls, 1)
+    purposes = await gate.activeGrants().map { $0.client?.purpose }
+    XCTAssertEqual(purposes, ["Second run"])
+  }
+}
