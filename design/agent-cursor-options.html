@@ -1,0 +1,100 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Agent cursor options</title>
+<style>
+  body { margin: 0; padding: 40px; background: #ececec; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; color: #111; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: #6b6b6b; margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(2, 640px); gap: 32px; }
+  .opt h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  .opt p { margin: 0 0 10px; color: #555; width: 620px; }
+  .rec { font-size: 11px; font-weight: 600; background: #111; color: #fff; border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: 1px; }
+  /* fake Chrome window */
+  .win { width: 640px; height: 400px; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 8px 24px rgba(0,0,0,.08); position: relative; }
+  .chrome { height: 34px; background: #f1f1f1; display: flex; align-items: flex-end; padding: 0 10px 0 64px; gap: 6px; border-bottom: 1px solid #dcdcdc; }
+  .dots { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; } .dots i { width: 10px; height: 10px; border-radius: 50%; background: #d0d0d0; display: block; }
+  .tab { height: 26px; border-radius: 7px 7px 0 0; padding: 0 12px; display: flex; align-items: center; font-size: 11.5px; color: #333; }
+  .tab.mine { background: #fff; } .tab.user { color: #888; }
+  .grp { margin-left: 8px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 2px solid #8a8a8a; }
+  .grp b { font-size: 10.5px; font-weight: 600; background: #8a8a8a; color: #fff; border-radius: 5px; padding: 2px 6px; margin-bottom: 4px; }
+  .url { height: 30px; background: #fff; border-bottom: 1px solid #e3e3e3; display: flex; align-items: center; padding: 0 12px; }
+  .url span { background: #f1f1f1; border-radius: 999px; padding: 4px 12px; font-size: 11.5px; color: #444; width: 100%; }
+  /* fake page */
+  .page { position: absolute; top: 65px; left: 0; right: 0; bottom: 0; padding: 26px 34px; }
+  .page h3 { margin: 0 0 4px; font-size: 18px; font-weight: 600; } .page .muted { color: #777; margin-bottom: 18px; }
+  .row { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eee; padding: 10px 0; font-size: 12.5px; }
+  .row code { color: #888; } .btn { background: #2d6ae3; color: #fff; border-radius: 6px; padding: 7px 12px; font-size: 12px; font-weight: 500; display: inline-block; }
+  /* keydillo pieces */
+  .mark { width: 22px; height: 15px; display: inline-block; vertical-align: -3px; }
+  .cursor { position: absolute; width: 18px; height: 22px; }
+  .label { position: absolute; white-space: nowrap; font-size: 11.5px; font-weight: 500; border-radius: 999px; padding: 3px 9px; }
+  .label.dark { background: #111; color: #fff; } .label.light { background: #fff; color: #111; border: 1px solid #d6d6d6; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .pill { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; border-radius: 999px; padding: 6px 6px 6px 12px; display: flex; gap: 10px; align-items: center; font-size: 12px; font-weight: 500; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+  .stop { background: #fff; color: #111; border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 600; }
+  .stop.dark { background: #111; color: #fff; }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 38px; background: #fff; border-top: 1px solid #dcdcdc; display: flex; align-items: center; gap: 10px; padding: 0 12px; font-size: 12px; }
+  .bar .grow { flex: 1; color: #6b6b6b; }
+  .frame { position: absolute; top: 65px; left: 0; right: 0; bottom: 0; box-shadow: inset 0 0 0 3px #111; pointer-events: none; }
+  .chip { position: absolute; top: 65px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; font-size: 11.5px; font-weight: 500; padding: 3px 12px 5px; border-radius: 0 0 9px 9px; display: flex; gap: 8px; align-items: center; }
+  .chip .stop { padding: 1px 8px; }
+  .ring { position: absolute; width: 22px; height: 22px; border-radius: 50%; border: 2px solid #111; background: rgba(17,17,17,.08); }
+  .card { position: absolute; right: 14px; bottom: 14px; width: 260px; background: #fff; border: 1px solid #dcdcdc; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.10); padding: 10px 12px; font-size: 12px; }
+  .card .hd { display: flex; align-items: center; gap: 7px; font-weight: 600; margin-bottom: 6px; } .card .hd .stop { margin-left: auto; }
+  .card ol { margin: 0; padding-left: 16px; color: #777; } .card li.now { color: #111; font-weight: 500; }
+</style></head><body>
+<h1>Claude's cursor and "using this tab" banner</h1>
+<p class="sub">keydillo for Chrome. Only on tabs in the Claude · keydillo group. Monochrome, no animation beyond the cursor gliding to its target.</p>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="dillo" viewBox="1.05 24.53 101.40 69.93"><mask id="m" maskUnits="userSpaceOnUse" x="-20" y="-20" width="140" height="140"><g fill="#fff"><circle cx="12" cy="62" r="6.5"/><circle cx="29" cy="62" r="6.5"/><circle cx="46" cy="62" r="6.5"/><path d="M58 68.5 A16 18 0 0 1 90 68.5 Z"/><path d="M87 58 C92 59 96 63 98 68.5 L85 68.5 Z"/><path d="M87 59 L89.5 52 L92 60 Z"/></g><g><path d="M68 48 V69 M74 48 V69 M80 48 V69" stroke="#000" stroke-width="2.4"/></g></mask><rect x="-20" y="-20" width="140" height="140" fill="currentColor" mask="url(#m)"/></symbol>
+    <symbol id="arrow" viewBox="0 0 18 22"><path d="M1.5 1.5 L1.5 17.5 L5.6 13.6 L8.6 20.3 L11.4 19.1 L8.5 12.6 L14.2 12.6 Z" fill="#111" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="grid">
+<!-- template page -->
+<template id="pg"><div class="dots"><i></i><i></i><i></i></div>
+  <div class="chrome"><div class="tab user">Inbox</div><div class="grp"><b>Claude · keydillo</b><div class="tab mine">API keys</div></div></div>
+  <div class="url"><span>platform.example.com/settings/keys</span></div>
+  <div class="page"><h3>API keys</h3><div class="muted">Keys let your apps call the API.</div>
+    <div class="row"><span>production</span><code>sk-…a91F</code></div><div class="row"><span>staging</span><code>sk-…77Qc</code></div>
+    <div style="margin-top:14px"><span class="btn">Create key</span></div></div></template>
+
+<div class="opt"><h2>1. Top pill <span class="rec">Recommended</span></h2>
+<p>A black pill at the top of the page names who is driving, with Stop. The cursor carries a small label of what it's doing. Covers the least of the page.</p>
+<div class="win" data-pg>
+  <div class="pill"><svg class="mark" style="color:#fff"><use href="#dillo"/></svg>Claude is using this tab<span class="stop">Stop</span></div>
+  <svg class="cursor" style="left:104px;top:262px"><use href="#arrow"/></svg>
+  <div class="label dark" style="left:122px;top:282px">Clicking “Create key”</div>
+</div></div>
+
+<div class="opt"><h2>2. Bottom bar</h2>
+<p>A quiet white bar along the bottom says what's happening and that secrets stay hidden. Clearer, but it covers page content at the bottom.</p>
+<div class="win" data-pg>
+  <div class="bar"><svg class="mark"><use href="#dillo"/></svg><b>Claude is using this tab</b><span class="grow">Passwords and keys stay hidden from it</span><span class="stop dark">Stop</span></div>
+  <svg class="cursor" style="left:104px;top:262px"><use href="#arrow"/></svg>
+  <div class="label light" style="left:122px;top:282px">Clicking “Create key”</div>
+</div></div>
+
+<div class="opt"><h2>3. Frame and tab</h2>
+<p>A black outline around the page and a tab hanging from the top edge. Impossible to miss at a glance; the cursor is a ring rather than a second arrow, so it never looks like your own pointer.</p>
+<div class="win" data-pg>
+  <div class="frame"></div>
+  <div class="chip"><svg class="mark" style="color:#fff"><use href="#dillo"/></svg>Claude is using this tab<span class="stop">Stop</span></div>
+  <div class="ring" style="left:96px;top:258px"></div>
+  <div class="label dark" style="left:124px;top:282px">Clicking “Create key”</div>
+</div></div>
+
+<div class="opt"><h2>4. Step card</h2>
+<p>A small card in the corner lists Claude's last few steps, with Stop. The cursor has no label; the card says what it's doing. Most informative, most to read.</p>
+<div class="win" data-pg>
+  <div class="card"><div class="hd"><svg class="mark"><use href="#dillo"/></svg>Claude is using this tab<span class="stop dark">Stop</span></div>
+    <ol><li>Opened platform.example.com</li><li>Read the page</li><li class="now">Clicking “Create key”</li></ol></div>
+  <svg class="cursor" style="left:104px;top:262px"><use href="#arrow"/></svg>
+</div></div>
+</div>
+<script>
+  const t = document.getElementById('pg').innerHTML;
+  for (const w of document.querySelectorAll('[data-pg]')) w.insertAdjacentHTML('afterbegin', t);
+</script>
+</body></html>
