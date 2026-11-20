@@ -366,6 +366,14 @@ final class ImportModel {
       var changed = false
       var restoredBaseEnvs: [String] = []
       for (i, line) in lines.enumerated() {
+        // A dev value (JWT, session, encryption secrets) goes back to the real one too.
+        if let dev = devValueLine(line, path: path, model: model), project == nil || dev.project == project, key == nil || dev.name == key {
+          guard let value = try? model.keychain.secret(for: dev.name, context: ctx) else { missed.append(dev.envVarName); continue }
+          let eq = line.firstIndex(of: "=")!
+          lines[i] = String(line[...eq]) + ImportScanner.envValueText(String(decoding: value, as: UTF8.self), original: originalText[path]?[dev.envVarName])
+          changed = true
+          continue
+        }
         guard let service = Placeholder.service(in: line), project == nil || model.service(named: service)?.project == project,
               key == nil || service == key,
               let eq = line.firstIndex(of: "="),
@@ -386,6 +394,19 @@ final class ImportModel {
     }
     let done = restored == 0 ? "Nothing to put back\(project.map { " for \($0)" } ?? "")." : "Put real keys back in \(restored) file\(restored == 1 ? "" : "s")."
     return missed.isEmpty ? done : done + " Couldn't restore: \(missed.joined(separator: ", ")) (keydillo doesn't have a real value for these)."
+  }
+
+  /// The service whose dev value this .env line holds, if any (same variable name, same value, a file in its folder).
+  static func devValueLine(_ line: String, path: String, model: AppModel) -> ServiceConfig? {
+    var l = line.trimmingCharacters(in: .whitespaces)
+    if l.hasPrefix("export ") { l = String(l.dropFirst(7)) }
+    guard let eq = l.firstIndex(of: "="), !l.hasPrefix("#") else { return nil }
+    let name = String(l[..<eq]).trimmingCharacters(in: .whitespaces)
+    let value = ImportScanner.unquote(String(l[l.index(after: eq)...]))
+    let dir = (path as NSString).deletingLastPathComponent
+    return model.services.first { s in
+      s.devValue != nil && s.devValue == value && s.envVarName == name && (s.folder.map { dir == $0 || dir.hasPrefix($0 + "/") } ?? true)
+    }
   }
 
   static func slug(_ envName: String) -> String {
