@@ -46,6 +46,8 @@ public final class ProxyEngine: @unchecked Sendable {
 
   /// Called after the user approves a new host for a key, so the app can remember it.
   public var onHostAdded: ((String, String) -> Void)?
+  /// A new kind of request was approved for a key (service name, kind such as "POST /v1/refunds").
+  public var onKindAdded: ((String, String) -> Void)?
   let approver: Approver
 
   public init(services: @escaping () -> [ServiceConfig], secrets: SecretProvider, approver: Approver) {
@@ -157,6 +159,24 @@ public final class ProxyEngine: @unchecked Sendable {
 
     let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: svc.upstreamHost,
                                    method: req.method, path: upstreamPath, client: client)
+    // Opt-in: the first request of a new kind (method and path, IDs folded) needs its own Touch ID naming it.
+    let kind = ServiceConfig.requestKind(method: req.method, path: decodedPath)
+    if !svc.knowsKind(kind) {
+      switch await approver.approveNewKind(approval, kind: kind) {
+      case .approved(let c):
+        hostApproval = .some(c)
+        onKindAdded?(name, kind)
+        log(.sent, 0, "new request \(kind) approved for \(name)")
+      case .denied:
+        log(.denied, 403, "new request \(kind) declined")
+        return await sink.respond(.error(403, "the user didn't allow \(svc.displayName)'s key to be used for \(kind)", code: "new_request_denied",
+          hint: "This key asks before each new kind of request, and the user declined this one. Stop and tell the user what you were trying to do."))
+      case .unavailable(let why):
+        log(.denied, 423, why)
+        return await sink.respond(.error(423, "a new kind of request for \(svc.displayName) (\(kind)) needs the user's Touch ID, which isn't possible right now (\(why))", code: "approval_unavailable",
+          hint: "Tell the user; it needs them at the Mac."))
+      }
+    }
     let ctx: LAContext?
     if let approved = hostApproval { ctx = approved } else {
     switch await gate.authorize(svc, approval) {

@@ -43,10 +43,14 @@ public protocol Approver: AnyObject {
   /// Sending a key to a host it hasn't been sent to before. Always an explicit prompt naming the host:
   /// never covered by an earlier approval, a project setting or the locked-Mac mode.
   func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult
+  /// A key with "ask for each new kind of request" on, making a kind of request it hasn't made before. Always an
+  /// explicit prompt naming the request, like a new host.
+  func approveNewKind(_ request: ApprovalRequest, kind: String) async -> ApprovalResult
 }
 
 public extension Approver {
   func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult { .denied }
+  func approveNewKind(_ request: ApprovalRequest, kind: String) async -> ApprovalResult { .denied }
 }
 
 public extension ApprovalRequest {
@@ -54,6 +58,11 @@ public extension ApprovalRequest {
   var newHostReason: String {
     let note = Self.sharedHostingSuffix(host).map { " Note: anyone can host a site on \($0)." } ?? ""
     return "send your \(displayName) key to \(host)\n\nA new site for this key, asked for by \(client.friendlyName). keydillo will remember it.\(note)"
+  }
+
+  /// "keydillo is trying to let Claude Code use your Stripe key for something new: POST /v1/refunds…"
+  func newKindReason(_ kind: String) -> String {
+    "let \(client.friendlyName) use your \(displayName) key for something new: \(kind)\n\nThis key hasn't made this kind of request before. keydillo will remember it." + saysSuffix
   }
 
   /// Domains where anyone can put up a site, so a host there proves nothing about who runs it.

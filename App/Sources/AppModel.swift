@@ -168,6 +168,9 @@ final class AppModel {
     engine.onHostAdded = { [weak self] name, host in
       Task { @MainActor in self?.addHost(host, to: name) }
     }
+    engine.onKindAdded = { [weak self] name, kind in
+      Task { @MainActor in self?.addKind(kind, to: name) }
+    }
     engine.onEvent = { [weak self] e in
       Task { @MainActor in
         guard let self else { return }
@@ -495,6 +498,12 @@ final class AppModel {
   /// Rule edits that change where a key can go need Touch ID too.
   func update(_ config: ServiceConfig) async throws -> Bool {
     try config.validate()
+    // Approved kinds of request change only through the proxy (after Touch ID) and Remove, never from an open editor.
+    var config = config
+    config.knownPaths = service(named: config.name)?.knownPaths
+    if service(named: config.name)?.askNewPaths == true && config.askNewPaths != true {
+      guard await authenticate("stop asking before new kinds of requests with your \(config.displayName) key") != nil else { return false }
+    }
     // Anything that changes where or how the key is sent, or how often you're asked, needs Touch ID.
     if let old = service(named: config.name),
        old.upstreamHost != config.upstreamHost || old.authHeader != config.authHeader || old.authPrefix != config.authPrefix
@@ -506,6 +515,20 @@ final class AppModel {
     try persist(services.map { $0.name == config.name ? config : $0 })
     Task { await engine.gate.revokeAll(service: config.name); await refreshGrants() }
     return true
+  }
+
+  /// Called only after the user approved this kind of request with Touch ID (from the proxy).
+  func addKind(_ kind: String, to name: String) {
+    guard var s = service(named: name), !(s.knownPaths ?? []).contains(kind) else { return }
+    s.knownPaths = (s.knownPaths ?? []) + [kind]
+    try? persist(services.map { $0.name == name ? s : $0 })
+  }
+
+  /// Forgetting a kind of request only makes keydillo ask again, so it needs no Touch ID.
+  func removeKind(_ kind: String, from name: String) {
+    guard var s = service(named: name) else { return }
+    s.knownPaths = (s.knownPaths ?? []).filter { $0 != kind }
+    try? persist(services.map { $0.name == name ? s : $0 })
   }
 
   /// Called only after the user approved this host with Touch ID (from the proxy).
@@ -896,6 +919,16 @@ final class ModelApprover: Approver, @unchecked Sendable {
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Don't allow"
     do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.newHostReason) ? .approved(ctx) : .denied }
+    catch { return .denied }
+  }
+
+  /// A key with "ask before new kinds of requests" on, making one it hasn't made: an explicit Touch ID naming it,
+  /// whatever the project setting or earlier approvals.
+  func approveNewKind(_ request: ApprovalRequest, kind: String) async -> ApprovalResult {
+    if Self.screenLocked { return .unavailable("the Mac is locked") }
+    let ctx = LAContext()
+    ctx.localizedCancelTitle = "Don't allow"
+    do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.newKindReason(kind)) ? .approved(ctx) : .denied }
     catch { return .denied }
   }
 

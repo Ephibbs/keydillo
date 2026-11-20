@@ -23,7 +23,7 @@ SECRETS = {
     "hdr": "REAL-hdr-5e1f0a9c2b7d4e6f", "bearer": "REAL-bearer-8c3b1d2e4f5a6b7c", "basic": "sk_test_REALbasic9a8b7c6d",
     "pair": "ACrealsid12345:REALtoken6789abcd", "query": "REAL-query-1a2b3c4d5e6f7a8b", "multi": "REAL-multi-0f1e2d3c4b5a6978",
     "sub": "REAL-sub-123456:ABCDEFghijklmn", "openai": "sk-REALopenai-1234567890abcdef", "anthropic": "sk-ant-REALanthropic-12345678",
-    "stripe": "sk_test_REALstripe1234567890", "rules": "REAL-rules-aabbccddeeff0011", "down": "REAL-down-0011223344556677",
+    "stripe": "sk_test_REALstripe1234567890", "rules": "REAL-rules-aabbccddeeff0011", "down": "REAL-down-0011223344556677", "kinds": "REAL-kinds-8899aabbccddeeff",
 }
 
 def svc(name, header="", prefix="", **extra):
@@ -38,6 +38,7 @@ SERVICES = [
     svc("openai", "Authorization", "Bearer "), svc("anthropic", "x-api-key"), svc("stripe", "Authorization", "Bearer "),
     svc("rules", "x-api-key", allowed=[{"method": "POST", "pattern": "/echo"}]),
     dict(svc("down", "x-api-key"), upstreamHost="127.0.0.1:18999"),
+    svc("kinds", "x-api-key", askNewPaths=True, knownPaths=["GET /echo"]),
 ]
 
 def ph(name): return f"keydillo:{name}"
@@ -224,6 +225,21 @@ def c_unknown(c):
     r = c("GET", f"{PROXY}/nope/echo"); check(r["status"] == 404 and js(r)["code"] == "unknown_service" and "request_secret" in js(r)["hint"], "unclear error")
 def c_rules(c):
     r = c("GET", f"{PROXY}/rules/echo"); check(r["status"] == 403 and js(r)["code"] == "path_not_allowed", f"{r['status']}")
+def c_new_kinds(c):
+    def kinds():
+        try: return open(DECISION + ".kinds").read().split("\n")[:-1]
+        except Exception: return []
+    r = c("GET", f"{PROXY}/kinds/echo"); check(r["status"] == 200 and kinds() == [], f"a known kind asked again ({r['status']}, {kinds()})")
+    c("POST", f"{PROXY}/kinds/v1/refunds/re_1Nq8x2LkdIwHu7ix", {"Content-Type": "application/json"}, b"{}")
+    check(kinds() == ["POST /v1/refunds/*"], f"first refund didn't ask once by kind: {kinds()}")
+    c("POST", f"{PROXY}/kinds/v1/refunds/re_9Zz7y6XwvUtSr5qp", {"Content-Type": "application/json"}, b"{}")
+    check(kinds() == ["POST /v1/refunds/*"], f"a second refund (different ID) asked again: {kinds()}")
+    time.sleep(3.2); decide("deny")
+    try:
+        r = c("DELETE", f"{PROXY}/kinds/v1/customers/cus_Q2w3e4r5t6")
+        check(r["status"] == 403 and js(r)["code"] == "new_request_denied", f"declined new kind went through ({r['status']})")
+    finally: decide("approve")
+    r = c("GET", f"{PROXY}/hdr/echo"); check(r["status"] == 200, "a key without the option was affected")
 def c_upstream_down(c):
     r = c("GET", f"{PROXY}/down/echo"); check(r["status"] == 502 and js(r)["code"] == "upstream_failed", f"{r['status']}")
 def c_misplaced(c):
@@ -255,7 +271,7 @@ GENERIC = [
 ]
 ONCE = [
     ("20 parallel calls share one Touch ID", c_parallel), ("Denied → clear 403", c_denied), ("Mac locked → clear 423", c_locked),
-    ("Unknown key → hint to request_secret", c_unknown), ("Path rule blocks", c_rules), ("Upstream down → 502", c_upstream_down),
+    ("Unknown key → hint to request_secret", c_unknown), ("Path rule blocks", c_rules), ("New kind of request asks once (opt-in)", c_new_kinds), ("Upstream down → 502", c_upstream_down),
     ("Placeholder outside its spot refused", c_misplaced), ("Web page (Origin) blocked", c_browser_origin), ("DNS rebinding Host blocked", c_rebinding), ("IPv6 [::1] works", c_ipv6),
 ]
 
