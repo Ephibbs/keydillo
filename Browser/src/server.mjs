@@ -186,11 +186,43 @@ async function sideDoorRefusal(name) {
   return `keydillo won't ${name === 'save_new_key' || name === 'start_key_capture' ? 'capture a key' : 'fill a password'} in Chrome right now, because something else could read it:\n${doors.map((d, i) => `${i + 1}. ${d}`).join('\n')}\nAsk the user to fix this, then try again.`;
 }
 
+// What Claude is doing, in a few words, for the label next to its cursor in the user's Chrome.
+const quote = (s) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t ? `“${t.length > 40 ? t.slice(0, 39) + '…' : t}”` : ''; };
+const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
+export function labelFor(name, args = {}) {
+  const el = quote(args.element);
+  switch (name) {
+    case 'browser_navigate': return `Opening ${hostOf(args.url) || 'a page'}`;
+    case 'browser_navigate_back': return 'Going back';
+    case 'browser_navigate_forward': return 'Going forward';
+    case 'browser_snapshot': return 'Reading the page';
+    case 'browser_find': return 'Finding on page';
+    case 'browser_click': return el ? `Clicking ${el}` : 'Clicking';
+    case 'browser_hover': return el ? `Pointing at ${el}` : 'Pointing';
+    case 'browser_type': return el ? `Typing in ${el}` : 'Typing';
+    case 'browser_fill_form': return 'Filling in the form';
+    case 'browser_select_option': return el ? `Choosing in ${el}` : 'Choosing an option';
+    case 'browser_check': return el ? `Ticking ${el}` : 'Ticking a box';
+    case 'browser_press_key': return `Pressing ${String(args.key || 'a key').slice(0, 20)}`;
+    case 'browser_drag': return 'Dragging';
+    case 'browser_take_screenshot': return 'Taking a screenshot';
+    case 'browser_wait_for': return 'Waiting';
+    case 'browser_handle_dialog': return 'Answering a dialog';
+    case 'browser_file_upload': return 'Choosing a file';
+    case 'fill_login': return 'Signing in with keydillo';
+    case 'fill_new_password': return 'Filling in a new password';
+    case 'start_key_capture': return 'Getting ready to save a key';
+    case 'save_new_key': return 'Saving the key in keydillo';
+    default: return null;
+  }
+}
+
 const handleCall = (req) => serial(async () => {
   const { name, arguments: args = {} } = req.params;
   try {
     const door = await sideDoorRefusal(name);
     if (door) return text(door, true);
+    if (chromeMode && labelFor(name, args)) { await getContext(); relay?.label(labelFor(name, args)); }
     if (name === 'list_logins') return text(JSON.stringify(await store.list(), null, 2));
     if (name === 'fill_login') {
       await getContext();

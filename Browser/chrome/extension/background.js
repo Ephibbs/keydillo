@@ -15,6 +15,42 @@ let clientConnected = false;
 const ours = new Set();
 let groupId = null;
 
+// Claude's cursor and the "Claude is using this tab" pill (overlay.js), drawn in a separate JavaScript world.
+const WORLD = 'keydillo';
+const overlaySource = fetch(chrome.runtime.getURL('overlay.js')).then((r) => r.text());
+const worlds = new Map();   // tabId -> execution context id of the overlay's world
+const cursors = new Map();  // tabId -> { x, y }
+const mainFrames = new Map(); // tabId -> its top frame's id
+let lastTab = null;         // the tab Claude last sent a command to
+let lastInput = 0;          // when Claude last moved or clicked the mouse
+
+async function inWorld(tabId, expression) {
+  const contextId = worlds.get(tabId);
+  if (!contextId) return;
+  await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression, contextId }).catch(() => {});
+}
+
+async function addOverlay(tabId) {
+  const t = { tabId };
+  const info = await chrome.debugger.sendCommand(t, 'Target.getTargetInfo').catch(() => null);
+  if (info?.targetInfo?.targetId) mainFrames.set(tabId, info.targetInfo.targetId);
+  await chrome.debugger.sendCommand(t, 'Runtime.addBinding', { name: 'kdStop', executionContextName: WORLD }).catch(() => {});
+  await chrome.debugger.sendCommand(t, 'Page.enable').catch(() => {});
+  await chrome.debugger.sendCommand(t, 'Page.addScriptToEvaluateOnNewDocument', { source: await overlaySource, worldName: WORLD, runImmediately: true }).catch(() => {});
+}
+
+async function removeOverlay(tabId) {
+  await inWorld(tabId, 'globalThis.__kd?.remove()');
+  worlds.delete(tabId); cursors.delete(tabId);
+}
+
+/** Stop: the user takes the tab back. It leaves Claude's group and Claude loses it. */
+async function stopTab(tabId) {
+  await removeOverlay(tabId);
+  if (drop(tabId)) event('chrome.tabs.onRemoved', [tabId]);
+  await chrome.tabs.ungroup(tabId).catch(() => {});
+}
+
 const save = () => chrome.storage.session.set({ ours: [...ours], groupId }).catch(() => {});
 const restored = chrome.storage.session.get(['ours', 'groupId']).then(async (s) => {
   for (const id of s.ours || []) { try { await chrome.tabs.get(id); ours.add(id); } catch {} }
@@ -42,12 +78,23 @@ async function adopt(tab) {
 function drop(tabId) {
   if (!ours.delete(tabId)) return false;
   save();
+  worlds.delete(tabId); cursors.delete(tabId);
   chrome.debugger.detach({ tabId }).catch(() => {});
   return true;
 }
 
 function mine(tabId) {
   if (!ours.has(tabId)) throw new Error('Refused by keydillo: that tab is not one of Claude\'s tabs.');
+}
+
+/** Moves Claude's cursor to where it's about to point, and lets it glide there before a click lands. */
+async function showMouse(tabId, { type, x, y }) {
+  lastInput = Date.now();
+  const was = cursors.get(tabId);
+  cursors.set(tabId, { x, y });
+  await inWorld(tabId, `globalThis.__kd?.busy(); globalThis.__kd?.move(${x}, ${y})`);
+  const far = !was || Math.hypot(was.x - x, was.y - y) > 30;
+  if (type === 'mouseMoved' && far) await new Promise((r) => setTimeout(r, 240));
 }
 
 const handlers = {
@@ -61,11 +108,17 @@ const handlers = {
     mine(target.tabId);
     await chrome.debugger.attach({ tabId: target.tabId }, version);
     await chrome.debugger.sendCommand({ tabId: target.tabId }, 'Page.setDownloadBehavior', { behavior: 'deny' }).catch(() => {});
+    await addOverlay(target.tabId);
   },
   async 'chrome.debugger.sendCommand'([target, method, params]) {
     mine(target.tabId);
     if (refused(method)) throw new Error(`Refused by keydillo: ${method} reaches outside Claude's tab.`);
+    lastTab = target.tabId;
+    if (method === 'Input.dispatchMouseEvent' && !target.sessionId && Number.isFinite(params?.x)) await showMouse(target.tabId, params);
     return await chrome.debugger.sendCommand(target, method, params);
+  },
+  async 'keydillo.label'([text]) {
+    if (lastTab !== null && ours.has(lastTab)) await inWorld(lastTab, `globalThis.__kd?.label(${JSON.stringify(String(text).slice(0, 80))})`);
   },
   async 'keydillo.status'() {
     return { extensions: await riskyExtensions(), tabs: ours.size, version: chrome.runtime.getManifest().version };
@@ -84,7 +137,7 @@ async function onMessage(msg) {
   }
   if (msg.method === 'client.bye') {
     clientConnected = false;
-    for (const id of ours) chrome.debugger.detach({ tabId: id }).catch(() => {});
+    for (const id of ours) { await removeOverlay(id); chrome.debugger.detach({ tabId: id }).catch(() => {}); }
     return;
   }
   const h = handlers[msg.method];
@@ -107,7 +160,17 @@ function connect() {
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (ours.has(source.tabId)) event('chrome.debugger.onEvent', [source, method, params]);
+  if (!ours.has(source.tabId)) return;
+  // The overlay's own world and its Stop button stay between the extension and the page.
+  if (!source.sessionId && method === 'Runtime.executionContextCreated' && params?.context?.name === WORLD) {
+    if (params.context.auxData?.frameId === mainFrames.get(source.tabId)) worlds.set(source.tabId, params.context.id);
+    return;
+  }
+  if (!source.sessionId && method === 'Runtime.bindingCalled' && params?.name === 'kdStop') {
+    if (Date.now() - lastInput > 400) stopTab(source.tabId); // a click Claude just made isn't the user pressing Stop
+    return;
+  }
+  event('chrome.debugger.onEvent', [source, method, params]);
 });
 chrome.debugger.onDetach.addListener((source, reason) => {
   if (ours.has(source.tabId)) event('chrome.debugger.onDetach', [source, reason]);

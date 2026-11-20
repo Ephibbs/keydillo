@@ -10,6 +10,7 @@ The extension replaces Claude in Chrome: it is Claude's only way into your brows
 2. **Claude never gets a password or key.** Passwords are filled after Touch ID, keys are saved after Touch ID, and both show as `••••••••` / `[key hidden …abcd]` in everything Claude reads. Keys are drawn as dots on your screen too.
 3. **Claude can't read cookies or run JavaScript in your Chrome.** Chrome's debugger would let one tab read every site's sign-in cookies, so the extension refuses those commands. Claude uses snapshots, clicks and typing instead.
 4. **Signing in and saving keys stop while anything else could read the page.** The error names what to fix.
+5. **You can see what Claude is doing.** Its tabs show a "Claude is using this tab" pill with **Stop**, and Claude's cursor with a short label ("Clicking "Create key""). Stop takes the tab back from Claude at once. The overlay is drawn in its own JavaScript world inside a closed shadow root: page scripts can't reach it, it's left out of what Claude reads, and the pill lets clicks through, so it never blocks Claude's clicks and Claude can't press Stop.
 
 | Side door | What keydillo does |
 |---|---|
@@ -51,6 +52,7 @@ An agent with a plaintext .env reads every key with `cat`. Here Claude never rec
 | A key with no known format shows on screen until Claude's next step, when keydillo spots it and dots it. Known formats (`sk-`, `ghp_`, …) are dotted the moment they appear | Accepted for the prototype |
 | Apps with Accessibility or Screen Recording permission (screen readers, computer-use tools) can read what Chrome shows. Dots cover keys on screen; the Accessibility tree isn't covered | Open, documented |
 | A pop-up can finish loading before keydillo attaches to it, so the first "page loaded" event is missed. Claude still sees it as one of its tabs | Accepted |
+| Stop is tested only in the sense that Claude's own clicks can't trigger it; pressing it with your real mouse needs your run | Needs your run |
 | Tested in Playwright's Chromium 130 with the extension loaded. Not yet in your Chrome | Needs your run (steps above) |
 
 ## Tests

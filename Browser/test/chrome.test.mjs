@@ -140,3 +140,32 @@ test('keys are drawn as dots on screen, not just hidden from Claude', { skip }, 
     });
   } finally { keysSite.close(); }
 });
+
+test('cursor and "using this tab" pill: invisible to Claude and the page, and never in the way', { skip }, async () => {
+  const s = http.createServer((q, r) => {
+    r.setHeader('content-type', 'text/html');
+    r.end('<meta charset=utf-8><title>t</title><body style="margin:0"><div style="text-align:center;padding:18px 0"><button id=top onclick="this.textContent=\'top clicked\'">Under the pill</button></div><button id=c onclick="this.textContent=\'Created\'">Create key</button>');
+  }).listen(0);
+  try {
+    await withChrome({}, async ({ context, relay }) => {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${s.address().port}/`);
+      relay.label('Clicking “Create key”');
+      await page.click('#c');
+      assert.equal(await page.textContent('#c'), 'Created');
+      // Overlay is on the page, but its contents are out of reach of page scripts and out of Claude's snapshot.
+      const seen = await page.evaluate(() => { const h = document.querySelector('keydillo-overlay'); return { host: !!h, shadow: !!h?.shadowRoot, text: document.documentElement.innerText }; });
+      assert.ok(seen.host); assert.equal(seen.shadow, false); assert.ok(!seen.text.includes('using this tab'));
+      assert.ok(!(await page.locator('html').ariaSnapshot()).includes('using this tab'));
+      // A button right under the pill still gets Claude's click, and Claude can't press Stop.
+      await page.click('#top');
+      assert.equal(await page.textContent('#top'), 'top clicked');
+      await page.mouse.click(400, 28);
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(context.pages().length, 1, 'still Claude\'s tab');
+      // Stays after a navigation.
+      await page.goto(`http://127.0.0.1:${s.address().port}/next`);
+      assert.ok(await page.evaluate(() => !!document.querySelector('keydillo-overlay')));
+    });
+  } finally { s.close(); }
+});

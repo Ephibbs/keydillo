@@ -108,6 +108,9 @@ export class ChromeRelay {
     return doors;
   }
 
+  /** Shows what Claude is doing next to its cursor in Chrome. */
+  label(text) { if (text) this.bridge.send('keydillo.label', [text]).catch(() => {}); }
+
   toClient(m) { this.client?.send(JSON.stringify(m)); }
 
   async handle(method, params, sessionId) {
