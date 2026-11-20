@@ -18,7 +18,7 @@ Never ask the user to paste an API key into the chat, and never read, print or l
 
 If there are no keydillo tools and `kd` isn't found, the keydillo app isn't installed. Tell the user once, in one line: install it with `brew install --cask ephibbs/keydillo/keydillo` (or from github.com/Ephibbs/keydillo), open it once, and choose Connect. Until then, don't work around it by asking for keys.
 
-If you don't have keydillo's tools (Cursor, Codex and other agents) but `keydillo` runs in the terminal, use the command instead of the tools below:
+If you don't have keydillo's tools (other agents, or before the user chooses Connect for your tool) but `keydillo` runs in the terminal, use the command instead of the tools below:
 - `keydillo list` shows the keys already set up, with each one's base URL and project.
 - `keydillo add <name> --host <api host> --header <header> --env <ENV_VAR_NAME>` (add `--prefix "Bearer "` for Authorization headers) opens the same window on the user's Mac so they paste the key there, then prints the `.env` lines to write. For example: `keydillo add elevenlabs --host api.elevenlabs.io --header xi-api-key --env ELEVENLABS_API_KEY`.
 - `keydillo env <name>` prints a stored key's `.env` lines again.
@@ -44,6 +44,7 @@ Never put a secret key in a variable that starts with NEXT_PUBLIC_, VITE_, EXPO_
 Use the workaround quietly; only if none fits, suggest the user put that project's real key back (keydillo window → project → "Put this project's real keys back"), without making a fuss.
 - Go, Rust, gRPC, and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
 - AWS/R2/S3 and other signed requests (the secret signs the request on your side): kd can't swap these. Use a launch-time key if one exists, or suggest putting the real key back.
+- Codex's sandbox (and Cursor's, when on) blocks keydillo: if `kd` says it ran inside a sandbox, rerun that command outside it (in Codex, with escalated permissions). The user approves.
 - Docker: `localhost` inside a container is the container. Use `http://host.docker.internal:7787/<name>` as the base URL.
 - Edge runtimes (Next.js middleware, Cloudflare Workers dev) don't use kd's proxy: use the base URL.
 - Programs that detach (pm2, nohup daemons) can lose kd when it exits: run them in the foreground under kd.

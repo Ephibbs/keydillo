@@ -115,18 +115,20 @@ struct PopoverView: View {
     .task { await model.refreshGrants() }
   }
 
-  @State private var claudeStatus = ClaudeConnector.status
+  @State private var tools = AgentTools.all
   @State private var reconnecting = false
   @State private var reconnectNote: String?
 
-  /// AI tools that use keydillo: one quiet line for the ones that work, and a fix for Claude Code when its setup broke.
+  /// AI tools that use keydillo: one quiet line for the ones that work, and a fix for any whose setup broke.
   /// Tools never set up aren't mentioned.
   var connectedAgents: [String] {
-    var out: [String] = claudeStatus == .connected ? ["Claude Code"] : []
+    var out: [String] = tools.filter { $0.status == .connected }.map(\.name)
     let recent = model.agentsSeen.filter { $0.value > Date().addingTimeInterval(-30 * 24 * 3600) }.map(\.key)
     for a in (recent + ClaudeConnector.otherAgentsWithSkill).sorted() where !out.contains(a) { out.append(a) }
     return out
   }
+
+  var broken: [AgentTools.Tool] { tools.filter { $0.status == .needsReconnecting } }
 
   @ViewBuilder var claudeStatusLine: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -134,17 +136,19 @@ struct PopoverView: View {
         HStack(spacing: 6) { StatusDot(on: true); Text("Connected: " + connectedAgents.joined(separator: ", ")) }
           .font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }
-      if claudeStatus == .needsReconnecting {
+      if !broken.isEmpty {
         Button {
           reconnecting = true
           Task {
-            reconnectNote = await ClaudeConnector.connect()
-            claudeStatus = ClaudeConnector.status
+            var errs: [String] = []
+            for t in broken { if let e = await t.connect() { errs.append(e) } }
+            reconnectNote = errs.isEmpty ? nil : errs.joined(separator: "\n")
+            tools = AgentTools.all
             reconnecting = false
           }
         } label: {
           HStack(spacing: 4) {
-            Text("⚠︎ Claude Code needs reconnecting ·").foregroundStyle(Theme.danger)
+            Text("⚠︎ \(broken.map(\.name).joined(separator: ", ")) needs reconnecting ·").foregroundStyle(Theme.danger)
             Text(reconnecting ? "Connecting…" : "Reconnect").underline()
           }
           .font(.system(size: 12))
@@ -155,8 +159,8 @@ struct PopoverView: View {
         Text(reconnectNote).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       }
     }
-    .padding(.horizontal, 16).padding(.bottom, connectedAgents.isEmpty && claudeStatus != .needsReconnecting ? 0 : 10)
-    .onAppear { claudeStatus = ClaudeConnector.status }
+    .padding(.horizontal, 16).padding(.bottom, connectedAgents.isEmpty && broken.isEmpty ? 0 : 10)
+    .onAppear { tools = AgentTools.all }
   }
 
   /// The card shrinks to one line when hidden, until the set of files changes. It never goes away while real keys remain.

@@ -1,31 +1,51 @@
 import Foundation
 import VaultCore
 
-/// Claude Code PreToolUse hook. Reads the tool call as JSON on stdin.
-/// Exit 0 lets it run; exit 2 blocks it and shows stderr to the agent.
+/// Pre-command hooks. Claude Code and Codex send the tool call as JSON on stdin (`tool_name`, `tool_input`, `cwd`);
+/// exit 0 lets it run, exit 2 blocks it and shows stderr to the agent.
+/// Cursor's beforeShellExecution sends `command` and `cwd`, and takes `{"permission": "deny", ...}` on stdout instead.
 enum Hook {
-  static func run() -> Never {
+  static func run(cursor: Bool = false) -> Never {
     let input = FileHandle.standardInput.readDataToEndOfFile()
-    guard let obj = try? JSONSerialization.jsonObject(with: input) as? [String: Any],
-          let tool = obj["tool_name"] as? String, let args = obj["tool_input"] as? [String: Any] else { exit(0) }
-    let text: String
-    switch tool {
-    case "Bash": text = args["command"] as? String ?? ""
-    case "WebFetch": text = args["url"] as? String ?? ""
-    default: exit(0)
+    guard let obj = try? JSONSerialization.jsonObject(with: input) as? [String: Any] else { pass(cursor) }
+    let tool: String, text: String
+    if cursor {
+      guard let command = obj["command"] as? String else { pass(cursor) }
+      tool = "Bash"; text = command
+    } else {
+      guard let name = obj["tool_name"] as? String, let args = obj["tool_input"] as? [String: Any] else { exit(0) }
+      switch name {
+      case "Bash": text = args["command"] as? String ?? ""
+      case "WebFetch": text = args["url"] as? String ?? ""
+      default: exit(0)
+      }
+      tool = name
     }
+    let cwd = obj["cwd"] as? String
     // In a keydillo project, programs must start with `kd` so their placeholders get swapped. Catch it before it runs.
-    if tool == "Bash", !keydilloQuit, let msg = needsKd(text, cwd: obj["cwd"] as? String) {
-      FileHandle.standardError.write(Data(("keydillo: " + msg + "\n").utf8))
-      exit(2)
-    }
+    if tool == "Bash", !keydilloQuit, let msg = needsKd(text, cwd: cwd) { block(msg, cursor: cursor) }
     // If keydillo isn't running, never get in the way.
-    guard case .services(let services)? = try? ControlSocket.send(.listServices) else { exit(0) }
-    if let msg = verdict(text, tool: tool, services: services, cwd: obj["cwd"] as? String) {
-      FileHandle.standardError.write(Data(("keydillo: " + msg + "\n").utf8))
-      exit(2)
-    }
+    guard case .services(let services)? = try? ControlSocket.send(.listServices) else { pass(cursor) }
+    if let msg = verdict(text, tool: tool, services: services, cwd: cwd) { block(msg, cursor: cursor) }
+    pass(cursor)
+  }
+
+  /// No opinion: the tool's own approval rules decide. (Cursor gets an empty answer, never "allow", so its
+  /// allowlist and sandbox still apply.)
+  static func pass(_ cursor: Bool) -> Never {
+    if cursor { FileHandle.standardOutput.write(Data("{}\n".utf8)) }
     exit(0)
+  }
+
+  static func block(_ msg: String, cursor: Bool) -> Never {
+    if cursor {
+      let out: [String: Any] = ["permission": "deny", "agent_message": "keydillo: " + msg,
+                                "user_message": "keydillo stopped this command and told the agent how to run it with your keys."]
+      FileHandle.standardOutput.write((try? JSONSerialization.data(withJSONObject: out, options: [.withoutEscapingSlashes])) ?? Data())
+      exit(0)
+    }
+    FileHandle.standardError.write(Data(("keydillo: " + msg + "\n").utf8))
+    exit(2)
   }
 
   /// PostToolUse: when a program in a keydillo project ran without `kd` and its API refused the key, say why.

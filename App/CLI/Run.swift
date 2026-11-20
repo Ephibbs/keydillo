@@ -291,7 +291,8 @@ enum Runner {
 
   /// The app's services, opening keydillo in the background first if it isn't running.
   static func appServices() -> [ServiceSummary]? {
-    if case .services(let s)? = try? ControlSocket.send(.listServices) { return s }
+    do { if case .services(let s) = try ControlSocket.send(.listServices) { return s } }
+    catch VaultError.invalidConfig(ControlSocket.sandboxMessage) { fail(ControlSocket.sandboxMessage) } catch {}
     // You quit keydillo yourself: don't reopen it behind your back.
     let quit = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/quit-by-user")
     if FileManager.default.fileExists(atPath: quit.path) { fail("keydillo was quit. Open it to use keys.") }
@@ -306,7 +307,8 @@ enum Runner {
     try? p.run(); p.waitUntilExit()
     for _ in 0..<40 {
       usleep(250_000)
-      if case .services(let s)? = try? ControlSocket.send(.listServices) { return s }
+      do { if case .services(let s) = try ControlSocket.send(.listServices) { return s } }
+    catch VaultError.invalidConfig(ControlSocket.sandboxMessage) { fail(ControlSocket.sandboxMessage) } catch {}
     }
     return nil
   }

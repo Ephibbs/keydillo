@@ -192,6 +192,7 @@ final class AppModel {
     ImportModel.addHeadersToTrackedFiles(port: port)
     ImportModel.migratePlaceholders()
     ClaudeConnector.refreshSkillIfInstalled()
+    AgentTools.refresh()
     ShellIntegration.refreshLinks()
     Task { @MainActor in
       while true {
@@ -834,7 +835,7 @@ final class AppModel {
       let r = await ImportModel.restoreRealValues(model: self)
       if r == "Cancelled." { return "Cancelled. Nothing was removed." }
     }
-    ClaudeConnector.disconnect()
+    AgentTools.disconnectAll()
     ShellIntegration.removeLinks()
     try? await Self.agent.unregister()
     if deleteKeys {

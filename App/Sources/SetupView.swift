@@ -48,12 +48,26 @@ struct SetupView: View {
     }
   }
 
+  @State private var tools = AgentTools.all.filter(\.installed)
+  @State private var chosen: Set<String> = Set(AgentTools.all.filter(\.installed).map(\.name))
+  @State private var notes: [String] = []
+
   var claude: some View {
     Group {
-      header("Connect Claude Code", "Claude will ask keydillo when it needs a key, instead of asking you to paste it into the chat.")
+      header(tools.count > 1 ? "Connect your AI tools" : "Connect Claude Code",
+             "They'll ask keydillo when they need a key, instead of asking you to paste it into the chat.")
+      if tools.count > 1 {
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(tools) { t in
+            Toggle(t.name, isOn: Binding(get: { chosen.contains(t.name) },
+                                         set: { if $0 { chosen.insert(t.name) } else { chosen.remove(t.name) } }))
+              .toggleStyle(.checkbox).font(.system(size: 14))
+          }
+        }
+      }
       Collapsible(title: "What this changes", isOpen: $changesOpen) {
         VStack(alignment: .leading, spacing: 6) {
-          ForEach(ClaudeConnector.changes, id: \.self) { line in
+          ForEach(tools.count > 1 ? AgentTools.changes : ClaudeConnector.changes, id: \.self) { line in
             HStack(alignment: .top, spacing: 8) {
               Text("•").foregroundStyle(Theme.secondary)
               Text(line).fixedSize(horizontal: false, vertical: true)
@@ -63,7 +77,7 @@ struct SetupView: View {
         .font(.system(size: 13)).foregroundStyle(Theme.tertiary)
       }
       VStack(alignment: .leading, spacing: 4) {
-        Text("Put kd in front of commands that use your keys. Claude does it for you.").font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+        Text("Put kd in front of commands that use your keys. Your AI tool does it for you.").font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
         Text("kd npm run dev").font(.system(size: 13, design: .monospaced)).foregroundStyle(Theme.secondary)
         if kdMissing {
           Text("To use kd in Terminal, add this line to ~/.zshrc: \(ShellIntegration.pathLine)")
@@ -72,19 +86,30 @@ struct SetupView: View {
       }
       .task { kdMissing = await Task.detached { !ShellIntegration.kdOnPath() }.value }
       OtherToolsLine()
+      ForEach(notes, id: \.self) { Text($0).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true) }
       if let connectError { Text(connectError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       footer(3) {
         HStack(spacing: 8) {
-          Button("Skip") { finish() }.buttonStyle(SecondaryButtonStyle())
-          Button(connecting ? "Connecting…" : "Connect") {
-            connecting = true
-            Task {
-              let result = await ClaudeConnector.connect()
-              connecting = false
-              if let err = result { connectError = err } else { finish() }
+          if notes.isEmpty {
+            Button("Skip") { finish() }.buttonStyle(SecondaryButtonStyle())
+            Button(connecting ? "Connecting…" : "Connect") {
+              connecting = true
+              Task {
+                var errors: [String] = [], after: [String] = []
+                for t in tools where chosen.contains(t.name) {
+                  if let err = await t.connect() { errors.append(tools.count > 1 ? "\(t.name): \(err)" : err) }
+                  else if let n = t.afterConnect { after.append(n) }
+                }
+                connecting = false
+                if !errors.isEmpty { connectError = errors.joined(separator: "\n") }
+                else if !after.isEmpty { notes = after }
+                else { finish() }
+              }
             }
+            .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction).disabled(connecting || chosen.isEmpty)
+          } else {
+            Button("Done") { finish() }.buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
           }
-          .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction).disabled(connecting)
         }
       }
     }
@@ -132,13 +157,13 @@ struct SetupView: View {
   }
 }
 
-/// For people using Cursor, Codex and other agents: the skill works there too (no tools or hook).
+/// For people using other agents: the skill works there too (no tools or hook).
 struct OtherToolsLine: View {
   static let command = "npx skills add Ephibbs/keydillo"
   @State private var copied = false
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text("Using Cursor, Codex or another AI tool? Run:").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      Text("Using another AI tool? Run:").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       HStack(spacing: 8) {
         Text(Self.command).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
         Button(copied ? "Copied" : "Copy") {

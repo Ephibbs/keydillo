@@ -3,7 +3,8 @@ import SwiftUI
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
   @State private var loginItem = AppModel.shared.openAtLogin
-  @State private var connectStatus: String?
+  @State private var connectStatus: [String: String] = [:]
+  @State private var tools = AgentTools.all
   @State private var undoStatus: String?
   @State private var showUninstall = false
 
@@ -22,7 +23,7 @@ struct SettingsView: View {
       }
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
-        Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Claude does it for you.")
+        Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Your AI tool does it for you.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
@@ -36,12 +37,21 @@ struct SettingsView: View {
         }
       }
       VStack(alignment: .leading, spacing: 8) {
-        Text("Claude Code").font(.system(size: 13, weight: .medium))
-        HStack {
-          Button("Connect again") {
-            Task { connectStatus = await ClaudeConnector.connect() ?? "Connected." }
-          }.buttonStyle(SmallButtonStyle())
-          if let connectStatus { Text(connectStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
+        Text("AI tools").font(.system(size: 13, weight: .medium))
+        ForEach(tools.filter(\.installed)) { t in
+          HStack {
+            Text(t.name).font(.system(size: 13)).frame(width: 96, alignment: .leading)
+            Button(t.status == .notConnected ? "Connect" : "Connect again") {
+              Task {
+                let err = await t.connect()
+                connectStatus[t.name] = err ?? t.afterConnect ?? "Connected."
+                tools = AgentTools.all
+              }
+            }.buttonStyle(SmallButtonStyle())
+            Text(connectStatus[t.name] ?? (t.status == .needsReconnecting ? "Needs connecting again" : t.status == .connected ? "Connected" : ""))
+              .font(.system(size: 12)).foregroundStyle(t.status == .needsReconnecting && connectStatus[t.name] == nil ? Theme.danger : Theme.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
       }
       VStack(alignment: .leading, spacing: 8) {
@@ -73,7 +83,7 @@ struct UninstallView: View {
         .font(.system(size: 14)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       Toggle("Put the real keys back into my .env files first", isOn: $restore).toggleStyle(.checkbox)
       Toggle("Delete my keys from the Keychain", isOn: $deleteKeys).toggleStyle(.checkbox)
-      Text("Also removes keydillo from Claude Code and stops it starting at login. keydillo then moves to the Trash.")
+      Text("Also removes keydillo from Claude Code, Cursor and Codex, and stops it starting at login. keydillo then moves to the Trash.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let status { Text(status).font(.system(size: 12)).foregroundStyle(Theme.danger) }
       HStack {
