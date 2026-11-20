@@ -110,7 +110,7 @@ struct ImportView: View {
             .toggleStyle(.checkbox).labelsHidden().accessibilityLabel("Import \(k.name)").disabled(k.isPublic)
           Text(k.name).font(.system(size: 12, design: .monospaced)).lineLimit(1)
           Spacer()
-          if PostgresURL.parse(k.value) != nil && k.localOnly != nil {
+          if PostgresURL.proxyable(k.value) != nil && k.localOnly != nil {
             Menu {
               Button("Connect through keydillo (recommended)") { im.keepReal.remove(k.id) }
               Button("Give the real URL to the app (kd at start)") { im.keepReal.insert(k.id) }

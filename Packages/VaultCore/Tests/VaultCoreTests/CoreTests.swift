@@ -590,6 +590,12 @@ final class PostgresProxyTests: XCTestCase {
     XCTAssertTrue(PostgresURL.isLocal(local, port: 7788))
     XCTAssertFalse(PostgresURL.isLocal("postgres://u:p@db.example.com:5432/x", port: 7788))
     XCTAssertNil(PostgresURL.parse("mysql://u:p@h/db"))
+    // What the local endpoint can't stand in for stays a launch-time key that kd gives the program.
+    XCTAssertNotNil(PostgresURL.proxyable("postgresql://u:p@db.example.com:5432/app?sslmode=require"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?sslmode=verify-full&sslrootcert=/x/rds-ca.pem"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?sslcert=/x/c.crt&sslkey=/x/c.key"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?channel_binding=require"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@/app?host=/var/run/postgresql"))
     XCTAssertEqual(PostgresURL.parse("postgres://u@h/db")?.sslmode, "prefer")
   }
 

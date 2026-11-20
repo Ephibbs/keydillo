@@ -759,7 +759,7 @@ final class AppModel {
         let value = String(decoding: d, as: UTF8.self)
         // Postgres URLs move to keydillo's local endpoint the first time they're used, so the password stops
         // reaching the program from then on.
-        if svc.database != true, let target = PostgresURL.parse(value) {
+        if svc.database != true, let target = PostgresURL.proxyable(value) {
           let local = PostgresURL.local(service: name, target: target, port: databasePort)
           switchToDatabaseProxy(svc, local: local)
           out[name] = local

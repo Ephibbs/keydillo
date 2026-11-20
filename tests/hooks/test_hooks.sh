@@ -38,7 +38,7 @@ ok "post: outside projects, nothing" '[[ -z $(postc "python3 app.py" $T/other "4
 ok "post: reading code that mentions 401 isn't flagged" '[[ -z $(postc "cat app.py" $T/proj "raise Exception(\"401 Unauthorized: keydillo:openai\")") ]]'
 
 # 6. kd proxy: plain http:// works; nobody but the proxy can use its per-host TLS listeners.
-DEV=~/Desktop/keydillo/App/build/Build/Products/Release/keydillo
+DEV=${KEYDILLO_BIN:-~/Desktop/keydillo/App/build/Build/Products/Release/keydillo}
 export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"x","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
 python3 -m http.server 18734 --bind 127.0.0.1 >/dev/null 2>&1 & HS=$!; sleep 1
 ok "kd: plain http:// to a non-local address works" '[[ $($DEV run -- curl -s -o /dev/null -w "%{http_code}" --max-time 8 http://0.0.0.0:18734/ 2>/dev/null) == 200 ]]'

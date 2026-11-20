@@ -42,6 +42,17 @@ public enum PostgresURL {
                           params: items.map { ($0.name, $0.value ?? "") })
   }
 
+  /// The target when keydillo's local endpoint can stand in for this URL; nil means it stays a launch-time key that
+  /// `kd` gives the program. Simple rule: anything needing files on disk (client certificates, a custom root
+  /// certificate), channel binding, or several hosts goes through `kd` instead.
+  public static func proxyable(_ s: String) -> PostgresTarget? {
+    guard let t = parse(s), !t.host.contains(","), !t.host.hasPrefix("/") else { return nil }
+    let names = Set(t.params.map { $0.0.lowercased() })
+    if !names.isDisjoint(with: ["sslcert", "sslkey", "sslrootcert", "sslcrl", "sslpassword", "host", "hostaddr", "passfile"]) { return nil }
+    if t.params.contains(where: { $0.0.lowercased() == "channel_binding" && $0.1.lowercased() == "require" }) { return nil }
+    return t
+  }
+
   /// The connection string a program gets instead: keydillo on this Mac, the key's name as the user, no password,
   /// the real database name (tools like Prisma's migrations switch databases by name) and the program's own options.
   public static func local(service: String, target: PostgresTarget, port: UInt16) -> String {
@@ -353,7 +364,7 @@ public final class PostgresProxy: @unchecked Sendable {
           _ = up.write(Self.message("p", p))
         case 10:
           let mechs = String(decoding: rest, as: UTF8.self).split(separator: "\0").map(String.init)
-          guard mechs.contains("SCRAM-SHA-256") else { return .failure(AuthFailure(text: "the database asked for a login method keydillo doesn't support (\(mechs.joined(separator: ", ")))", raw: nil)) }
+          guard mechs.contains("SCRAM-SHA-256") else { return .failure(AuthFailure(text: "the database asked for a login method keydillo doesn't support (\(mechs.joined(separator: ", "))). " + Self.putBackHint, raw: nil)) }
           let s = SCRAM(password: t.password); scram = s
           let first = Data(s.clientFirst.utf8)
           var p = Data("SCRAM-SHA-256".utf8); p.append(0); p.append(Self.int32(UInt32(first.count))); p.append(first)
@@ -368,7 +379,7 @@ public final class PostgresProxy: @unchecked Sendable {
             return .failure(AuthFailure(text: "the database couldn't prove it knows the password; keydillo stopped", raw: nil))
           }
         default:
-          return .failure(AuthFailure(text: "the database asked for a login method keydillo doesn't support (code \(code))", raw: nil))
+          return .failure(AuthFailure(text: "the database asked for a login method keydillo doesn't support (code \(code)). " + Self.putBackHint, raw: nil))
         }
       case UInt8(ascii: "v"): continue   // NegotiateProtocolVersion: carry on with what the server supports
       default: return .failure(AuthFailure(text: "unexpected reply from the database during login", raw: nil))
@@ -376,6 +387,8 @@ public final class PostgresProxy: @unchecked Sendable {
     }
     return .failure(AuthFailure(text: "the database closed the connection during login", raw: nil))
   }
+
+  static let putBackHint = "To use this database directly, put this key's real value back from its project page in keydillo."
 
   func forwardCancel(_ body: Data) {
     guard body.count >= 12 else { return }

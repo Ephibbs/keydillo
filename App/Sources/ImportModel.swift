@@ -16,7 +16,7 @@ final class ImportModel {
   /// True when this key gets a development-only value in .env (the default for JWT, session and encryption secrets).
   /// Postgres connection strings connect through keydillo's local endpoint instead (the default).
   func usesDatabaseProxy(_ k: ImportScanner.Found) -> Bool {
-    k.localOnly != nil && PostgresURL.parse(k.value) != nil && !keepReal.contains(k.id)
+    k.localOnly != nil && PostgresURL.proxyable(k.value) != nil && !keepReal.contains(k.id)
   }
 
   func usesDevValue(_ k: ImportScanner.Found) -> Bool {
@@ -52,7 +52,7 @@ final class ImportModel {
     let all: [ImportScanner.Found] = found.flatMap { $0.keys }
     // Every secret key is ticked: unknown providers get their site the first time they're used (approved with Touch ID).
     selected = Set(all.filter { k in !k.isPublic && (k.localOnly == nil || ImportScanner.devValueCapable(name: k.name, value: k.value)
-                                                     || PostgresURL.parse(k.value) != nil) }.map { $0.id })
+                                                     || PostgresURL.proxyable(k.value) != nil) }.map { $0.id })
     _ = model
     scanning = false
     scanned = true
@@ -119,7 +119,7 @@ final class ImportModel {
                                 upstreamHost: launch ? "" : (key.service?.host ?? ""), authHeader: launch ? "" : (key.service?.header ?? ""),
                                 authPrefix: launch ? "" : (key.service?.prefix ?? ""), envVarName: key.name, approval: model.defaultApproval.mode)
         if launch { cfg.launchTime = true }
-        if usesDatabaseProxy(key), let target = PostgresURL.parse(key.value) {
+        if usesDatabaseProxy(key), let target = PostgresURL.proxyable(key.value) {
         // The program gets keydillo's local address; the real one stays in the Keychain.
         if let i = newServices.firstIndex(where: { $0.name == name }) { newServices[i].database = true }
         else if var s = model.service(named: name), s.database != true { s.database = true; newServices.append(s) }
@@ -379,8 +379,8 @@ final class ImportModel {
       var changed = false
       var restoredBaseEnvs: [String] = []
       for (i, line) in lines.enumerated() {
-        // A dev value (JWT, session, encryption secrets) goes back to the real one too.
-        if let dev = devValueLine(line, path: path, model: model), project == nil || dev.project == project, key == nil || dev.name == key {
+        // A dev value (JWT, session, encryption secrets) or keydillo's local database address goes back to the real one too.
+        if let dev = devValueLine(line, path: path, model: model) ?? databaseLine(line, model: model), project == nil || dev.project == project, key == nil || dev.name == key {
           guard let value = try? model.keychain.secret(for: dev.name, context: ctx) else { missed.append(dev.envVarName); continue }
           let eq = line.firstIndex(of: "=")!
           lines[i] = String(line[...eq]) + ImportScanner.envValueText(String(decoding: value, as: UTF8.self), original: originalText[path]?[dev.envVarName])
@@ -420,6 +420,14 @@ final class ImportModel {
     return model.services.first { s in
       s.devValue != nil && s.devValue == value && s.envVarName == name && (s.folder.map { dir == $0 || dir.hasPrefix($0 + "/") } ?? true)
     }
+  }
+
+  /// The database key whose local keydillo address this .env line holds, if any.
+  static func databaseLine(_ line: String, model: AppModel) -> ServiceConfig? {
+    guard let eq = line.firstIndex(of: "=") else { return nil }
+    let value = ImportScanner.unquote(String(line[line.index(after: eq)...]))
+    guard PostgresURL.isLocal(value, port: model.databasePort), let user = URLComponents(string: value)?.user else { return nil }
+    return model.services.first { $0.name == user && $0.database == true }
   }
 
   static func slug(_ envName: String) -> String {
