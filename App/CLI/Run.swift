@@ -224,16 +224,19 @@ enum Runner {
 
   nonisolated(unsafe) static var exitWatch: DispatchSourceProcess?
   nonisolated(unsafe) static var signalSources: [DispatchSourceSignal] = []
+  /// kd was told to stop (SIGTERM): programs the command left in the background stop too, instead of keeping keys.
+  nonisolated(unsafe) static var stopRequested = false
 
   /// A signal sent to kd itself (`kill <pid>`, a process manager stopping it, the terminal closing) goes on to the
   /// command, and kd exits with the command's status once it stops. Ctrl-C in the terminal already reaches the
   /// command directly (same process group), so SIGINT/SIGQUIT are passed on only when kd isn't the terminal's
   /// foreground job, to avoid sending them twice.
-  static func forwardSignals(to child: pid_t) {
+  static func forwardSignals(to child: pid_t, queue: DispatchQueue = .main) {
     for sig in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
-      let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+      let src = DispatchSource.makeSignalSource(signal: sig, queue: queue)
       src.setEventHandler {
         if sig == SIGINT || sig == SIGQUIT, isatty(0) != 0, tcgetpgrp(0) == getpgrp() { return }
+        if sig == SIGTERM { stopRequested = true }
         kill(child, sig)
       }
       src.resume()
@@ -280,9 +283,11 @@ enum Runner {
     posix_spawn_file_actions_destroy(&actions)
     close(fds[1])
     guard rc == 0 else { fail("couldn't start: \(String(cString: strerror(rc)))") }
-    // Ctrl-C reaches the command itself (same process group); we just wait for its status.
-    signal(SIGINT, SIG_IGN)
-    signal(SIGTERM) { _ in exit(143) }
+    // Ctrl-C reaches the command itself (same process group). A signal sent to kd itself (kill, a process manager,
+    // the terminal closing) goes on to the proxy process, which passes it to the command; kd then exits with the
+    // command's status. (Handled off the main thread: it's blocked reading the status.)
+    for s in [SIGINT, SIGQUIT, SIGTERM, SIGHUP] { signal(s, SIG_IGN) }
+    forwardSignals(to: pid, queue: .global())
     var status: Int32 = 0
     let n = read(fds[0], &status, MemoryLayout<Int32>.size)
     if n == MemoryLayout<Int32>.size { exit(status) }
@@ -309,6 +314,11 @@ enum Runner {
       // Programs the command started in the background (daemons, nohup, pm2) keep their keys and network
       // until they exit too.
       proxy.scanDescendants()
+      if stopRequested {
+        proxy.signalKnown(SIGTERM)
+        if statusFD >= 0 { var s = status; _ = write(statusFD, &s, MemoryLayout<Int32>.size); close(statusFD) }
+        cleanup(); exit(status)
+      }
       guard statusFD >= 0 else {
         let wait = DispatchSource.makeTimerSource(queue: .main)
         wait.schedule(deadline: .now(), repeating: 2)
@@ -681,6 +691,12 @@ final class MitmProxy: @unchecked Sendable {
     // Show the top of each tree: a program whose parent is another listed program is part of it.
     let tops = alive.filter { !alive.contains(ProcessLookup.parentPid(of: $0)) }
     return Array(Set(tops.map { ProcessLookup.name(of: $0) })).sorted()
+  }
+
+  /// Sends `sig` to every background program still running from this run.
+  func signalKnown(_ sig: Int32) {
+    lock.lock(); let ks = known; lock.unlock()
+    for (pid, start) in ks where ProcessLookup.startTime(of: pid) == start { kill(pid, sig) }
   }
 
   var anyKnownAlive: Bool {
