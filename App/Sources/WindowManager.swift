@@ -40,8 +40,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
   func close(_ id: String) { windows[id]?.close() }
 
-  /// The details card for a pending key request, above where macOS puts the Touch ID dialog (screen centre).
-  /// Closing it denies the request.
+  /// The window for a pending key request, with the details and an embedded Touch ID control. It must be on
+  /// screen before the context is evaluated so macOS uses it instead of a sheet. Closing it denies the request.
   func showApprovalCard(_ p: PendingApproval) {
     let id = "approval-\(p.id)"
     show(id, title: "keydillo", floating: true, onClose: {
@@ -50,12 +50,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
     }) {
       ApprovalCard(pending: p).sheetCard()
     }
-    guard let w = windows[id], let screen = w.screen ?? NSScreen.main else { return }
-    let v = screen.visibleFrame
-    let x = v.midX - w.frame.width / 2
-    // The Touch ID sheet sits around the screen's centre; keep the card's bottom clear of it.
-    let y = min(v.maxY - w.frame.height - 24, v.midY + 150)
-    w.setFrameOrigin(NSPoint(x: x, y: max(v.minY, y)))
+    guard let w = windows[id] else { return }
+    w.center()
+    w.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
   }
   func bringToFront(_ id: String) { windows[id]?.makeKeyAndOrderFront(nil) }
 
