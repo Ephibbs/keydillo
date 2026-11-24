@@ -45,13 +45,24 @@ ok "post: outside projects, nothing" '[[ -z $(postc "python3 app.py" $T/other "4
 ok "post: reading code that mentions 401 isn't flagged" '[[ -z $(postc "cat app.py" $T/proj "raise Exception(\"401 Unauthorized: keydillo:openai\")") ]]'
 
 # 6. kd proxy: plain http:// works; nobody but the proxy can use its per-host TLS listeners.
-DEV=~/Desktop/keydillo/App/build/Build/Products/Release/keydillo
+DEV=${KEYDILLO_BIN:-~/Desktop/keydillo/App/build/Build/Products/Release/keydillo}
 export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"x","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
 python3 -m http.server 18734 --bind 127.0.0.1 >/dev/null 2>&1 & HS=$!; sleep 1
 ok "kd: plain http:// to a non-local address works" '[[ $($DEV run -- curl -s -o /dev/null -w "%{http_code}" --max-time 8 http://0.0.0.0:18734/ 2>/dev/null) == 200 ]]'
+
+# 6b. A program the command leaves running in the background (nohup, pm2) keeps kd's proxy, and kd returns at once.
+start=$EPOCHSECONDS
+$DEV run -- sh -c "nohup sh -c 'sleep 3; curl -s -o /dev/null -w %{http_code} --max-time 8 http://0.0.0.0:18734/ > $T/bg.out' >/dev/null 2>&1 &" 2>$T/bg.err
+took=$(( EPOCHSECONDS - start ))
+ok "background: kd returns right away instead of waiting for the background program" '[[ $took -lt 3 ]]'
+ok "background: kd says the background program keeps its keys" '[[ $(cat $T/bg.err) == *"in the background"* ]]'
+for i in {1..20}; do [[ -s $T/bg.out ]] && break; sleep 0.5; done
+ok "background: after kd returned, the program still gets through kd's proxy" '[[ $(cat $T/bg.out 2>/dev/null) == 200 ]]'
+for i in {1..10}; do pgrep -f "__run-core" >/dev/null || break; sleep 0.5; done
+ok "background: the proxy process ends once the program exits" '! pgrep -f "__run-core" >/dev/null'
 kill $HS 2>/dev/null
 $DEV run -- sh -c 'curl -s -o /dev/null --max-time 8 https://example.com/; sleep 6' >/dev/null 2>&1 & KDP=$!; sleep 3
-RUNPID=$(pgrep -f "keydillo run -- sh -c curl" | head -1)
+RUNPID=$(pgrep -f "__run-core .* sh -c curl" | head -1)
 PORTS=($(lsof -nP -a -p $RUNPID -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1{split($9,a,":"); print a[2]}'))
 refused=1
 for p in $PORTS; do
@@ -105,7 +116,7 @@ unset KEYDILLO_TEST_APP_PORT KEYDILLO_TEST_SERVICES
 
 # 10. Launch-time keys: kd puts the real value in the program's environment; .env loaders keep it.
 mkdir -p $T/web/src
-printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:start-with-keydillo-run\nPORT=3000\n' > $T/web/.env
+printf '# --- keydillo ---\n# test\n# --- end keydillo ---\nJWT_SECRET=keydillo:jwt-secret:run-with-kd\nPORT=3000\n' > $T/web/.env
 export KEYDILLO_TEST_SERVICES='[{"name":"jwt-secret","displayName":"JWT secret","project":"t","host":"","baseURL":"x","envVarName":"JWT_SECRET","baseURLEnvName":"X","launchTime":true}]'
 export KEYDILLO_TEST_LAUNCH_VALUES='{"jwt-secret":"s3cret-from-keychain"}' KEYDILLO_TEST_APP_PORT=1
 ok "launch-time: kd gives the program the real value" '[[ $(cd $T/web/src && $DEV run -- sh -c "echo \$JWT_SECRET" 2>/dev/null) == "s3cret-from-keychain" ]]'
@@ -173,6 +184,18 @@ $DEV run -- sh -c 'trap "exit 42" TERM; sleep 30 & wait' & K=$!; sleep 2; kill -
 ok "signals: SIGTERM to kd stops the command and kd returns its status" '[[ $st == 42 ]] && ! pgrep -f "sleep 30" >/dev/null'
 $DEV run -- sh -c 'sleep 31' & K=$!; sleep 2; kill -HUP $K; wait $K; st=$?
 ok "signals: SIGHUP to kd (terminal closed) stops the command" '[[ $st == 129 ]] && ! pgrep -f "sleep 31" >/dev/null'
+
+# 18. kd sets the project's base-URL and key variables for programs that don't read .env (Go, Rust), never over the user's own.
+mkdir -p $T/goproj $T/gwproj
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\n' > $T/goproj/.env
+printf '# --- keydillo ---\n# t\n# --- end keydillo ---\nEX_KEY=keydillo:ex:run-with-kd\nEX_BASE_URL=https://my-gateway.example\n' > $T/gwproj/.env
+export KEYDILLO_TEST_APP_PORT=1 KEYDILLO_TEST_SERVICES='[{"name":"ex","displayName":"ex","project":"t","host":"example.com","baseURL":"http://localhost:7787/ex","envVarName":"EX_KEY","baseURLEnvName":"EX_BASE_URL"}]'
+ok "base URL: kd sets the provider's base-URL variable for this project's key" '[[ $(cd $T/goproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "http://localhost:7787/ex" ]]'
+ok "base URL: and the key variable to its placeholder" '[[ $(cd $T/goproj && $DEV run -- printenv EX_KEY 2>/dev/null) == "keydillo:ex:run-with-kd" ]]'
+ok "base URL: a base URL the user set in .env is left alone" '[[ -z $(cd $T/gwproj && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "base URL: one set in the environment is left alone" '[[ $(cd $T/goproj && EX_BASE_URL=https://mine.example $DEV run -- printenv EX_BASE_URL 2>/dev/null) == "https://mine.example" ]]'
+ok "base URL: outside the project nothing is set" '[[ -z $(cd $T/other && $DEV run -- printenv EX_BASE_URL 2>/dev/null) ]]'
+ok "nested: kd inside kd doesn't call the outer kd 'your proxy'" '[[ $($DEV run -- $DEV run -- true 2>&1) != *"your proxy"* ]]'
 unset KEYDILLO_TEST_SERVICES KEYDILLO_TEST_APP_PORT
 
 print "\n$pass passed, $fail failed"

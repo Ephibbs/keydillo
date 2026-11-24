@@ -32,6 +32,8 @@ Never ask for the key in the chat, with or without the tools.
 3b. Before work that calls several of a project's APIs, or when the user says they'll be away, call `open_project` once: the user approves all of that project's keys with one Touch ID instead of one prompt per key.
 4. Call the API through the local base URL keydillo returns, e.g. `http://localhost:7787/elevenlabs/v1/...`. keydillo adds the key and the user approves with Touch ID.
 5. In code, read the base URL from an env var such as `ELEVENLABS_BASE_URL` and fall back to the real host when it's unset, so production works with a real key set in the host's settings.
+5a. JWT, session and encryption secrets in `.env` may hold a development-only value that keydillo wrote (the real one is kept for deploys). That's normal for local work: use it as is, and never copy it into production settings.
+5c. A Postgres `DATABASE_URL` (or similar) may point at keydillo on this Mac, like `postgresql://database-url@127.0.0.1:7788/app?sslmode=disable`. That's normal: keydillo logs in to the real database, so programs never see the password. Use it as is, with or without `kd`. If the connection is refused, keydillo isn't running: tell the user in one line. Never ask for the real database URL.
 5b. Some placeholders are launch-time keys (database URLs, JWT and signing secrets): `kd` puts the real value in the program's environment when it starts. Never print, echo or log environment variables in a keydillo project, and never write code that does.
 6. In local `.env` files, write only the lines keydillo returns (a base URL and a `keydillo:<name>` placeholder), never a real key. Apps that read the key directly must be started with `kd <command>`; tell the user to do the same in their own Terminal.
 
@@ -42,7 +44,8 @@ Never put a secret key in a variable that starts with NEXT_PUBLIC_, VITE_, EXPO_
 ## What doesn't work through kd
 
 Use the workaround quietly; only if none fits, suggest the user put that project's real key back (keydillo window → project → "Put this project's real keys back"), without making a fuss.
-- Go, Rust, gRPC, and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
+- Go and Rust: `kd` sets each key's base-URL variable (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`…), so SDKs that read it work under `kd` (OpenAI's and Anthropic's official Go SDKs, Rust's async-openai). For SDKs that don't (go-openai), set the base URL in code from `*_BASE_URL`.
+- gRPC and tools that pin certificates ignore kd's certificate: call the key's base URL (`*_BASE_URL` from list_services) with no key.
 - AWS/R2/S3 and other signed requests (the secret signs the request on your side): kd can't swap these. Use a launch-time key if one exists, or suggest putting the real key back.
 - Codex's sandbox (and Cursor's, when on) blocks keydillo: if `kd` says it ran inside a sandbox, rerun that command outside it (in Codex, with escalated permissions). The user approves.
 - Docker: `localhost` inside a container is the container. Use `http://host.docker.internal:7787/<name>` as the base URL.

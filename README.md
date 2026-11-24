@@ -44,7 +44,7 @@ Good to know:
 - With "Once per session", a program you approved can keep *using* a key without new prompts. It still can't *read* it. Parallel calls within 3 seconds of an approval share it.
 - "Ask once per project" trusts any program you run in that project's folder. Use it for keys that can't cost much.
 - The Claude Code hook steers agents to keydillo. It isn't a security barrier.
-- Go, Rust, gRPC and edge middleware ignore kd's certificate, so `kd` can't add keys for them. Call the key's local base URL instead. More in [docs/kd-known-failures.md](docs/kd-known-failures.md).
+- Go and Rust SDKs that read a base-URL variable work under `kd`, which sets it for your project's keys. gRPC, edge middleware and SDKs that don't read one need the key's local base URL in code. More in [docs/kd-known-failures.md](docs/kd-known-failures.md).
 
 More detail in [Security model and limits](#security-model-and-limits).
 

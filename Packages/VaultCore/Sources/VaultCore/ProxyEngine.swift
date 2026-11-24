@@ -62,6 +62,35 @@ public final class ProxyEngine: @unchecked Sendable {
     self.session = URLSession(configuration: cfg, delegate: NoRedirects(), delegateQueue: nil)
   }
 
+  /// A program connecting to keydillo's local Postgres endpoint as `name`: approved like any key request
+  /// (Touch ID per the key's setting), then the real connection string is returned for keydillo to log in with.
+  public func databaseLogin(_ name: String, database: String, client: ClientProcess) async -> Result<PostgresTarget, PostgresProxy.Refusal> {
+    if let why = notReady?() { return .failure(PostgresProxy.Refusal(why)) }
+    guard let svc = services().first(where: { $0.name == name && $0.database == true }) else {
+      return .failure(PostgresProxy.Refusal("there's no database key named \(name) in keydillo"))
+    }
+    func log(_ outcome: ActivityEvent.Outcome, _ note: String?) {
+      onEvent(ActivityEvent(date: Date(), service: name, method: "CONNECT", path: "/" + database, process: client.displayName,
+                            pid: client.pid, outcome: outcome, status: outcome == .sent ? 200 : 403, note: note))
+    }
+    let approval = ApprovalRequest(service: name, displayName: svc.displayName, host: "database", method: "CONNECT", path: "/" + database, client: client)
+    let ctx: LAContext?
+    switch await gate.authorize(svc, approval) {
+    case .approved(let c): ctx = c
+    case .denied: log(.denied, nil); return .failure(PostgresProxy.Refusal("the user declined this connection"))
+    case .unavailable(let why): log(.denied, why); return .failure(PostgresProxy.Refusal("can't ask for approval right now (\(why))"))
+    }
+    guard var secret = try? secrets.secret(for: name, context: ctx) else {
+      log(.failed, "key unavailable"); return .failure(PostgresProxy.Refusal("the database URL for \(name) couldn't be read"))
+    }
+    defer { secret.resetBytes(in: 0..<secret.count) }
+    guard let target = PostgresURL.parse(String(decoding: secret, as: UTF8.self)) else {
+      log(.failed, "not a Postgres URL"); return .failure(PostgresProxy.Refusal("the stored value for \(name) isn't a Postgres URL"))
+    }
+    log(.sent, "connected to \(target.host)")
+    return .success(target)
+  }
+
   /// Buffered convenience (tests, simple callers).
   public func handle(_ req: HTTPRequest, client: ClientProcess) async -> HTTPResponse {
     let sink = BufferSink()
@@ -481,8 +510,8 @@ public struct PlaceholderSubstitution {
   var regex: NSRegularExpression {
     let name = NSRegularExpression.escapedPattern(for: service)
     // An optional key-format prefix like "sk-" or "sk_test_" belongs to the placeholder; "bot" in "/botkeydillo:x" doesn't.
-    let hint = NSRegularExpression.escapedPattern(for: Placeholder.hint)
-    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?:(?::|%3A|%3a)\(hint))?(?![A-Za-z0-9\\-])")
+    // The tail after the name (old or new hint, zero padding) is part of the placeholder too.
+    return try! NSRegularExpression(pattern: "(?:[A-Za-z0-9]+[-_])*keydillo(?::|%3A|%3a)\(name)(?:(?::|%3A|%3a)(?:0+-)?(?:run-with-kd|start-with-keydillo-run))?(?![A-Za-z0-9\\-])")
   }
 
   public func apply(_ s: String, urlEncoded: Bool) -> String {
@@ -493,10 +522,17 @@ public struct PlaceholderSubstitution {
 
   public func apply(_ body: Data) -> Data {
     guard body.range(of: Data("keydillo".utf8)) != nil, let text = String(data: body, encoding: .utf8) else {
-      // Not UTF-8 (binary upload): swap exact byte runs only.
+      // Not UTF-8 (binary upload): swap each "keydillo:<name>" and the tail that belongs to it (":0…-run-with-kd").
       var out = body
-      for needle in [Placeholder.value(for: service), Placeholder.prefix + service].map({ Data($0.utf8) }) {
-        while let r = out.range(of: needle) { out.replaceSubrange(r, with: Data(value.utf8)) }
+      let needle = Data((Placeholder.prefix + service).utf8)
+      let nameChars = Set("abcdefghijklmnopqrstuvwxyz0123456789-".utf8), tailChars = nameChars.union([UInt8(ascii: ":")])
+      var from = out.startIndex
+      while let r = out.range(of: needle, in: from..<out.endIndex) {
+        var end = r.upperBound
+        if end < out.endIndex, nameChars.contains(out[end]) { from = end; continue }   // a longer name, not this one
+        if end < out.endIndex, out[end] == UInt8(ascii: ":") { while end < out.endIndex, tailChars.contains(out[end]) { end += 1 } }
+        out.replaceSubrange(r.lowerBound..<end, with: Data(value.utf8))
+        from = out.index(r.lowerBound, offsetBy: value.utf8.count)
       }
       return out
     }

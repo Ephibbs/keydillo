@@ -86,8 +86,8 @@ struct PopoverView: View {
       }
       claudeStatusLine
 
-      if !model.activeGrants.isEmpty || !model.openProjects.isEmpty {
-        let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count
+      if !model.activeGrants.isEmpty || !model.openProjects.isEmpty || !model.backgroundRuns.isEmpty {
+        let n = Set(model.activeGrants.map { $0.client?.sessionKey ?? "" }).count + model.openProjects.count + model.backgroundRuns.count
         Button {
           StatusItem.shared?.close(); WindowManager.shared.showMain()
           NotificationCenter.default.post(name: .showAccess, object: nil)

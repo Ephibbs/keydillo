@@ -188,6 +188,13 @@ enum Runner {
     }
   }
 
+  /// The proxy process outlives `kd` for background programs: stop writing to the terminal and ignore its hangup.
+  static func detachFromTerminal() {
+    signal(SIGHUP, SIG_IGN)
+    let null = open("/dev/null", O_RDWR)
+    if null >= 0 { dup2(null, 0); dup2(null, 1); dup2(null, 2); close(null) }
+  }
+
   static func cleanup() { try? FileManager.default.removeItem(at: runDir) }
 
   /// Leaf certificate for `host`, signed by the CA, loaded in memory only.
@@ -217,16 +224,19 @@ enum Runner {
 
   nonisolated(unsafe) static var exitWatch: DispatchSourceProcess?
   nonisolated(unsafe) static var signalSources: [DispatchSourceSignal] = []
+  /// kd was told to stop (SIGTERM): programs the command left in the background stop too, instead of keeping keys.
+  nonisolated(unsafe) static var stopRequested = false
 
   /// A signal sent to kd itself (`kill <pid>`, a process manager stopping it, the terminal closing) goes on to the
   /// command, and kd exits with the command's status once it stops. Ctrl-C in the terminal already reaches the
   /// command directly (same process group), so SIGINT/SIGQUIT are passed on only when kd isn't the terminal's
   /// foreground job, to avoid sending them twice.
-  static func forwardSignals(to child: pid_t) {
+  static func forwardSignals(to child: pid_t, queue: DispatchQueue = .main) {
     for sig in [SIGTERM, SIGHUP, SIGINT, SIGQUIT] {
-      let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
+      let src = DispatchSource.makeSignalSource(signal: sig, queue: queue)
       src.setEventHandler {
         if sig == SIGINT || sig == SIGQUIT, isatty(0) != 0, tcgetpgrp(0) == getpgrp() { return }
+        if sig == SIGTERM { stopRequested = true }
         kill(child, sig)
       }
       src.resume()
@@ -254,7 +264,40 @@ enum Runner {
     return pid
   }
 
-  static func run(_ command: [String]) -> Never {
+  /// What `kd` runs: starts the proxy process (`__run-core`), which runs the command, and returns as soon as the
+  /// command exits, with its status. If the command left programs running in the background, the proxy process stays
+  /// behind for them (it's not tied to this terminal), so the shell isn't held up.
+  static func launch(_ command: [String]) -> Never {
+    guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
+    var fds: [Int32] = [0, 0]
+    guard pipe(&fds) == 0 else { fail("couldn't start: \(String(cString: strerror(errno)))") }
+    let me = Bundle.main.executablePath ?? CommandLine.arguments[0]
+    let argv = ["keydillo", "__run-core", String(fds[1]), "--"] + command
+    var actions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&actions)
+    posix_spawn_file_actions_addclose(&actions, fds[0])
+    var pid: pid_t = 0
+    let cargs = argv.map { strdup($0) } + [nil]
+    let rc = posix_spawn(&pid, me, &actions, nil, cargs, environ)
+    cargs.forEach { free($0) }
+    posix_spawn_file_actions_destroy(&actions)
+    close(fds[1])
+    guard rc == 0 else { fail("couldn't start: \(String(cString: strerror(rc)))") }
+    // Ctrl-C reaches the command itself (same process group). A signal sent to kd itself (kill, a process manager,
+    // the terminal closing) goes on to the proxy process, which passes it to the command; kd then exits with the
+    // command's status. (Handled off the main thread: it's blocked reading the status.)
+    for s in [SIGINT, SIGQUIT, SIGTERM, SIGHUP] { signal(s, SIG_IGN) }
+    forwardSignals(to: pid, queue: .global())
+    var status: Int32 = 0
+    let n = read(fds[0], &status, MemoryLayout<Int32>.size)
+    if n == MemoryLayout<Int32>.size { exit(status) }
+    // The proxy process ended without reporting (it failed early): use its own exit status.
+    var ws: Int32 = 0
+    if waitpid(pid, &ws, 0) == pid, (ws & 0x7f) == 0 { exit((ws >> 8) & 0xff) }
+    exit(1)
+  }
+
+  static func run(_ command: [String], statusFD: Int32 = -1) -> Never {
     guard !command.isEmpty else { fail("usage: keydillo run -- <command> [args]") }
     let (proxy, env) = prepare()
     // The command runs in kd's own process group, attached to the terminal like any command: Ctrl-C reaches it, and it
@@ -271,9 +314,37 @@ enum Runner {
       // Programs the command started in the background (daemons, nohup, pm2) keep their keys and network
       // until they exit too.
       proxy.scanDescendants()
+      if stopRequested {
+        proxy.signalKnown(SIGTERM)
+        if statusFD >= 0 { var s = status; _ = write(statusFD, &s, MemoryLayout<Int32>.size); close(statusFD) }
+        cleanup(); exit(status)
+      }
+      guard statusFD >= 0 else {
+        let wait = DispatchSource.makeTimerSource(queue: .main)
+        wait.schedule(deadline: .now(), repeating: 2)
+        wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
+        wait.resume()
+        Runner.keepAlive = wait
+        return
+      }
+      // Give kd its status right away, so the terminal is free again.
+      var s = status; _ = write(statusFD, &s, MemoryLayout<Int32>.size); close(statusFD)
+      guard proxy.anyKnownAlive else { cleanup(); exit(status) }
+      // Programs left running in the background keep their keys until they exit, or until the user ends it in keydillo.
+      let names = proxy.knownNames()
+      FileHandle.standardError.write(Data("kd: keys stay available to \(names.joined(separator: ", ")) in the background until \(names.count == 1 ? "it exits" : "they exit"). End it on keydillo's Access page.\n".utf8))
+      Runner.detachFromTerminal()
+      let me = BackgroundRun(pid: getpid(), startTime: ProcessLookup.startTime(of: getpid()), command: command.joined(separator: " "),
+                             programs: names, folder: FileManager.default.currentDirectoryPath)
+      _ = try? ControlSocket.send(.backgroundRun(me))
       let wait = DispatchSource.makeTimerSource(queue: .main)
-      wait.schedule(deadline: .now(), repeating: 2)
-      wait.setEventHandler { if !proxy.anyKnownAlive { cleanup(); exit(status) } }
+      wait.schedule(deadline: .now() + 2, repeating: 2)
+      wait.setEventHandler {
+        guard !proxy.anyKnownAlive else { return }
+        var done = me; done.ended = true
+        _ = try? ControlSocket.send(.backgroundRun(done))
+        cleanup(); exit(status)
+      }
       wait.resume()
       Runner.keepAlive = wait
     }
@@ -282,7 +353,7 @@ enum Runner {
     forwardSignals(to: pid)
     proxy.childPid = pid
     let scan = DispatchSource.makeTimerSource(queue: .global())
-    scan.schedule(deadline: .now() + 1, repeating: 2)
+    scan.schedule(deadline: .now() + 0.3, repeating: 0.5)
     scan.setEventHandler { proxy.scanDescendants() }
     scan.resume()
     Runner.scanner = scan
@@ -315,6 +386,24 @@ enum Runner {
 
   /// Launch-time keys (database URLs, JWT secrets…): the program reads them as it starts, so kd puts the real value
   /// in its environment (after the app's approval). .env loaders don't override variables that are already set.
+  /// Programs that don't read .env files or trust kd's certificate (Go, Rust) still work when their SDK reads a
+  /// base-URL variable: for this project's keys, kd sets that variable to keydillo's local address (keydillo makes the
+  /// real HTTPS call) and the key variable to its placeholder. Never overrides a value the user set, in the
+  /// environment or in the project's env files.
+  static func setBaseURLs(services: [ServiceSummary], env0: [String: String], into env: inout [String: String]) {
+    let entries = projectEnvEntries(from: FileManager.default.currentDirectoryPath)
+    let inFiles = Dictionary(entries.map { ($0.0, $0.1) }, uniquingKeysWith: { _, last in last })
+    for (name, value) in entries {
+      guard !Placeholder.isRandomLaunchValue(value), let svc = Placeholder.service(in: value),
+            let s = services.first(where: { $0.name == svc }), s.launchTime != true, !s.host.isEmpty else { continue }
+      if env0[name] == nil { env[name] = value }
+      let be = s.baseURLEnvName
+      guard !be.isEmpty, env0[be] == nil else { continue }
+      if let fileValue = inFiles[be], fileValue != s.baseURL { continue }   // the user's own base URL (a gateway)
+      env[be] = s.baseURL
+    }
+  }
+
   static func fillLaunchValues(services: [ServiceSummary], env0: [String: String], shipped: Bool, into env: inout [String: String]) {
     let launch = Set(services.filter { $0.launchTime == true }.map(\.name))
     guard !launch.isEmpty else { return }
@@ -336,7 +425,13 @@ enum Runner {
       values = v
     }
     for (k, svc) in wanted.sorted(by: { $0.key < $1.key }) {
-      if let v = values[svc] { env[k] = v }
+      if let v = values[svc] {
+        env[k] = v
+        // The app switched this Postgres URL to keydillo's local endpoint (and rewrote the .env line).
+        if PostgresURL.parse(v)?.host == "127.0.0.1", v.contains("sslmode=disable"), URLComponents(string: v)?.user == svc {
+          FileHandle.standardError.write(Data("kd: \(k) now connects through keydillo, so the program never sees the database password. Your .env was updated.\n".utf8))
+        }
+      }
       else { FileHandle.standardError.write(Data("kd: \(k) wasn't filled in (not approved, or keydillo isn't running), so the program gets the keydillo placeholder.\n".utf8)) }
     }
   }
@@ -405,7 +500,9 @@ enum Runner {
     }
     do { try ensureCA(hosts: MitmProxy.knownHosts(services) + MitmProxy.guessedDomains(services)) } catch { fail(error.localizedDescription) }
     let appPort = (shipped ? nil : env0["KEYDILLO_TEST_APP_PORT"].flatMap { UInt16($0) }) ?? services.first.flatMap { URL(string: $0.baseURL)?.port }.map(UInt16.init) ?? UInt16(UserDefaults(suiteName: "com.studiokillswitch.keydillo")?.integer(forKey: "port") ?? 7787)
-    let upstreamProxy = UpstreamProxy.fromEnvironment(env0)
+    // Inside another kd (kd in an npm script run with kd), the outer kd's proxy isn't the user's own proxy.
+    let nested = env0["KEYDILLO_RUN"] == "1"
+    let upstreamProxy = nested ? nil : UpstreamProxy.fromEnvironment(env0)
     if let up = upstreamProxy {
       FileHandle.standardError.write(Data("keydillo run: also sending traffic through your proxy at \(up.host):\(up.port). Requests to other sites go through it as before. Requests keydillo signs go through the keydillo app, which uses your Mac's proxy settings; a debugging proxy there (Charles, Proxyman, mitmproxy) can see the real key.\n".utf8))
     }
@@ -439,10 +536,13 @@ enum Runner {
     for svc in services { for h in MitmProxy.hosts(of: svc) { hostMap[h, default: []].append(svc.name) } }
     env["KEYDILLO_RUN_MAP"] = String(decoding: (try? JSONSerialization.data(withJSONObject: hostMap)) ?? Data("{}".utf8), as: UTF8.self)
     env["KEYDILLO_RUN_PORT"] = String(appPort)
-    env["NODE_OPTIONS"] = ((env0["NODE_OPTIONS"].map { $0 + " " }) ?? "") + "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
+    let preload = "--require \"\(shims.appendingPathComponent("keydillo-preload.cjs").path)\""
+    let nodeOptions = (env0["NODE_OPTIONS"] ?? "").replacingOccurrences(of: preload, with: "").trimmingCharacters(in: .whitespaces)
+    env["NODE_OPTIONS"] = (nodeOptions.isEmpty ? "" : nodeOptions + " ") + preload
     env["KEYDILLO_CA"] = runExtra.path
     env["PYTHONPATH"] = shims.path + (env0["PYTHONPATH"].map { ":" + $0 } ?? "")
 
+    setBaseURLs(services: services, env0: env0, into: &env)
     fillLaunchValues(services: services, env0: env0, shipped: shipped, into: &env)
     active = proxy
     return (proxy, env)
@@ -559,8 +659,18 @@ final class MitmProxy: @unchecked Sendable {
   /// (daemons, nohup, pm2), and the proxy stays up while any of them is alive.
   var known: [Int32: UInt64] = [:]
 
+  /// This run's process group (the job the terminal gave kd) and when it started.
+  let runGroup = getpgrp()
+  let runStart = ProcessLookup.startTime(of: getpid())
+
+  /// True for a process in kd's own job (same process group) that started after kd: a background program the command
+  /// left behind (`nohup cmd &`) whose parent has already exited.
+  func inRunGroup(_ pid: Int32) -> Bool {
+    pid != getpid() && runGroup > 1 && ProcessLookup.processGroup(of: pid) == runGroup && ProcessLookup.startTime(of: pid) >= runStart
+  }
+
   func allowed(_ pid: Int32) -> Bool {
-    if ProcessLookup.isDescendant(pid, of: childPid) { remember(pid); return true }
+    if ProcessLookup.isDescendant(pid, of: childPid) || inRunGroup(pid) { remember(pid); return true }
     lock.lock(); let ks = known; lock.unlock()
     for (k, start) in ks where ProcessLookup.startTime(of: k) == start && ProcessLookup.isDescendant(pid, of: k) { remember(pid); return true }
     return false
@@ -573,7 +683,22 @@ final class MitmProxy: @unchecked Sendable {
 
   /// Records every current descendant of the command, so ones that later detach keep working.
   func scanDescendants() {
-    for pid in ProcessLookup.allPids() where pid != childPid && ProcessLookup.isDescendant(pid, of: childPid) { remember(pid) }
+    for pid in ProcessLookup.allPids() where pid != childPid && (ProcessLookup.isDescendant(pid, of: childPid) || inRunGroup(pid)) { remember(pid) }
+  }
+
+  /// Names of the background programs still running (for the Access page and kd's note).
+  func knownNames() -> [String] {
+    lock.lock(); let ks = known; lock.unlock()
+    let alive = ks.filter { ProcessLookup.startTime(of: $0.key) == $0.value }.map(\.key)
+    // Show the top of each tree: a program whose parent is another listed program is part of it.
+    let tops = alive.filter { !alive.contains(ProcessLookup.parentPid(of: $0)) }
+    return Array(Set(tops.map { ProcessLookup.name(of: $0) })).sorted()
+  }
+
+  /// Sends `sig` to every background program still running from this run.
+  func signalKnown(_ sig: Int32) {
+    lock.lock(); let ks = known; lock.unlock()
+    for (pid, start) in ks where ProcessLookup.startTime(of: pid) == start { kill(pid, sig) }
   }
 
   var anyKnownAlive: Bool {

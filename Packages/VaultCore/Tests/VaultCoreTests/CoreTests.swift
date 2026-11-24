@@ -200,7 +200,7 @@ final class ControlTests: XCTestCase {
     let resp = try ControlSocket.send(.requestSecret(SecretRequest(service: "elevenlabs", host: "api.elevenlabs.io", header: "xi-api-key")), path: path)
     guard case .saved(let s, let lines) = resp else { return XCTFail("\(resp)") }
     XCTAssertEqual(s.baseURL, "http://localhost:7787/elevenlabs")
-    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs:start-with-keydillo-run"])
+    XCTAssertEqual(lines, ["ELEVENLABS_BASE_URL=http://localhost:7787/elevenlabs", "ELEVENLABS_API_KEY=keydillo:elevenlabs:run-with-kd"])
   }
 }
 
@@ -504,6 +504,112 @@ final class ScanLocationTests: XCTestCase {
   }
 }
 
+final class SelfExplainingPlaceholderTests: XCTestCase {
+  func testHintIsLastAndLengthMatchesTheOriginalKey() {
+    XCTAssertEqual(Placeholder.value(for: "openai"), "keydillo:openai:run-with-kd")
+    let padded = Placeholder.value(for: "openai", length: 156)
+    XCTAssertEqual(padded.count, 156)
+    XCTAssertTrue(padded.hasSuffix("-run-with-kd") && padded.hasPrefix("keydillo:openai:000"))
+    XCTAssertEqual(Placeholder.service(in: padded), "openai")
+    XCTAssertTrue(Placeholder.isPlaceholder("sk-proj-" + padded))
+    XCTAssertEqual(Placeholder.value(for: "openai", length: 5), "keydillo:openai:run-with-kd", "never shorter than the hint")
+  }
+
+  func testImportKeepsPrefixAndLength() {
+    let original = "sk-proj-" + String(repeating: "A", count: 148)
+    let out = ImportScanner.rewrite("OPENAI_API_KEY=\(original)\n",
+      replacements: ["OPENAI_API_KEY": (service: "openai", baseURL: nil, baseURLEnvName: nil)],
+      prefixes: ["OPENAI_API_KEY": "sk-proj-"], lengths: ["OPENAI_API_KEY": original.count])
+    let line = out.components(separatedBy: "\n").first { $0.hasPrefix("OPENAI_API_KEY=") }!
+    let value = String(line.dropFirst("OPENAI_API_KEY=".count))
+    XCTAssertEqual(value.count, original.count)
+    XCTAssertTrue(value.hasPrefix("sk-proj-keydillo:openai:") && value.hasSuffix("run-with-kd"))
+  }
+
+  func testProxySwapsNewPaddedAndOldPlaceholders() {
+    let sub = PlaceholderSubstitution(service: "openai", value: "REAL")
+    let padded = "sk-proj-" + Placeholder.value(for: "openai", length: 60)
+    XCTAssertEqual(sub.apply("Bearer " + padded, urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai:run-with-kd", urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai:" + Placeholder.oldHint, urlEncoded: false), "Bearer REAL")
+    XCTAssertEqual(sub.apply("x=" + padded.replacingOccurrences(of: ":", with: "%3A") + "&y=1", urlEncoded: true), "x=REAL&y=1")
+    // Another key whose name starts the same way is left alone.
+    XCTAssertEqual(sub.apply("Bearer keydillo:openai-notes:run-with-kd", urlEncoded: false), "Bearer keydillo:openai-notes:run-with-kd")
+  }
+
+  func testBinaryBodiesSwapTheWholePlaceholder() {
+    var body = Data([0xFF, 0x00]); body.append(Data(("k=" + Placeholder.value(for: "openai", length: 40) + ";n=keydillo:openai-notes:run-with-kd").utf8))
+    let out = PlaceholderSubstitution(service: "openai", value: "REAL").apply(body)
+    XCTAssertEqual(out.dropFirst(2), Data("k=REAL;n=keydillo:openai-notes:run-with-kd".utf8))
+  }
+}
+
+final class DevValueTests: XCTestCase {
+  func testWhichSecretsGetDevValues() {
+    for n in ["JWT_SECRET", "NEXTAUTH_SECRET", "AUTH_SECRET", "SESSION_SECRET", "COOKIE_SECRET", "ENCRYPTION_KEY", "CRON_SECRET", "SECRET_KEY_BASE"] {
+      XCTAssertTrue(ImportScanner.devValueCapable(name: n, value: "FAKE0123456789abcdef0123456789ab"), n)
+    }
+    XCTAssertTrue(ImportScanner.devValueCapable(name: "APP_KEY", value: "base64:RkFLRTAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWI="))
+    XCTAssertFalse(ImportScanner.devValueCapable(name: "APP_KEY", value: "FAKEsomeVendorAppKey0123456789"), "another service's app key")
+    for (n, v) in [("STRIPE_WEBHOOK_SECRET", "whsec_FAKE0123456789abcdef"), ("DATABASE_URL", "postgres://u:p@h/db"), ("DB_PASSWORD", "FAKEpass0123456789"),
+                   ("AWS_SECRET_ACCESS_KEY", "FAKE0123456789abcdef0123"), ("OPENAI_API_KEY", "sk-proj-FAKE0123456789abcdef"), ("JWT_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----")] {
+      XCTAssertFalse(ImportScanner.devValueCapable(name: n, value: v), n)
+    }
+  }
+
+  func testDevValuesKeepTheShapeOfTheOriginal() {
+    let hex = ImportScanner.makeDevValue(like: String(repeating: "a1", count: 32))
+    XCTAssertEqual(hex.count, 64); XCTAssertTrue(hex.allSatisfy { $0.isHexDigit })
+    let laravel = ImportScanner.makeDevValue(like: "base64:" + Data(repeating: 7, count: 32).base64EncodedString())
+    XCTAssertTrue(laravel.hasPrefix("base64:")); XCTAssertEqual(Data(base64Encoded: String(laravel.dropFirst(7)))?.count, 32)
+    let short = ImportScanner.makeDevValue(like: "abc")
+    XCTAssertEqual(short.count, 32, "at least 32 characters")
+    XCTAssertNotEqual(ImportScanner.makeDevValue(like: "x"), ImportScanner.makeDevValue(like: "x"), "random each time")
+  }
+
+  func testRewriteWritesTheDevValueInPlainText() {
+    let out = ImportScanner.rewrite("JWT_SECRET=FAKErealSecret0123456789abcdef\nOPENAI_API_KEY=sk-proj-FAKE0123456789abcdef\n",
+      replacements: ["JWT_SECRET": (service: "jwt-secret", baseURL: nil, baseURLEnvName: nil),
+                     "OPENAI_API_KEY": (service: "openai", baseURL: "http://localhost:7787/openai/v1", baseURLEnvName: "OPENAI_BASE_URL")],
+      devValues: ["JWT_SECRET": "devOnlyValue0123456789abcdefghij"])
+    XCTAssertTrue(out.contains("JWT_SECRET=devOnlyValue0123456789abcdefghij"))
+    XCTAssertFalse(out.contains("FAKErealSecret"))
+    XCTAssertFalse(out.contains("JWT_SECRET=keydillo:"))
+    XCTAssertTrue(ImportScanner.keysBack(out, file: "/p/.env", managed: ["OPENAI_API_KEY"]).isEmpty)
+  }
+}
+
+final class PostgresProxyTests: XCTestCase {
+  func testLocalURLKeepsDatabaseAndProgramOptionsButNoSecrets() {
+    let t = PostgresURL.parse("postgresql://postgres.abcd:FAKEpass%21@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require&connection_limit=1")!
+    XCTAssertEqual(t.host, "aws-0-us-east-1.pooler.supabase.com"); XCTAssertEqual(t.port, 6543)
+    XCTAssertEqual(t.user, "postgres.abcd"); XCTAssertEqual(t.password, "FAKEpass!"); XCTAssertEqual(t.sslmode, "require")
+    let local = PostgresURL.local(service: "database-url", target: t, port: 7788)
+    XCTAssertEqual(local, "postgresql://database-url@127.0.0.1:7788/postgres?pgbouncer=true&connection_limit=1&sslmode=disable")
+    XCTAssertFalse(local.contains("FAKEpass")); XCTAssertFalse(local.contains("supabase"))
+    XCTAssertTrue(PostgresURL.isLocal(local, port: 7788))
+    XCTAssertFalse(PostgresURL.isLocal("postgres://u:p@db.example.com:5432/x", port: 7788))
+    XCTAssertNil(PostgresURL.parse("mysql://u:p@h/db"))
+    // What the local endpoint can't stand in for stays a launch-time key that kd gives the program.
+    XCTAssertNotNil(PostgresURL.proxyable("postgresql://u:p@db.example.com:5432/app?sslmode=require"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?sslmode=verify-full&sslrootcert=/x/rds-ca.pem"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?sslcert=/x/c.crt&sslkey=/x/c.key"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@db.example.com/app?channel_binding=require"))
+    XCTAssertNil(PostgresURL.proxyable("postgresql://u:p@/app?host=/var/run/postgresql"))
+    XCTAssertEqual(PostgresURL.parse("postgres://u@h/db")?.sslmode, "prefer")
+  }
+
+  func testSCRAMMatchesTheRFCExample() {
+    // RFC 7677, section 3 (with SHA-256).
+    let s = SCRAM(password: "pencil", user: "user", nonce: "rOprNGfwEbeRWgbNEkqO")
+    XCTAssertEqual(s.clientFirst, "n,,n=user,r=rOprNGfwEbeRWgbNEkqO")
+    let final = s.clientFinal(serverFirst: "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+    XCTAssertEqual(final, "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=")
+    XCTAssertTrue(s.verify(serverFinal: "v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="))
+    XCTAssertFalse(s.verify(serverFinal: "v=AAAATRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="))
+  }
+}
+
 final class CallerNameTests: XCTestCase {
   func testNamesCantBeBorrowed() {
     XCTAssertEqual(ClientProcess(pid: 1, name: "Claude Code").friendlyName, "Claude Code (unverified)")
@@ -620,8 +726,8 @@ final class ImportTests: XCTestCase {
       "ANTHROPIC_API_KEY": ("anthropic", "http://localhost:7787/anthropic", "ANTHROPIC_BASE_URL"),
       "GOOGLE_CLIENT_SECRET": ("google-client-secret", nil, nil),
     ])
-    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic:start-with-keydillo-run"))
-    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret:start-with-keydillo-run"))
+    XCTAssertTrue(out.contains("export ANTHROPIC_API_KEY=keydillo:anthropic:run-with-kd"))
+    XCTAssertTrue(out.contains("GOOGLE_CLIENT_SECRET=keydillo:google-client-secret:run-with-kd"))
     XCTAssertTrue(out.contains("ANTHROPIC_BASE_URL=http://localhost:7787/anthropic"))
     XCTAssertTrue(out.contains("ELEVENLABS_API_KEY=abcdef0123456789abcdef # voice"))
     XCTAssertTrue(out.contains("PORT=3000"))
@@ -794,7 +900,7 @@ final class ImportClassificationTests: XCTestCase {
     XCTAssertEqual(ImportScanner.formatPrefix("sk-ant-api03-xyz"), "sk-ant-api03-")
     XCTAssertEqual(ImportScanner.formatPrefix("abcdefghijklmnop"), "")
     let out = ImportScanner.rewrite("OPENAI_API_KEY=sk-proj-abc", replacements: ["OPENAI_API_KEY": ("openai", nil, nil)], prefixes: ["OPENAI_API_KEY": "sk-proj-"])
-    XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:start-with-keydillo-run"))
+    XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:run-with-kd"))
     XCTAssertEqual(PlaceholderSubstitution(service: "openai", value: "REAL").apply("Bearer sk-proj-keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
   }
 }
