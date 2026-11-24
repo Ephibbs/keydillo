@@ -9,7 +9,8 @@ ID=$(security find-identity -v -p codesigning | grep -o '"Developer ID Applicati
 [[ -n $ID ]] || { echo "No Developer ID Application certificate in the keychain."; exit 1; }
 echo "Signing as: $ID"
 
-xcodegen generate >/dev/null
+# iPhone approvals need the iCloud (CloudKit) entitlement, so releases build from the iCloud spec.
+xcodegen generate --spec project.icloud.yml >/dev/null
 xcodebuild -project Keydillo.xcodeproj -scheme Keydillo -configuration Release -archivePath $OUT/keydillo.xcarchive \
   -allowProvisioningUpdates archive | grep -E "error:|ARCHIVE (SUCCEEDED|FAILED)"
 xcodebuild -exportArchive -archivePath $OUT/keydillo.xcarchive -exportPath $OUT -exportOptionsPlist ../scripts/ExportOptions.plist \
