@@ -121,7 +121,7 @@ struct SetupView: View {
     Button { never = true } label: {
       HStack(spacing: 12) {
         Image(systemName: never ? "largecircle.fill.circle" : "circle").foregroundStyle(never ? Theme.primary : Theme.secondary)
-        Text("Never").font(.system(size: 14))
+        Text(NeverAskCopy.short).font(.system(size: 14))
         Spacer()
         Text("Least safe").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }

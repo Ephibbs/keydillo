@@ -245,7 +245,7 @@ final class AppModel {
     guard servicesLoaded else { return "Unlock your Mac first." }
     let services = [KeychainBackend.secretService, ImportModel.backupService]
     if on {
-      guard let ctx = await authenticate("stop asking for Touch ID for anything in keydillo") else { return nil }
+      guard let ctx = await authenticate("only ask for Touch ID for new keys, new sites, startup keys and showing a key") else { return nil }
       do {
         for svc in services { try keychain.relock(service: svc, presence: false, context: ctx) }
         try saveNeverAsk(on: true)
@@ -265,7 +265,7 @@ final class AppModel {
     keychain.requirePresence = !on
     unlocks.closeAll()
     events.insert(ActivityEvent(date: Date(), service: "Touch ID", method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
-                                note: on ? "turned on Never ask for Touch ID" : "turned off Never ask for Touch ID"), at: 0)
+                                note: on ? "turned on Only ask for new keys, new sites and reveals" : "turned off Only ask for new keys, new sites and reveals"), at: 0)
     Task { await engine.gate.revokeAll(); await refreshGrants() }
     return nil
   }
@@ -793,7 +793,7 @@ final class AppModel {
         do {
           let result = try await proposal.apply(LAContext())
           events.insert(ActivityEvent(date: Date(), service: r.service ?? r.project ?? "", method: "", path: "", process: who, pid: caller.pid,
-                                      outcome: .sent, status: 0, note: "\(proposal.title) (no prompt: Never ask for Touch ID)"), at: 0)
+                                      outcome: .sent, status: 0, note: "\(proposal.title) (no prompt: only new keys, new sites and reveals ask)"), at: 0)
           return .changed(result)
         } catch { return .error(error.localizedDescription) }
       }
