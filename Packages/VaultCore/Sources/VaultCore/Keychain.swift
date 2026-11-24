@@ -21,7 +21,44 @@ public final class KeychainBackend: ConfigPersistence {
   static let configService = "keydillo.config"
   static let configAccount = "services"
 
+  /// When false ("never ask for Touch ID"), new secrets are saved without `.userPresence`: only binaries in this
+  /// access group can read them, with no prompt, from the first unlock after startup until shutdown.
+  public var requirePresence = true
+
   public init(mode: KeychainMode) { self.mode = mode }
+
+  /// Saves every item under `service` again with or without the Touch ID lock. `context` must already be
+  /// approved when the items currently carry the lock. Stops at the first failure and reports what was done.
+  @discardableResult public func relock(service: String = KeychainBackend.secretService, presence: Bool, context: LAContext?) throws -> [String] {
+    var done: [String] = []
+    let old = requirePresence
+    requirePresence = presence
+    defer { requirePresence = old }
+    for name in accounts(service: service, context: context) {
+      let value = try secret(for: name, context: context, service: service)
+      let label = itemLabel(name, service: service) ?? name
+      do { try writeSecret(value, for: name, label: label, service: service) }
+      catch {
+        // Never lose a key: put it back the way it was before reporting the failure.
+        requirePresence = old
+        try? writeSecret(value, for: name, label: label, service: service)
+        throw error
+      }
+      done.append(name)
+    }
+    return done
+  }
+
+  func itemLabel(_ name: String, service: String) -> String? {
+    var q = base(service: service, account: name)
+    q[kSecReturnAttributes as String] = true
+    let ctx = LAContext(); ctx.interactionNotAllowed = true
+    q[kSecUseAuthenticationContext as String] = ctx
+    var out: CFTypeRef?
+    guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let a = out as? [String: Any],
+          let l = a[kSecAttrLabel as String] as? String else { return nil }
+    return l.hasPrefix("keydillo: ") ? String(l.dropFirst("keydillo: ".count)) : l
+  }
 
   /// Picks data protection when the binary carries the access group entitlement, else legacy.
   public static func detect(accessGroup: String) -> KeychainBackend {
@@ -52,16 +89,24 @@ public final class KeychainBackend: ConfigPersistence {
     if service == Self.secretService, Placeholder.isPlaceholder(String(decoding: value, as: UTF8.self)) {
       throw VaultError.invalidConfig("That's a keydillo placeholder, not a key. The real key wasn't changed.")
     }
+    try writeSecret(value, for: name, label: label, service: service)
+  }
+
+  func writeSecret(_ value: Data, for name: String, label: String, service: String) throws {
     SecItemDelete(base(service: service, account: name) as CFDictionary)
     var q = base(service: service, account: name)
     q[kSecValueData as String] = value
     q[kSecAttrLabel as String] = "keydillo: \(label)"
     if case .dataProtection = mode {
-      var err: Unmanaged<CFError>?
-      guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &err) else {
-        throw VaultError.keychain(errSecParam)
+      if requirePresence {
+        var err: Unmanaged<CFError>?
+        guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .userPresence, &err) else {
+          throw VaultError.keychain(errSecParam)
+        }
+        q[kSecAttrAccessControl as String] = ac
+      } else {
+        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
       }
-      q[kSecAttrAccessControl as String] = ac
     } else {
       q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
     }

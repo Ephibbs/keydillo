@@ -231,7 +231,81 @@ final class AppModel {
 
   struct AccessSettings: Codable { var defaultAccess: String; var overrides: [String: String] }
 
+  // MARK: Trusted apps
+
+  /// Kept in the private Keychain group like the other access settings, so no other program can change it.
+  struct TrustSettings: Codable { var agents: [String] }
+  /// AI apps (by verified name, e.g. "Claude Code") that use keys without asking. Only apps whose code signature
+  /// keydillo checks can be listed, so a program can't get in by naming itself "claude".
+  private(set) var trustedAgents: [String] = [] { didSet { Self.trustedBox.value = trustedAgents } }
+  /// Keys are stored without the Keychain's Touch ID lock while any app is trusted.
+  var neverAsk: Bool { !trustedAgents.isEmpty }
+  /// Read by the proxy off the main thread.
+  nonisolated static let trustedBox = StringsBox()
+  static let trustableAgents = ProcessLookup.verifiedAgentNames
+
+  /// A caller started by a trusted app (verified by code signature).
+  nonisolated static func isTrusted(_ c: ClientProcess) -> Bool {
+    TrustRule.allows(c, trusted: trustedBox.value)
+  }
+
+  func loadTrust() {
+    if let d = keychain.setting("trustedApps"), !d.isEmpty, let s = try? JSONDecoder().decode(TrustSettings.self, from: d) {
+      trustedAgents = s.agents.filter { Self.trustableAgents.contains($0) }
+    }
+    keychain.requirePresence = !neverAsk
+  }
+
+  /// Trusting an app takes Touch ID. The first one also saves every key again without the Keychain's Touch ID lock
+  /// (keydillo then asks for Touch ID itself for everyone else). Removing the last one puts the lock back.
+  /// Still Touch ID even for trusted apps: a new key, a new site, launch-time values, and showing a key.
+  /// Returns an error message, or nil when done or cancelled.
+  func setTrusted(_ agent: String, _ on: Bool) async -> String? {
+    guard Self.trustableAgents.contains(agent), on != trustedAgents.contains(agent) else { return nil }
+    guard servicesLoaded else { return "Unlock your Mac first." }
+    let next = on ? trustedAgents + [agent] : trustedAgents.filter { $0 != agent }
+    let services = [KeychainBackend.secretService, ImportModel.backupService]
+    if on {
+      guard let ctx = await authenticate("let \(agent) use your keys without asking (new keys, new sites and showing a key still ask)") else { return nil }
+      do {
+        if !neverAsk { for svc in services { try keychain.relock(service: svc, presence: false, context: ctx) } }
+        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next)))
+      } catch {
+        if !neverAsk { for svc in services { _ = try? keychain.relock(service: svc, presence: true, context: ctx) } }
+        return "Couldn't change how your keys are stored, so nothing changed (\(error.localizedDescription))."
+      }
+    } else {
+      do {
+        if next.isEmpty { for svc in services { try keychain.relock(service: svc, presence: true, context: nil) } }
+        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next)))
+      } catch {
+        return "Couldn't put the Touch ID lock back on every key (\(error.localizedDescription)). Try again."
+      }
+    }
+    trustedAgents = next
+    keychain.requirePresence = !neverAsk
+    events.insert(ActivityEvent(date: Date(), service: "Touch ID", method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
+                                note: on ? "trusted \(agent): it uses keys without asking" : "stopped trusting \(agent)"), at: 0)
+    Task { await engine.gate.revokeAll(); await refreshGrants() }
+    return nil
+  }
+
+  /// Previews only: shows Claude Code as trusted without touching the Keychain.
+  func previewTrusted() { if Self.devHarness { trustedAgents = ["Claude Code"]; Self.trustedBox.value = [] } }
+
+  /// A change that would send a key to a site it hasn't been sent to. Always Touch ID, even in Never ask mode.
+  func addsSite(_ r: ChangeRequest) -> Bool {
+    guard r.kind == .auth, let h = r.host?.lowercased().trimmingCharacters(in: .whitespaces), !h.isEmpty else { return false }
+    return !(r.service.flatMap(service(named:))?.allHosts.contains(h) ?? false)
+  }
+
+  func logNoPrompt(_ r: ApprovalRequest, note: String) {
+    events.insert(ActivityEvent(date: Date(), service: r.service, method: r.method, path: r.path, process: r.client.displayName, pid: r.client.pid,
+                                outcome: .sent, status: 0, note: note), at: 0)
+  }
+
   func loadAccessSettings() {
+    loadTrust()
     // Older builds kept these in preferences, where any program could change them: drop them, never trust them.
     for k in ["projectAccessDefault", "projectAccess", "trustedProjects"] { UserDefaults.standard.removeObject(forKey: k) }
     let oldKeyDefault = UserDefaults.standard.string(forKey: "defaultApproval")
@@ -695,7 +769,7 @@ final class AppModel {
         let skipped = keys.filter { if case .eachRequest = $0.approval { return true }; return false }
         guard !grouped.isEmpty else { return .error("Every key in \(name) is set to ask each time, so there's nothing to approve in advance.") }
         let reason = "let \(who) use \(name)'s keys (\(grouped.map(\.displayName).joined(separator: ", "))) until this \(who) session ends"
-        guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
+        guard (try? await touchID(ctx, reason, for: caller)) == true else { return .declined }
         for k in grouped { await engine.gate.grantWindow(service: k.name, minutes: 12 * 60, context: ctx, client: caller) }
         await refreshGrants()
         let note = skipped.isEmpty ? "" : " (\(skipped.map(\.name).joined(separator: ", ")) still ask every time)"
@@ -703,7 +777,7 @@ final class AppModel {
       }
       guard let folder = folder(for: name) else { return .error("keydillo doesn't know \(name)'s folder yet, so it can't open it for that folder.") }
       let reason = "let programs in \((folder as NSString).abbreviatingWithTildeInPath) use \(name)'s keys (\(list)) \(access.span)"
-      guard (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) == true else { return .declined }
+      guard (try? await touchID(ctx, reason, for: caller)) == true else { return .declined }
       unlocks.open(name, access: access, folder: folder, context: ctx, keys: keys.map(\.name), keychain: keychain)
       events.insert(ActivityEvent(date: Date(), service: name, method: "", path: "", process: who, pid: caller.pid, outcome: .sent, status: 0,
                                   note: "opened \(name) \(access.span)"), at: 0)
@@ -740,6 +814,14 @@ final class AppModel {
       }
       let proposal: ChangeProposal
       do { proposal = try changeProposal(r, requester: who) } catch { return .error(error.localizedDescription) }
+      if Self.isTrusted(caller) && !addsSite(r) {
+        do {
+          let result = try await proposal.apply(LAContext())
+          events.insert(ActivityEvent(date: Date(), service: r.service ?? r.project ?? "", method: "", path: "", process: who, pid: caller.pid,
+                                      outcome: .sent, status: 0, note: "\(proposal.title) (no prompt: \(who) is trusted)"), at: 0)
+          return .changed(result)
+        } catch { return .error(error.localizedDescription) }
+      }
       return await withCheckedContinuation { cont in
         let wid = "change-\(proposal.id)"
         var done = false
@@ -893,11 +975,17 @@ final class AppModel {
 
   var storageDescription: String {
     switch keychain.mode {
-    case .dataProtection: return servicesLoaded ? "Private Keychain group, Touch ID on every read"
+    case .dataProtection: return servicesLoaded ? (neverAsk ? "Private Keychain group, readable only by keydillo" : "Private Keychain group, Touch ID on every read")
       : "Private Keychain group. Keys can't be read until the Mac is unlocked; keydillo loads them as soon as it is"
     case .legacy: return "NOT SECURE: no private Keychain group in this build, so keydillo won't store keys"
     }
   }
+}
+
+/// Touch ID, unless the caller was started by an app the user trusts.
+func touchID(_ ctx: LAContext, _ reason: String, for client: ClientProcess? = nil) async throws -> Bool {
+  if let client, AppModel.isTrusted(client) { return true }
+  return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
 }
 
 /// Bridges proxy approvals to Touch ID and the popover.
@@ -921,6 +1009,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
   }
 
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
+    if AppModel.isTrusted(request.client) { return .approved(nil) }
     // A project opened for its folder: callers working inside that folder don't get a prompt.
     let open = await MainActor.run { () -> (project: String, folder: String, access: ProjectAccess, names: String)? in
       guard let m = model, let svc = m.service(named: request.service) else { return nil }
@@ -938,7 +1027,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
       ctx.localizedCancelTitle = "Deny"
       let reason = "let programs in \((open.folder as NSString).abbreviatingWithTildeInPath) use \(open.project)'s keys (\(open.names)) \(open.access.span)"
       do {
-        guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) else { return .denied }
+        guard try await touchID(ctx, reason) else { return .denied }
         let keys = await MainActor.run { model?.services.filter { $0.project == open.project }.map(\.name) ?? [] }
         if let m = model { m.unlocks.open(open.project, access: open.access, folder: open.folder, context: ctx, keys: keys, keychain: m.keychain) }
         return .approved(ctx)
@@ -952,7 +1041,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
     await MainActor.run { model?.showPending(pending) }
     defer { Task { @MainActor in model?.clearPending(pending.id) } }
     do {
-      guard try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: request.reason) else { return .denied }
+      guard try await touchID(ctx, request.reason) else { return .denied }
       await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }
       return .approved(ctx)
     } catch {
@@ -972,6 +1061,16 @@ final class SnapshotBox: @unchecked Sendable {
 }
 
 extension UInt16 { var nonZero: UInt16? { self == 0 ? nil : self } }
+
+/// Thread-safe list read by the proxy off the main thread.
+final class StringsBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var v: [String] = []
+  var value: [String] {
+    get { lock.lock(); defer { lock.unlock() }; return v }
+    set { lock.lock(); v = newValue; lock.unlock() }
+  }
+}
 
 /// Thread-safe Bool read by the proxy off the main thread.
 final class FlagBox: @unchecked Sendable {

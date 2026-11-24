@@ -923,5 +923,51 @@ final class GeneralKeysTests: XCTestCase {
   func testMCPLabelsGeneral() {
     XCTAssertEqual(MCPServer.projectLabel("General"), "General: any folder")
     XCTAssertEqual(MCPServer.projectLabel("slouchly"), "project slouchly")
+final class RelockTests: XCTestCase {
+  // Login keychain (legacy mode) with a throwaway service: checks that saving keys again keeps every value and label.
+  func testRelockKeepsValuesAndLabels() throws {
+    let kc = KeychainBackend(mode: .legacy)
+    let svc = "keydillo.test.relock.\(UUID().uuidString)"
+    defer { for a in kc.accounts(service: svc) { kc.deleteSecret(a, service: svc) } }
+    try kc.setSecret(Data("one".utf8), for: "a", label: "Alpha", service: svc)
+    try kc.setSecret(Data("two".utf8), for: "b", label: "Beta", service: svc)
+    let off = try kc.relock(service: svc, presence: false, context: nil)
+    XCTAssertEqual(Set(off), ["a", "b"])
+    XCTAssertTrue(kc.requirePresence, "relock leaves the backend's own setting alone")
+    let on = try kc.relock(service: svc, presence: true, context: nil)
+    XCTAssertEqual(Set(on), ["a", "b"])
+    XCTAssertEqual(try kc.secret(for: "a", context: nil, service: svc), Data("one".utf8))
+    XCTAssertEqual(try kc.secret(for: "b", context: nil, service: svc), Data("two".utf8))
+    XCTAssertEqual(kc.itemLabel("a", service: svc), "Alpha")
+  }
+
+  func testRelockEmptyServiceDoesNothing() throws {
+    let kc = KeychainBackend(mode: .legacy)
+    XCTAssertEqual(try kc.relock(service: "keydillo.test.empty.\(UUID().uuidString)", presence: false, context: nil), [])
+  }
+}
+
+final class TrustRuleTests: XCTestCase {
+  func client(agent: String?, verified: Bool, identified: Bool = true) -> ClientProcess {
+    var c = ClientProcess(pid: 42, name: "python3", agent: agent, agentPid: 7, startTime: identified ? 100 : 0)
+    c.agentVerified = verified
+    return c
+  }
+  func testVerifiedClaudeIsTrusted() {
+    XCTAssertTrue(TrustRule.allows(client(agent: "claude", verified: true), trusted: ["Claude Code"]))
+  }
+  func testUnverifiedNameIsNotTrusted() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: false), trusted: ["Claude Code"]))
+  }
+  func testOtherProgramsAndOtherAppsAsk() {
+    XCTAssertFalse(TrustRule.allows(client(agent: nil, verified: false), trusted: ["Claude Code"]))
+    XCTAssertFalse(TrustRule.allows(client(agent: "cursor", verified: true), trusted: ["Claude Code"]))
+    XCTAssertTrue(TrustRule.allows(client(agent: "cursor", verified: true), trusted: ["Claude Code", "Cursor"]))
+  }
+  func testUnidentifiedCallerNeverTrusted() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: true, identified: false), trusted: ["Claude Code"]))
+  }
+  func testNothingTrustedByDefault() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: true), trusted: []))
   }
 }

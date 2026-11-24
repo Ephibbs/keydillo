@@ -4,6 +4,8 @@ struct SetupView: View {
   @Environment(AppModel.self) private var model
   @State var step = 0
   @State private var approval: DefaultApproval = .session
+  @State var never = false
+  @State private var neverError: String?
   @State private var changesOpen = false
   @State private var connecting = false
   @State private var connectError: String?
@@ -39,11 +41,29 @@ struct SetupView: View {
       VStack(spacing: 8) {
         choice(.eachRequest, "Every time")
         choice(.session, "Once per session", note: "Recommended")
+        neverChoice
       }
+      if never {
+        Text(TrustCopy.onboarding)
+          .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+      }
+      if let neverError { Text(neverError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       Text("You can change this anytime in Settings, or per project.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       footer(1) {
-        Button("Continue") { Task { await model.setDefaultAccess(approval == .eachRequest ? .everyTime : .perKey) }; step = 2 }
-          .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
+        Button(never ? "Continue with Touch ID" : "Continue") {
+          Task {
+            if never {
+              neverError = await model.setTrusted("Claude Code", true)
+              guard model.trustedAgents.contains("Claude Code") else { return }
+              await model.setDefaultAccess(.perKey)
+            } else {
+              if model.trustedAgents.contains("Claude Code") { _ = await model.setTrusted("Claude Code", false) }
+              await model.setDefaultAccess(approval == .eachRequest ? .everyTime : .perKey)
+            }
+            step = 2
+          }
+        }
+        .buttonStyle(PrimaryButtonStyle()).keyboardShortcut(.defaultAction)
       }
     }
   }
@@ -97,18 +117,34 @@ struct SetupView: View {
     }
   }
 
-  func choice(_ value: DefaultApproval, _ label: String, note: String? = nil) -> some View {
-    Button { approval = value } label: {
+  var neverChoice: some View {
+    Button { never = true } label: {
       HStack(spacing: 12) {
-        Image(systemName: approval == value ? "largecircle.fill.circle" : "circle")
-          .foregroundStyle(approval == value ? Theme.primary : Theme.secondary)
+        Image(systemName: never ? "largecircle.fill.circle" : "circle").foregroundStyle(never ? Theme.primary : Theme.secondary)
+        Text("Always allow Claude Code").font(.system(size: 14))
+        Spacer()
+        Text("Fewest prompts").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      }
+      .padding(.horizontal, 14).frame(height: 44)
+      .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
+      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(never ? Theme.primary : .clear, lineWidth: 2))
+      .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+    .buttonStyle(.plain)
+  }
+
+  func choice(_ value: DefaultApproval, _ label: String, note: String? = nil) -> some View {
+    Button { approval = value; never = false } label: {
+      HStack(spacing: 12) {
+        Image(systemName: !never && approval == value ? "largecircle.fill.circle" : "circle")
+          .foregroundStyle(!never && approval == value ? Theme.primary : Theme.secondary)
         Text(label).font(.system(size: 14))
         Spacer()
         if let note { Text(note).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
       }
       .padding(.horizontal, 14).frame(height: 44)
       .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
-      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(approval == value ? Theme.primary : .clear, lineWidth: 2))
+      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(!never && approval == value ? Theme.primary : .clear, lineWidth: 2))
       .contentShape(RoundedRectangle(cornerRadius: 12))
     }
     .buttonStyle(.plain)

@@ -227,6 +227,8 @@ public extension ProcessLookup {
     guard let a = agent?.lowercased() else { return nil }
     return agentTeams.first { a.hasPrefix($0.prefix) }?.team
   }
+  /// Names of the AI apps keydillo can verify by code signature.
+  public static var verifiedAgentNames: [String] { agentTeams.map(\.name) }
   public static func verifiedName(_ agent: String?) -> String? {
     guard let a = agent?.lowercased() else { return nil }
     return agentTeams.first { a.hasPrefix($0.prefix) }?.name
@@ -350,5 +352,14 @@ public extension ProcessLookup {
     let line = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     guard !line.isEmpty else { return nil }
     return line.count > maxPurposeLength ? String(line.prefix(maxPurposeLength - 1)) + "…" : line
+  }
+}
+
+/// Which callers a trusted AI app covers: only ones whose agent ancestor passed the code-signature check,
+/// matched by its verified name. Unverified or unidentified callers never match.
+public enum TrustRule {
+  public static func allows(_ c: ClientProcess, trusted: [String]) -> Bool {
+    guard c.identified, c.agentVerified, let name = ProcessLookup.verifiedName(c.agent) else { return false }
+    return trusted.contains(name)
   }
 }

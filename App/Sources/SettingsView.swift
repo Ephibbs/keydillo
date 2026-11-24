@@ -20,6 +20,7 @@ struct SettingsView: View {
         (Text("Each project can change this on its page. ").foregroundColor(Theme.secondary)
          + Text("Note: With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").foregroundColor(Theme.danger)).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
+      TrustedAppsView()
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
         Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Claude does it for you.")
