@@ -41,7 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     term.resume()
     AppDelegate.termSource = term
     // Opened by hand while the keep-alive agent is on: let launchd run keydillo so crashes are restarted.
-    if !preview && !Handover.underLaunchd && MainActor.assumeIsolated({ AppModel.agent.status == .enabled }) {
+    // Debug builds run as themselves: the agent launches the installed copy, not this one.
+    if !preview && !Handover.underLaunchd && !Handover.isDebugBuild && MainActor.assumeIsolated({ AppModel.agent.status == .enabled }) {
       Handover.toLaunchd(); exit(0)
     }
     MainActor.assumeIsolated {
@@ -66,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum Handover {
   static let label = "com.studiokillswitch.keydillo.agent"
   static var underLaunchd: Bool { ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == label }
+  #if DEBUG
+  static let isDebugBuild = true
+  #else
+  static let isDebugBuild = false
+  #endif
 
   /// Asks launchd to (re)start the keep-alive copy of keydillo.
   static func toLaunchd() {
