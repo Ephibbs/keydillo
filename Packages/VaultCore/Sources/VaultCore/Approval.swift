@@ -14,14 +14,18 @@ public struct ApprovalRequest: Sendable {
   }
 
   /// Shown in the Touch ID dialog. macOS prefixes it with "keydillo is trying to".
+  /// Kept short: keydillo's approval card next to the dialog shows the details (program, request, folder, the AI's reason).
   public var reason: String {
     if method == "START" {
-      return "give \(client.friendlyName) your \(displayName) as it starts (\(path)). The program can see this value" + saysSuffix
+      return "give your \(displayName) key to \(client.friendlyName)"
     }
-    let shortPath = path.count > 48 ? String(path.prefix(47)) + "…" : path
-    // macOS shows this after '"keydillo" is trying to', so it reads: keydillo is trying to let Claude Code use your OpenAI key.
-    let via = client.agent != nil && client.name.lowercased() != client.agent?.lowercased() && client.name != "keydillo" ? " (\(client.name))" : ""
-    return "let \(client.friendlyName) use your \(displayName) key\(via): \(method) \(host)\(shortPath)" + saysSuffix
+    // macOS shows this after '"keydillo" is trying to': keydillo is trying to use your OpenAI key for Claude Code.
+    return "use your \(displayName) key for \(client.friendlyName)"
+  }
+
+  /// The program that made the request when it isn't the AI tool itself (e.g. "curl" under Claude Code).
+  public var viaProgram: String? {
+    client.agent != nil && client.name.lowercased() != client.agent?.lowercased() && client.name != "keydillo" ? client.name : nil
   }
 
   /// The AI's own reason, after the facts keydillo checked and labelled as its words: ` — Claude Code says: “Generating voiceover”`.

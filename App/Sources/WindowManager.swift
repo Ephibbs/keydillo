@@ -39,6 +39,24 @@ final class WindowManager: NSObject, NSWindowDelegate {
   }
 
   func close(_ id: String) { windows[id]?.close() }
+
+  /// The details card for a pending key request, above where macOS puts the Touch ID dialog (screen centre).
+  /// Closing it denies the request.
+  func showApprovalCard(_ p: PendingApproval) {
+    let id = "approval-\(p.id)"
+    show(id, title: "keydillo", floating: true, onClose: {
+      // Closed by the user while still waiting: deny. Closed because Touch ID finished: leave the result alone.
+      if AppModel.shared.pending.contains(where: { $0.id == p.id }) { AppModel.shared.deny(p) }
+    }) {
+      ApprovalCard(pending: p).sheetCard()
+    }
+    guard let w = windows[id], let screen = w.screen ?? NSScreen.main else { return }
+    let v = screen.visibleFrame
+    let x = v.midX - w.frame.width / 2
+    // The Touch ID sheet sits around the screen's centre; keep the card's bottom clear of it.
+    let y = min(v.maxY - w.frame.height - 24, v.midY + 150)
+    w.setFrameOrigin(NSPoint(x: x, y: max(v.minY, y)))
+  }
   func bringToFront(_ id: String) { windows[id]?.makeKeyAndOrderFront(nil) }
 
   func windowWillClose(_ notification: Notification) {
