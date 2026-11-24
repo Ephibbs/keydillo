@@ -121,6 +121,12 @@ struct RequestsView: View {
       if let m = store.message {
         Section { Text(m).font(.footnote).foregroundStyle(.secondary) }
       }
+      if case .silent(let why) = store.pushMode {
+        Section {
+          Text("Notifications come through background refresh, so they stop if you swipe keydillo away. iCloud refused direct alerts: \(why)")
+            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+      }
       if let n = store.notificationProblem {
         Section {
           VStack(alignment: .leading, spacing: 6) {

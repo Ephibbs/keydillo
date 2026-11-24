@@ -115,7 +115,7 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
     info.shouldSendContentAvailable = true
     sub.notificationInfo = info
     do {
-      _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
+      try await saveSubscription(sub)
       _ = try? await db.modifySubscriptions(saving: [], deleting: [Self.zoneSubscriptionID])
       return .alerts
     } catch {
@@ -124,9 +124,16 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
       let silent = CKSubscription.NotificationInfo()
       silent.shouldSendContentAvailable = true
       zoneSub.notificationInfo = silent
-      _ = try await db.modifySubscriptions(saving: [zoneSub], deleting: [])
+      try await saveSubscription(zoneSub)
       return .silent(queryError: queryError)
     }
+  }
+
+  /// `modifySubscriptions` reports a refused subscription in its results rather than by throwing.
+  func saveSubscription(_ sub: CKSubscription) async throws {
+    let (saved, _) = try await db.modifySubscriptions(saving: [sub], deleting: [])
+    guard let result = saved[sub.subscriptionID] else { throw CKError(.internalError) }
+    if case .failure(let e) = result { throw e }
   }
 
   public static let zoneSubscriptionID = "kd-zone"
