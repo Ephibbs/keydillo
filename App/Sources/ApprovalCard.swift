@@ -8,7 +8,7 @@ import LocalAuthenticationEmbeddedUI
 /// to the system's password sheet.
 struct EmbeddedTouchID: NSViewRepresentable {
   let context: LAContext
-  func makeNSView(context ctx: Context) -> LAAuthenticationView { LAAuthenticationView(context: context, controlSize: .regular) }
+  func makeNSView(context ctx: Context) -> LAAuthenticationView { LAAuthenticationView(context: context, controlSize: .small) }
   func updateNSView(_ v: LAAuthenticationView, context ctx: Context) {}
 }
 
@@ -47,7 +47,7 @@ struct ApprovalCard: View {
         Text("Unverified app.").font(.system(size: 12)).foregroundStyle(Theme.danger)
       }
       HStack(spacing: 12) {
-        EmbeddedTouchID(context: pending.context).frame(width: 64, height: 64)
+        EmbeddedTouchID(context: pending.context).frame(width: 36, height: 36)
         VStack(alignment: .leading, spacing: 2) {
           Text("Touch ID to allow").font(.system(size: 13, weight: .medium))
           Text(span).font(.system(size: 12)).foregroundStyle(Theme.secondary)
