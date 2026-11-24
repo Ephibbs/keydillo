@@ -88,6 +88,23 @@ final class PhoneLinkTests: XCTestCase {
     XCTAssertThrowsError(try forged.verify(from: mac)) { XCTAssertEqual($0 as? LinkError, .wrongMac) }
   }
 
+  func testPurposeIsSignedAndOptional() throws {
+    let (_, _, mac) = try pair()
+    var f = fields(); f = PendingAsk.Fields(title: f.title, service: f.service, displayName: f.displayName, host: f.host, method: f.method,
+                                            path: f.path, requester: f.requester, folder: f.folder, purpose: "Generating voiceover")
+    let ask = try PendingAsk.make(f, macID: "mac-1", signer: macKey, wrapped: nil).ask
+    XCTAssertNoThrow(try ask.verify(from: mac))
+    XCTAssertEqual(ask.notificationText, "\(ask.title): “Generating voiceover”")
+    var changed = ask; changed.purpose = "Something else"
+    XCTAssertThrowsError(try changed.verify(from: mac)) { XCTAssertEqual($0 as? LinkError, .badSignature) }
+    var dropped = ask; dropped.purpose = nil
+    XCTAssertThrowsError(try dropped.verify(from: mac)) { XCTAssertEqual($0 as? LinkError, .badSignature) }
+    // No reason given: nothing extra is signed, and the notification is just the title.
+    let plain = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: nil).ask
+    XCTAssertNil(plain.purpose)
+    XCTAssertEqual(plain.notificationText, plain.title)
+  }
+
   func testExpiredAskRejectedOnPhoneAndMac() throws {
     let (_, phone, mac) = try pair()
     let pending = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: nil, ttl: 30, now: Date().addingTimeInterval(-60))

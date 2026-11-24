@@ -146,6 +146,8 @@ public struct ApprovalAsk: Codable, Equatable, Sendable, Identifiable {
   public var path: String
   public var requester: String
   public var folder: String
+  /// The AI's own short reason for using the key (from `kd --why`). Its words, not checked by keydillo. Nil when it gave none.
+  public var purpose: String?
   /// Ephemeral key the phone seals its key release to. Its private half exists only in the Mac's memory.
   public var responseKey: Data
   /// This key's data key, sealed to the phone. Absent when the Mac has no phone copy of the key.
@@ -157,7 +159,7 @@ public struct ApprovalAsk: Codable, Equatable, Sendable, Identifiable {
   var canonical: Data {
     Canon("kd-ask-v1").string(requestID).string(macID).string(kind.rawValue).int(created).int(expires).string(title)
       .string(service).string(displayName).string(host).string(method).string(path).string(requester).string(folder)
-      .data(responseKey).optional(sealedDataKey?.canonical).bytes
+      .data(responseKey).optional(sealedDataKey?.canonical).withPurpose(purpose).bytes
   }
   /// What the phone's answer commits to, so an answer can't be moved to a different request.
   public var digest: Data { canonical.sha256 }
@@ -168,6 +170,12 @@ public struct ApprovalAsk: Codable, Equatable, Sendable, Identifiable {
     guard macID == mac.macID else { throw LinkError.wrongMac }
     guard PhoneLink.verify(signature, over: canonical, by: mac.signingKey) else { throw LinkError.badSignature }
     guard epoch(now) < expires else { throw LinkError.expired }
+  }
+
+  /// The push notification's text: the title, then the AI's reason in quotes when it gave one.
+  public var notificationText: String {
+    guard let p = purpose else { return title }
+    return "\(title): “\(p)”"
   }
 
   public var secondsLeft: Int { max(0, Int(expires - epoch())) }
@@ -227,11 +235,12 @@ public final class PendingAsk: @unchecked Sendable {
 
   public struct Fields: Sendable {
     public var kind: AskKind, title: String, service: String, displayName: String, host: String, method: String, path: String
-    public var requester: String, folder: String
+    public var requester: String, folder: String, purpose: String?
     public init(kind: AskKind = .use, title: String, service: String, displayName: String, host: String, method: String, path: String,
-                requester: String, folder: String) {
+                requester: String, folder: String, purpose: String? = nil) {
       self.kind = kind; self.title = title; self.service = service; self.displayName = displayName; self.host = host
       self.method = method; self.path = path; self.requester = requester; self.folder = folder
+      self.purpose = purpose.flatMap { $0.isEmpty ? nil : ($0.count > 200 ? String($0.prefix(199)) + "…" : $0) }
     }
   }
 
@@ -241,7 +250,7 @@ public final class PendingAsk: @unchecked Sendable {
     let path = f.path.count > 120 ? String(f.path.prefix(119)) + "…" : f.path
     var ask = ApprovalAsk(requestID: UUID().uuidString, macID: macID, kind: f.kind, created: epoch(now), expires: epoch(now.addingTimeInterval(ttl)),
                           title: f.title, service: f.service, displayName: f.displayName, host: f.host, method: f.method, path: path,
-                          requester: f.requester, folder: f.folder, responseKey: rk.publicKey, sealedDataKey: wrapped?.sealedDataKey)
+                          requester: f.requester, folder: f.folder, purpose: f.purpose, responseKey: rk.publicKey, sealedDataKey: wrapped?.sealedDataKey)
     ask.signature = try signer.sign(ask.canonical)
     return PendingAsk(ask: ask, responseKey: rk, wrapped: wrapped)
   }

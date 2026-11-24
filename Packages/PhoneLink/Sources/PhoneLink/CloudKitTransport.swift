@@ -56,7 +56,7 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
 
   public func post(ask: ApprovalAsk) async throws {
     try await save("KDAsk", "ask-\(ask.requestID)", try JSONEncoder().encode(ask),
-                   extra: ["title": ask.title as CKRecordValue, "expires": Date(timeIntervalSince1970: TimeInterval(ask.expires)) as CKRecordValue])
+                   extra: ["title": ask.notificationText as CKRecordValue, "expires": Date(timeIntervalSince1970: TimeInterval(ask.expires)) as CKRecordValue])
   }
   public func answer(for requestID: String) async throws -> ApprovalAnswer? { try await fetch(ApprovalAnswer.self, "ans-\(requestID)") }
   public func post(answer: ApprovalAnswer) async throws { try await save("KDAnswer", "ans-\(answer.requestID)", try JSONEncoder().encode(answer)) }

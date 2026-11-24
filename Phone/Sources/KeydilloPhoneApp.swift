@@ -13,7 +13,9 @@ struct KeydilloPhoneApp: App {
   var body: some Scene {
     WindowGroup {
       RootView().environment(store)
-        .onChange(of: phase) { _, p in if p == .active { Task { await store.refresh() } } }
+        .onChange(of: phase) { _, p in
+          if p == .active { Task { await store.refresh(); await store.ensureSubscription() } }
+        }
     }
   }
 }
@@ -21,9 +23,19 @@ struct KeydilloPhoneApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
   func application(_ app: UIApplication, didFinishLaunchingWithOptions opts: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
     UNUserNotificationCenter.current().delegate = self
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+      DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+    }
     app.registerForRemoteNotifications()
     return true
+  }
+
+  func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+    Task { @MainActor in PhoneStore.shared.pushRegistered = true; await PhoneStore.shared.ensureSubscription() }
+  }
+
+  func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    Task { @MainActor in PhoneStore.shared.notificationProblem = "Push registration failed: \(error.localizedDescription)" }
   }
 
   // A new request arrived (CloudKit push).
@@ -107,6 +119,18 @@ struct RequestsView: View {
       if let m = store.message {
         Section { Text(m).font(.footnote).foregroundStyle(.secondary) }
       }
+      if let n = store.notificationProblem {
+        Section {
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Notifications aren't on").font(.subheadline.weight(.medium))
+            Text(n).font(.footnote).foregroundStyle(.secondary)
+            if store.notificationsDenied {
+              Button("Open Settings") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+                .font(.footnote.weight(.medium))
+            }
+          }
+        }
+      }
       if store.waiting.isEmpty {
         Section {
           VStack(alignment: .leading, spacing: 6) {
@@ -147,10 +171,15 @@ struct RequestCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
       Text(ask.title).font(.headline)
+      if let why = ask.purpose {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("\(ask.requester) says").font(.caption).foregroundStyle(.secondary)
+          Text("“\(why)”").font(.subheadline).lineLimit(4)
+        }
+      }
       VStack(alignment: .leading, spacing: 8) {
         Row(label: "Site", value: "\(ask.method) \(ask.host)")
         Row(label: "Path (from the program)", value: ask.path.isEmpty ? "/" : ask.path)
-        if !ask.folder.isEmpty { Row(label: "Folder", value: ask.folder) }
       }
       TimelineView(.periodic(from: .now, by: 1)) { _ in
         Text("Expires in \(ask.secondsLeft / 60):\(String(format: "%02d", ask.secondsLeft % 60))")

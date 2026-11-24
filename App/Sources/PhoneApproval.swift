@@ -138,7 +138,8 @@ final class PhoneApprovals: @unchecked Sendable {
     let folder = request.client.cwd.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? ""
     let fields = PendingAsk.Fields(kind: .use, title: "\(request.client.friendlyName) wants to use your \(request.displayName) key",
                                    service: request.service, displayName: request.displayName, host: request.host, method: request.method,
-                                   path: request.path, requester: request.client.friendlyName, folder: folder)
+                                   path: request.path, requester: request.client.friendlyName, folder: folder,
+                                   purpose: request.client.purpose)
     guard let pending = try? PendingAsk.make(fields, macID: me.id, signer: me.signer, wrapped: wrapped) else { return .timedOut }
     return await raceApproval(mac: mac, cancelMac: cancelMac, pending: pending, phone: phone, transport: transport,
                               log: { NSLog("keydillo: %@", $0) })

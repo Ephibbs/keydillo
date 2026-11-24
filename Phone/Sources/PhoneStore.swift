@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import PhoneLink
 import UIKit
+import UserNotifications
 
 /// The phone's state: which Mac it's paired with, and the requests waiting for an answer.
 @MainActor
@@ -14,6 +15,11 @@ final class PhoneStore {
   private(set) var answered: Set<String> = []
   var message: String?
   var busy = false
+  /// Shown on the requests screen when request notifications can't work, with the reason.
+  var notificationProblem: String?
+  var notificationsDenied = false
+  var pushRegistered = false
+  private var subscribed = false
 
   let transport: LinkTransport
   let transportNote: String
@@ -55,16 +61,39 @@ final class PhoneStore {
       UserDefaults.standard.set(try JSONEncoder().encode(m), forKey: "pairedMac")
       mac = m
       message = "Now confirm with Touch ID on \(offer.macName)."
-      if let ck = transport as? CloudKitTransport { try? await ck.subscribeToAsks() }
+      await ensureSubscription()
     } catch {
       message = "Couldn't pair: \(Self.describe(error))"
+    }
+  }
+
+  /// Makes sure iCloud will push a notification for each new request. Runs on every launch and return to the app,
+  /// since a failed attempt at pairing (offline, iCloud busy) would otherwise leave the phone silent for good.
+  func ensureSubscription() async {
+    guard mac != nil else { return }
+    let settings = await UNUserNotificationCenter.current().notificationSettings()
+    notificationsDenied = settings.authorizationStatus == .denied
+    if notificationsDenied {
+      notificationProblem = "Notifications for keydillo are turned off. Turn them on in Settings to hear about requests when the app is closed."
+      return
+    }
+    guard !subscribed, let ck = transport as? CloudKitTransport else {
+      if subscribed { notificationProblem = nil }
+      return
+    }
+    do {
+      try await ck.subscribeToAsks()
+      subscribed = true
+      notificationProblem = nil
+    } catch {
+      notificationProblem = "Couldn't set up request notifications with iCloud: \(Self.describe(error))"
     }
   }
 
   func unpair() {
     UserDefaults.standard.removeObject(forKey: "pairedMac")
     PhoneKeys.delete()
-    mac = nil; asks = []; answered = []
+    mac = nil; asks = []; answered = []; subscribed = false; notificationProblem = nil
   }
 
   // MARK: Requests

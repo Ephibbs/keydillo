@@ -128,6 +128,8 @@ struct Canon {
   }
   func string(_ s: String) -> Canon { data(Data(s.utf8)) }
   func int(_ i: Int64) -> Canon { string(String(i)) }
+  /// Added after v1 shipped: absent purpose leaves the bytes exactly as before, so older asks still verify.
+  func withPurpose(_ p: String?) -> Canon { p.map { string("purpose").string($0) } ?? self }
   func optional(_ d: Data?) -> Canon { d.map { string("1").data($0) } ?? string("0") }
 }
 
