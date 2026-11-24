@@ -15,9 +15,9 @@ struct ActivityView: View {
             HStack(spacing: 12) {
               Text(e.date, format: .dateTime.hour().minute().second()).foregroundStyle(Theme.secondary).frame(width: 74, alignment: .leading)
               Text(sentence(e)).lineLimit(1).truncationMode(.middle)
-              Spacer()
+              Spacer(minLength: 8)
               Text(e.outcome == .sent ? "\(e.status)" : e.outcome.rawValue.capitalized)
-                .foregroundStyle(e.outcome == .sent ? Theme.text : Theme.danger)
+                .foregroundStyle(e.outcome == .sent ? Theme.text : Theme.danger).fixedSize()
             }
             .font(.system(size: 13)).frame(height: 36)
             Divider().overlay(Theme.hairline)

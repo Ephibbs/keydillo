@@ -17,8 +17,12 @@ struct PopoverView: View {
       }
       .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
 
+      // The middle scrolls when there's more than the screen can show; the header and menu stay put.
+      FitOrScroll(maxHeight: Self.maxMiddleHeight) {
+      VStack(alignment: .leading, spacing: 0) {
       if model.storageSecure && !model.servicesLoaded {
         Text("Your keys load once the Mac is unlocked.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 16).padding(.bottom, 12)
       }
       if !model.storageSecure {
         Text(AppModel.insecureMessage).font(.system(size: 12)).foregroundStyle(Theme.danger)
@@ -95,6 +99,9 @@ struct PopoverView: View {
           }.font(.system(size: 12))
         }
         .buttonStyle(.plain).padding(.horizontal, 16).padding(.top, 4)
+      }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
       }
 
       Divider().overlay(Theme.hairline).padding(.top, 8)
@@ -237,6 +244,9 @@ struct PopoverView: View {
     .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
     .padding(.horizontal, 12).padding(.bottom, 14)
   }
+
+  /// Room for the scrolling middle: the screen's height less the menu bar, the header and the menu rows.
+  static var maxMiddleHeight: CGFloat { max(200, ScreenRoom.height - 200) }
 
   /// The popover shows a few keys; the Access page lists everything.
   static let maxGrantRows = 3

@@ -9,6 +9,7 @@ struct SettingsView: View {
 
 
   var body: some View {
+    FitOrScroll {
     VStack(alignment: .leading, spacing: 18) {
       Text("Settings").font(.system(size: 20, weight: .semibold))
       VStack(alignment: .leading, spacing: 8) {
@@ -30,10 +31,9 @@ struct SettingsView: View {
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }
       VStack(alignment: .leading, spacing: 8) {
         Text(".env files").font(.system(size: 13, weight: .medium))
-        HStack {
-          Button("Import keys…") { WindowManager.shared.showImport() }.buttonStyle(SmallButtonStyle())
-          Button("Put my real keys back…") { WindowManager.shared.showRestore() }.buttonStyle(SmallButtonStyle())
-          if let undoStatus { Text(undoStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary) }
+        ViewThatFits(in: .horizontal) {
+          HStack { envButtons }
+          VStack(alignment: .leading, spacing: 8) { envButtons }
         }
       }
       VStack(alignment: .leading, spacing: 8) {
@@ -53,8 +53,16 @@ struct SettingsView: View {
         Text("Storage: \(model.storageDescription)").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }
     }
-    .padding(24).frame(width: 460, alignment: .leading).background(Theme.background).foregroundStyle(Theme.text)
+    .padding(24).frame(minWidth: 340, idealWidth: 460, maxWidth: 640, alignment: .leading)
+    }
+    .background(Theme.background).foregroundStyle(Theme.text)
     .sheet(isPresented: $showUninstall) { UninstallView { showUninstall = false } }
+  }
+
+  @ViewBuilder var envButtons: some View {
+    Button("Import keys…") { WindowManager.shared.showImport() }.buttonStyle(SmallButtonStyle()).fixedSize()
+    Button("Put my real keys back…") { WindowManager.shared.showRestore() }.buttonStyle(SmallButtonStyle()).fixedSize()
+    if let undoStatus { Text(undoStatus).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true) }
   }
 }
 
@@ -68,6 +76,7 @@ struct UninstallView: View {
   @State private var status: String?
 
   var body: some View {
+    FitOrScroll {
     VStack(alignment: .leading, spacing: 16) {
       Text("Uninstall keydillo").font(.system(size: 20, weight: .semibold))
       Text("Apps that use keydillo placeholders will stop working once keydillo is gone.")
@@ -90,6 +99,8 @@ struct UninstallView: View {
         .buttonStyle(PrimaryButtonStyle()).disabled(busy)
       }
     }
-    .padding(24).frame(width: 440).background(Theme.background).foregroundStyle(Theme.text)
+    .padding(24).frame(width: 440)
+    }
+    .background(Theme.background).foregroundStyle(Theme.text)
   }
 }

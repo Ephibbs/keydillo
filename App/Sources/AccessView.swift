@@ -30,6 +30,7 @@ struct AccessView: View {
   }
 
   var body: some View {
+    ScrollView(.vertical) {
     VStack(alignment: .leading, spacing: 18) {
       HStack {
         Text("Access").font(.system(size: 22, weight: .semibold))
@@ -66,6 +67,8 @@ struct AccessView: View {
       Spacer(minLength: 0)
     }
     .padding(.horizontal, 32).padding(.top, 34).padding(.bottom, 24)
+    }
+    .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
       while !Task.isCancelled { await model.refreshGrants(); model.refreshOpenProjects(); try? await Task.sleep(for: .seconds(5)) }
@@ -82,10 +85,10 @@ struct AccessView: View {
   func row(title: String, detail: String, end: @escaping () -> Void) -> some View {
     HStack(spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 13, weight: .medium))
+        Text(title).font(.system(size: 13, weight: .medium)).fixedSize(horizontal: false, vertical: true)
         Text(detail).font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(2)
       }
-      Spacer()
+      Spacer(minLength: 8)
       Button("End", action: end).buttonStyle(SmallButtonStyle())
     }
     .padding(.horizontal, 12).padding(.vertical, 9)
