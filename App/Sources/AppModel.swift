@@ -544,8 +544,14 @@ final class AppModel {
 
   // MARK: Approvals (driven by the proxy)
 
-  func showPending(_ p: PendingApproval) { pending.append(p); StatusItem.shared?.flash() }
-  func clearPending(_ id: UUID) { pending.removeAll { $0.id == id } }
+  func showPending(_ p: PendingApproval) {
+    pending.append(p); StatusItem.shared?.flash()
+    WindowManager.shared.showApprovalCard(p)
+  }
+  func clearPending(_ id: UUID) {
+    pending.removeAll { $0.id == id }
+    WindowManager.shared.close("approval-\(id)")
+  }
 
   /// Popover "Deny": cancels the Touch ID prompt.
   func deny(_ p: PendingApproval) { p.context.invalidate(); clearPending(p.id) }

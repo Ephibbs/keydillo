@@ -834,12 +834,14 @@ final class PurposeTests: XCTestCase {
     var c = ClientProcess(pid: 1, name: "python3", agent: "claude", agentPid: 2, startTime: 1)
     c.agentVerified = true
     var r = ApprovalRequest(service: "voice", displayName: "Voice", host: "api.voice.test", method: "POST", path: "/v1/speech/abc", client: c)
-    XCTAssertFalse(r.reason.contains("says"))
+    XCTAssertEqual(r.reason, "use your Voice key for Claude Code")
+    XCTAssertEqual(r.viaProgram, "python3")
+    // The AI's own words go on keydillo's card, never in the system dialog.
     r.client.purpose = "Generating voiceover for Slouchly"
-    XCTAssertEqual(r.reason, "let Claude Code use your Voice key (python3): POST api.voice.test/v1/speech/abc — Claude Code says: “Generating voiceover for Slouchly”")
+    XCTAssertEqual(r.reason, "use your Voice key for Claude Code")
+    XCTAssertTrue(r.saysSuffix.hasSuffix("“Generating voiceover for Slouchly”"))
     r.method = "START"; r.path = "VOICE_API_KEY"
-    XCTAssertTrue(r.reason.hasPrefix("give Claude Code your Voice as it starts"))
-    XCTAssertTrue(r.reason.hasSuffix("— Claude Code says: “Generating voiceover for Slouchly”"))
+    XCTAssertEqual(r.reason, "give your Voice key to Claude Code")
   }
 
   func testReusedApprovalTakesTheNewReasonWithoutAsking() async {
