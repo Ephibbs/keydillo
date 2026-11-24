@@ -18,7 +18,7 @@ struct SettingsView: View {
         }
         .labelsHidden().fixedSize().disabled(model.neverAsk)
         if model.neverAsk {
-          Text("Off while Never ask for Touch ID is on.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          Text("AI tools and kd don't ask while Never ask for Touch ID is on.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         } else {
         (Text("Each project can change this on its page. ").foregroundColor(Theme.secondary)
          + Text("Note: With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").foregroundColor(Theme.danger)).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)

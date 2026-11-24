@@ -219,23 +219,24 @@ final class AppModel {
   // MARK: Never ask for Touch ID
 
   /// Kept in the private Keychain group like the other access settings, so no other program can turn it on.
-  struct NeverAskSettings: Codable { var on: Bool; var newSites: String }   // newSites: "click" or "auto"
+  struct NeverAskSettings: Codable { var on: Bool }
   private(set) var neverAsk = false { didSet { Self.neverAskFlag.value = neverAsk } }
-  private(set) var newSitesAuto = false
   /// Read by the proxy off the main thread.
   static let neverAskFlag = FlagBox()
 
   func loadNeverAsk() {
     if let d = keychain.setting("neverAsk"), !d.isEmpty, let s = try? JSONDecoder().decode(NeverAskSettings.self, from: d) {
-      neverAsk = s.on; newSitesAuto = s.newSites == "auto"
+      neverAsk = s.on
     }
     keychain.requirePresence = !neverAsk
   }
 
-  private func saveNeverAsk(on: Bool, auto: Bool) throws {
-    try keychain.setSetting("neverAsk", JSONEncoder().encode(NeverAskSettings(on: on, newSites: auto ? "auto" : "click")))
+  private func saveNeverAsk(on: Bool) throws {
+    try keychain.setSetting("neverAsk", JSONEncoder().encode(NeverAskSettings(on: on)))
   }
 
+  /// Only AI and kd key use stops asking (proxy requests, new sites, launch-time values). Everything that shows a
+  /// key's value or changes keydillo still needs Touch ID or the login password, enforced by keydillo itself.
   /// Turning it on takes one last Touch ID and saves every key again without the Keychain's Touch ID lock.
   /// Turning it off puts the lock back; that needs no Touch ID. Returns an error message, or nil when done or cancelled.
   func setNeverAsk(_ on: Bool) async -> String? {
@@ -246,7 +247,7 @@ final class AppModel {
       guard let ctx = await authenticate("stop asking for Touch ID for anything in keydillo") else { return nil }
       do {
         for svc in services { try keychain.relock(service: svc, presence: false, context: ctx) }
-        try saveNeverAsk(on: true, auto: newSitesAuto)
+        try saveNeverAsk(on: true)
       } catch {
         for svc in services { _ = try? keychain.relock(service: svc, presence: true, context: ctx) }
         return "Couldn't change how your keys are stored, so nothing changed (\(error.localizedDescription))."
@@ -254,7 +255,7 @@ final class AppModel {
     } else {
       do {
         for svc in services { try keychain.relock(service: svc, presence: true, context: nil) }
-        try saveNeverAsk(on: false, auto: newSitesAuto)
+        try saveNeverAsk(on: false)
       } catch {
         return "Couldn't put the Touch ID lock back on every key (\(error.localizedDescription)). Try again."
       }
@@ -266,12 +267,6 @@ final class AppModel {
                                 note: on ? "turned on Never ask for Touch ID" : "turned off Never ask for Touch ID"), at: 0)
     Task { await engine.gate.revokeAll(); await refreshGrants() }
     return nil
-  }
-
-  /// Whether new sites are allowed without asking while Never ask is on. Turning that on needs a confirm in the UI.
-  func setNewSitesAuto(_ auto: Bool) {
-    guard (try? saveNeverAsk(on: neverAsk, auto: auto)) != nil else { return }
-    newSitesAuto = auto
   }
 
   /// Previews only: shows the mode as on without touching the Keychain.
@@ -672,7 +667,6 @@ final class AppModel {
   }
 
   func authenticate(_ reason: String) async -> LAContext? {
-    if neverAsk { return LAContext() }
     let ctx = LAContext()
     // The Touch ID dialog belongs to another process. When it closes, macOS may hand focus to the previous app and
     // leave keydillo's window behind it, which looks like the window closed. Bring that window back explicitly.
@@ -766,7 +760,7 @@ final class AppModel {
       // Always a fresh Touch ID that names the command: these values end up readable inside the program.
       if ModelApprover.screenLocked && !neverAsk { return .error("The Mac is locked; launch-time keys need Touch ID.") }
       let reason = "give \(keys.map(\.displayName).joined(separator: ", ")) to: \(command)\n\nAnything this command runs can read \(keys.count == 1 ? "it" : "them")."
-      guard let ctx = await authenticate(reason) else { return .values([:]) }
+      guard let ctx = neverAsk ? LAContext() : await authenticate(reason) else { return .values([:]) }
       var out: [String: String] = [:]
       for svc in keys {
         let name = svc.name
@@ -940,7 +934,7 @@ final class AppModel {
 
   var storageDescription: String {
     switch keychain.mode {
-    case .dataProtection: return servicesLoaded ? (neverAsk ? "Private Keychain group, no Touch ID (only keydillo can read it)" : "Private Keychain group, Touch ID on every read")
+    case .dataProtection: return servicesLoaded ? (neverAsk ? "Private Keychain group, readable only by keydillo" : "Private Keychain group, Touch ID on every read")
       : "Private Keychain group. Keys can't be read until the Mac is unlocked; keydillo loads them as soon as it is"
     case .legacy: return "NOT SECURE: no private Keychain group in this build, so keydillo won't store keys"
     }
@@ -967,13 +961,8 @@ final class ModelApprover: Approver, @unchecked Sendable {
   /// project setting, earlier approvals or the locked-Mac mode.
   func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult {
     if AppModel.neverAskFlag.value {
-      let auto = await MainActor.run { model?.newSitesAuto ?? false }
-      if auto {
-        await MainActor.run { model?.logNoPrompt(request, note: "new site \(request.host) allowed without asking (Never ask for Touch ID)") }
-        return .approved(nil)
-      }
-      if Self.screenLocked { return .unavailable("the Mac is locked, and a new site for this key needs a click to allow") }
-      return await MainActor.run { NewSiteAlert.ask(request) } ? .approved(nil) : .denied
+      await MainActor.run { model?.logNoPrompt(request, note: "new site \(request.host) allowed without asking (Never ask for Touch ID)") }
+      return .approved(nil)
     }
     if Self.screenLocked { return .unavailable("the Mac is locked") }
     let ctx = LAContext()

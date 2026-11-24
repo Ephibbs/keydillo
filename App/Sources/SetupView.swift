@@ -44,7 +44,7 @@ struct SetupView: View {
         neverChoice
       }
       if never {
-        Text(NeverAskCopy.warning + " " + NeverAskCopy.sitesClick)
+        Text(NeverAskCopy.warning)
           .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       }
       if let neverError { Text(neverError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
