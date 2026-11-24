@@ -47,7 +47,7 @@ struct ApprovalCard: View {
         Text("Unverified app.").font(.system(size: 12)).foregroundStyle(Theme.danger)
       }
       HStack(spacing: 12) {
-        EmbeddedTouchID(context: pending.context).frame(width: 32, height: 32)
+        EmbeddedTouchID(context: pending.context).frame(width: 64, height: 64)
         VStack(alignment: .leading, spacing: 2) {
           Text("Touch ID to allow").font(.system(size: 13, weight: .medium))
           Text(span).font(.system(size: 12)).foregroundStyle(Theme.secondary)
