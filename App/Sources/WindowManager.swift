@@ -42,13 +42,13 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
   /// The window for a pending key request, with the details and an embedded Touch ID control. It must be on
   /// screen before the context is evaluated so macOS uses it instead of a sheet. Closing it denies the request.
-  func showApprovalCard(_ p: PendingApproval) {
+  func showApprovalCard(_ p: PendingApproval, moreOpen: Bool = false) {
     let id = "approval-\(p.id)"
     show(id, title: "keydillo", floating: true, onClose: {
       // Closed by the user while still waiting: deny. Closed because Touch ID finished: leave the result alone.
       if AppModel.shared.pending.contains(where: { $0.id == p.id }) { AppModel.shared.deny(p) }
     }) {
-      ApprovalCard(pending: p).sheetCard()
+      ApprovalCard(pending: p, moreOpen: moreOpen).sheetCard()
     }
     guard let w = windows[id] else { return }
     w.center()
