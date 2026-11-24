@@ -54,7 +54,7 @@ More detail in [Security model and limits](#security-model-and-limits).
 brew install --cask ephibbs/keydillo/keydillo
 ```
 
-Then open keydillo and choose **Connect** in its setup. That sets up Claude Code: its tools, the skill, and the check that puts `kd` in front of commands.
+Then open keydillo and choose **Connect** in its setup. That sets up Claude Code, Cursor and Codex (whichever you have): keydillo's tools, the skill, and the check that puts `kd` in front of commands. Codex asks you to trust new checks once: type `/hooks` in Codex and trust keydillo's. Codex's sandbox blocks keydillo, so Codex asks you before running a `kd` command outside it.
 
 Or [download the zip](https://github.com/Ephibbs/keydillo/releases/latest) (signed and notarized, macOS 15+), unzip it and move keydillo to Applications.
 
@@ -65,7 +65,7 @@ Or [download the zip](https://github.com/Ephibbs/keydillo/releases/latest) (sign
 /plugin install keydillo@keydillo
 ```
 
-**Skill only**, for other coding agents: `npx skills add Ephibbs/keydillo`. This adds the instructions but not the check before commands, so prefer Connect or the plugin for Claude Code.
+**Skill only**, for other coding agents: `npx skills add Ephibbs/keydillo`. This adds the instructions but not the check before commands, so prefer Connect for Claude Code, Cursor and Codex.
 
 **Build from source** (macOS 15+, Xcode 16, [XcodeGen](https://github.com/yonaskolb/XcodeGen), an Apple Developer account):
 

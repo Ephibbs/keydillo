@@ -90,10 +90,11 @@ case "run":
   Runner.run(args)
 
 case "hook":
-  // Claude Code hooks. No argument: PreToolUse (steer direct calls to `kd`). post: explain a rejected placeholder.
+  // Agent hooks. No argument: Claude Code or Codex PreToolUse (steer direct calls to `kd`). post: explain a rejected placeholder.
   switch args.first {
   case "post": Hook.post()
-  default: Hook.run()
+  case "cursor": Hook.run(cursor: true)   // Cursor's beforeShellExecution
+  default: Hook.run()   // Claude Code and Codex PreToolUse
   }
 
 case "whois":

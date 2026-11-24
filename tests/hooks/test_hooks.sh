@@ -1,7 +1,7 @@
 #!/bin/zsh -f
 # Tests kd and the Claude Code hooks (pre-command steering to kd, post-command explanation).
 # Needs the keydillo app running. Uses no keys: only checks routing, pass-through and cleanup.
-B="$HOME/.local/bin/keydillo"
+B="${KEYDILLO_BIN:-$HOME/.local/bin/keydillo}"   # KEYDILLO_BIN tests a fresh build
 T=$(mktemp -d); trap 'rm -rf $T' EXIT
 pass=0; fail=0
 ok() { if eval "$2"; then print "PASS  $1"; ((pass++)); else print "FAIL  $1"; ((fail++)); fi }
@@ -26,6 +26,13 @@ ok "pre: outside projects nothing is stopped" '[[ $(pre "python3 x.py" $T/other)
 wrapped() { print -r -- "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$1\"},\"cwd\":\"$2\"}" | sh -c "if [ -x '$3' ]; then exec '$3' hook; fi" 2>&1; print "exit=$?" }
 ok "hook command: still stops a command when keydillo is installed" '[[ $(wrapped "python3 sub/run.py" $T/proj "$B") == *"exit=2"* ]]'
 ok "hook command: silent and harmless once keydillo is uninstalled" '[[ $(wrapped "python3 sub/run.py" $T/proj /nonexistent/keydillo) == "exit=0" ]]'
+
+# Cursor's beforeShellExecution: same rules, answered as JSON on stdout (never "allow", so Cursor's own rules still apply).
+cur() { print -r -- "{\"command\":\"$1\",\"cwd\":\"$2\"}" | "$B" hook cursor 2>&1; print " exit=$?" }
+ok "cursor: python in a keydillo project is denied with the kd fix" '[[ $(cur "python3 sub/run.py" $T/proj) == *"\"permission\":\"deny\""*"exit=0"* && $(cur "python3 sub/run.py" $T/proj) == *"kd python3 sub/run.py"* ]]'
+ok "cursor: with kd in front, no opinion" '[[ $(cur "kd python3 sub/run.py" $T/proj) == "{}"*"exit=0" ]]'
+ok "cursor: outside projects, no opinion" '[[ $(cur "python3 x.py" $T/other) == "{}"*"exit=0" ]]'
+ok "cursor: bad input never blocks" '[[ $(print garbage | "$B" hook cursor) == "{}" ]]'
 
 # 5. Post-command check: real providers don't echo the key, so it looks at the command, folder and error.
 postc() { python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]},"cwd":sys.argv[2],"tool_response":{"stdout":sys.argv[3],"stderr":""}}))' "$1" "$2" "$3" | "$B" hook post }

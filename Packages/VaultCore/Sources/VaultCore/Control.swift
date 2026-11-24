@@ -143,6 +143,8 @@ public enum ControlSocket {
     return addr
   }
 
+  public static let sandboxMessage = "this command ran inside an AI tool's sandbox, which blocks keydillo. Rerun it outside the sandbox (in Codex, request escalated permissions for it); the user approves."
+
   /// One request, one newline-terminated JSON response. Blocks; the app may wait on the user.
   public static func send(_ request: ControlRequest, path: String = ControlSocket.path) throws -> ControlResponse {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -152,7 +154,11 @@ public enum ControlSocket {
     let ok = withUnsafePointer(to: &addr) {
       $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
     }
-    guard ok == 0 else { throw VaultError.invalidConfig("keydillo isn't running. Open the keydillo app first.") }
+    guard ok == 0 else {
+      // An agent's sandbox (Codex, Cursor) blocks the socket: EPERM rather than "nothing listening".
+      let blocked = errno == EPERM || errno == EACCES || ProcessInfo.processInfo.environment["CODEX_SANDBOX"] != nil
+      throw VaultError.invalidConfig(blocked ? sandboxMessage : "keydillo isn't running. Open the keydillo app first.")
+    }
     var data = try JSONEncoder().encode(request); data.append(0x0A)
     _ = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
     var out = Data(); var buf = [UInt8](repeating: 0, count: 65536)
