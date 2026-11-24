@@ -66,7 +66,7 @@ struct AccessView: View {
         }
       }
       if !model.openProjects.isEmpty {
-        section("Projects (Ask once per project)") {
+        section("Projects (Once per project)") {
           ForEach(model.openProjects, id: \.project) { o in
             row(title: o.project, detail: "Any program in \((o.unlock.folder as NSString).abbreviatingWithTildeInPath) · until keydillo quits · keys kept in memory") {
               model.closeProject(o.project)

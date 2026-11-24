@@ -61,6 +61,8 @@ struct PendingApproval: Identifiable {
   let request: ApprovalRequest
   let context: LAContext
   var project: String
+  /// "Once per app": approving this also trusts this app from now on.
+  var trustApp: String? = nil
 }
 
 @MainActor
@@ -239,7 +241,9 @@ final class AppModel {
   // MARK: Trusted apps
 
   /// Kept in the private Keychain group like the other access settings, so no other program can change it.
-  struct TrustSettings: Codable { var agents: [String] }
+  struct TrustSettings: Codable { var agents: [String]; var perApp: Bool? }
+  /// "Once per app": the first request from a verified AI app asks one Touch ID that trusts that app.
+  private(set) var askOncePerApp = false { didSet { Self.perAppBox.value = askOncePerApp ? ["on"] : [] } }
   /// AI apps (by verified name, e.g. "Claude Code") that use keys without asking. Only apps whose code signature
   /// keydillo checks can be listed, so a program can't get in by naming itself "claude".
   private(set) var trustedAgents: [String] = [] { didSet { Self.trustedBox.value = trustedAgents } }
@@ -257,6 +261,7 @@ final class AppModel {
   func loadTrust() {
     if let d = keychain.setting("trustedApps"), !d.isEmpty, let s = try? JSONDecoder().decode(TrustSettings.self, from: d) {
       trustedAgents = s.agents.filter { Self.trustableAgents.contains($0) }
+      askOncePerApp = s.perApp ?? !trustedAgents.isEmpty
     }
     keychain.requirePresence = !neverAsk
   }
@@ -265,16 +270,18 @@ final class AppModel {
   /// (keydillo then asks for Touch ID itself for everyone else). Removing the last one puts the lock back.
   /// Still Touch ID even for trusted apps: a new key, a new site, launch-time values, and showing a key.
   /// Returns an error message, or nil when done or cancelled.
-  func setTrusted(_ agent: String, _ on: Bool) async -> String? {
+  func setTrusted(_ agent: String, _ on: Bool, context: LAContext? = nil) async -> String? {
     guard Self.trustableAgents.contains(agent), on != trustedAgents.contains(agent) else { return nil }
     guard servicesLoaded else { return "Unlock your Mac first." }
     let next = on ? trustedAgents + [agent] : trustedAgents.filter { $0 != agent }
     let services = [KeychainBackend.secretService, ImportModel.backupService]
     if on {
-      guard let ctx = await authenticate("let \(agent) use your keys without asking (new keys, new sites and showing a key still ask)") else { return nil }
+      var ctx = context
+      if ctx == nil { ctx = await authenticate("let \(agent) use your keys without asking (new keys, new sites and showing a key still ask)") }
+      guard let ctx else { return nil }
       do {
         if !neverAsk { for svc in services { try keychain.relock(service: svc, presence: false, context: ctx) } }
-        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next)))
+        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next, perApp: true)))
       } catch {
         if !neverAsk { for svc in services { _ = try? keychain.relock(service: svc, presence: true, context: ctx) } }
         return "Couldn't change how your keys are stored, so nothing changed (\(error.localizedDescription))."
@@ -282,12 +289,13 @@ final class AppModel {
     } else {
       do {
         if next.isEmpty { for svc in services { try keychain.relock(service: svc, presence: true, context: nil) } }
-        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next)))
+        try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: next, perApp: askOncePerApp)))
       } catch {
         return "Couldn't put the Touch ID lock back on every key (\(error.localizedDescription)). Try again."
       }
     }
     trustedAgents = next
+    if on { askOncePerApp = true }
     keychain.requirePresence = !neverAsk
     events.insert(ActivityEvent(date: Date(), service: "Touch ID", method: "", path: "", process: "you", pid: getpid(), outcome: .sent, status: 0,
                                 note: on ? "trusted \(agent): it uses keys without asking" : "stopped trusting \(agent)"), at: 0)
@@ -295,8 +303,58 @@ final class AppModel {
     return nil
   }
 
+  /// The Settings menu's choice. "Once per app" is the per-session default plus trusting each verified AI app once.
+  enum AskMode: String, CaseIterable, Identifiable {
+    case everyTime, perSession, perApp, perProject
+    var id: String { rawValue }
+    var label: String {
+      switch self {
+      case .everyTime: return "Every time"
+      case .perSession: return "Once per session"
+      case .perApp: return "Once per app"
+      case .perProject: return "Once per project"
+      }
+    }
+    var access: ProjectAccess { self == .everyTime ? .everyTime : self == .perProject ? .always : .perKey }
+  }
+  var askMode: AskMode {
+    if askOncePerApp { return .perApp }
+    switch projectAccessDefault { case .everyTime: return .everyTime; case .perKey: return .perSession; case .always: return .perProject }
+  }
+
+  /// Turning on "Once per app" takes Touch ID; leaving it stops trusting every app.
+  func setAskMode(_ m: AskMode) async -> String? {
+    if m == askMode { return nil }
+    if m == .perApp {
+      guard servicesLoaded else { return "Unlock your Mac first." }
+      guard await authenticate("trust each AI app after one Touch ID") != nil else { return nil }
+      do { try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: trustedAgents, perApp: true))) }
+      catch { return "Couldn't save that (\(error.localizedDescription))." }
+      askOncePerApp = true
+      if projectAccessDefault != .perKey { projectAccessDefault = .perKey; try? saveAccessSettings(); refreshSnapshot() }
+      Task { await engine.gate.revokeAll(); await refreshGrants() }
+      return nil
+    }
+    if askOncePerApp {
+      for a in trustedAgents { if let err = await setTrusted(a, false) { return err } }
+      do { try keychain.setSetting("trustedApps", JSONEncoder().encode(TrustSettings(agents: [], perApp: false))) }
+      catch { return "Couldn't save that (\(error.localizedDescription))." }
+      askOncePerApp = false
+    }
+    if m.access != projectAccessDefault { _ = await setDefaultAccess(m.access) }
+    return nil
+  }
+
+  /// "Once per app": a verified AI app that isn't trusted yet, whose next approval trusts it.
+  nonisolated static let perAppBox = StringsBox()
+  nonisolated static func trustCandidate(_ c: ClientProcess) -> String? {
+    guard !perAppBox.value.isEmpty, c.identified, c.agentVerified, let name = ProcessLookup.verifiedName(c.agent),
+          ProcessLookup.verifiedAgentNames.contains(name), !trustedBox.value.contains(name) else { return nil }
+    return name
+  }
+
   /// Previews only: shows Claude Code as trusted without touching the Keychain.
-  func previewTrusted() { if Self.devHarness { trustedAgents = ["Claude Code"]; Self.trustedBox.value = [] } }
+  func previewTrusted() { if Self.devHarness { trustedAgents = ["Claude Code"]; askOncePerApp = true; Self.trustedBox.value = []; Self.perAppBox.value = [] } }
 
   /// A change that would send a key to a site it hasn't been sent to. Always Touch ID, even in Never ask mode.
   func addsSite(_ r: ChangeRequest) -> Bool {
@@ -1011,7 +1069,7 @@ final class AppModel {
       if let why = ProjectFolders.problem(old: old, new: new) { throw fail(why) }
       let short = { (p: String) in (p as NSString).abbreviatingWithTildeInPath }
       return ChangeProposal(title: "Move \(project) to a new folder", requester: requester, rows: [(label: "Folder", old: short(old), new: short(new))],
-                            note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Ask once per project\": programs in the new folder will use its keys without asking again." : nil,
+                            note: r.why, warning: access(for: project) == .always ? "\(project) is set to \"Once per project\": programs in the new folder will use its keys without asking again." : nil,
                             touchReason: "move \(project)'s keys to \(short(new))", loosens: access(for: project) == .always) { [weak self] _ in
         guard let self else { return "" }
         try self.persist(self.services.map { var c = $0; if c.project == project { c.folder = new; c.folderChosen = true }; return c })
@@ -1139,6 +1197,20 @@ final class ModelApprover: Approver, @unchecked Sendable {
 
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
     if AppModel.isTrusted(request.client) { return .approved(nil) }
+    // "Once per app": one Touch ID for this request also trusts the app (and what it runs) from now on.
+    if let app = AppModel.trustCandidate(request.client), !Self.screenLocked {
+      let ctx = LAContext()
+      ctx.localizedCancelTitle = "Deny"
+      let project = await MainActor.run { model?.service(named: request.service)?.project ?? "" }
+      let pending = PendingApproval(request: request, context: ctx, project: project, trustApp: app)
+      await MainActor.run { model?.showPending(pending) }
+      defer { Task { @MainActor in model?.clearPending(pending.id) } }
+      do {
+        guard try await touchID(ctx, "let \(app) use your keys without asking from now on") else { return .denied }
+        _ = await model?.setTrusted(app, true, context: ctx)
+        return .approved(ctx)
+      } catch { return .denied }
+    }
     // A project opened for its folder: callers working inside that folder don't get a prompt.
     let open = await MainActor.run { () -> (project: String, folder: String, access: ProjectAccess, names: String)? in
       guard let m = model, let svc = m.service(named: request.service) else { return nil }

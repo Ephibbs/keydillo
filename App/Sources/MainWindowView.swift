@@ -345,7 +345,7 @@ struct MainWindowView: View {
     let override = model.accessOverride(for: project)
     let general = project == GeneralKeys.project
     return Menu {
-      Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
+      Button("Default (\(model.askMode.label))") { Task { await model.setAccess(project, nil) } }
       Divider()
       ForEach(ProjectAccess.allCases) { a in
         Button(a == .always && general ? a.label + " (not for General keys)" : a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
@@ -353,7 +353,7 @@ struct MainWindowView: View {
         }
         .disabled(a == .always && (folder == nil || general))
       }
-    } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
+    } label: { Text(override == nil ? "Default (\(model.askMode.label))" : access.label).font(.system(size: 12, weight: .medium)) }
       .menuStyle(.borderlessButton).fixedSize()
   }
 
@@ -377,7 +377,7 @@ struct MainWindowView: View {
         }
       }
       Text(general ? "Keys for any folder. Programs ask \(access.label.lowercased()) before using them, and each key only goes to its own sites."
-           : folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
+           : folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
            : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)

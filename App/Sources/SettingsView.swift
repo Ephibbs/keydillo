@@ -7,7 +7,11 @@ struct SettingsView: View {
   @State private var tools = AgentTools.all
   @State private var undoStatus: String?
   @State private var showUninstall = false
+  @State private var moreOpen = AppModel.devHarness && CommandLine.arguments.contains("-kdMoreOpen")
+  @State private var askError: String?
+  @State private var askWorking = false
 
+  static let docsURL = URL(string: "https://ephibbs.github.io/keydillo-site/docs.html")!
 
   var body: some View {
     FitOrScroll {
@@ -15,59 +19,81 @@ struct SettingsView: View {
       Text("Settings").font(.system(size: 20, weight: .semibold))
       VStack(alignment: .leading, spacing: 8) {
         Text("Ask for Touch ID").font(.system(size: 13, weight: .medium))
-        Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { v in Task { await model.setDefaultAccess(v) } })) {
-          ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
+        Picker("", selection: Binding(get: { model.askMode }, set: { m in
+          askWorking = true
+          Task { askError = await model.setAskMode(m); askWorking = false }
+        })) {
+          ForEach(AppModel.AskMode.allCases) { Text($0.label).tag($0) }
         }
-        .labelsHidden().fixedSize()
-        (Text("Each project can change this on its page. ").foregroundColor(Theme.secondary)
-         + Text("Note: With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").foregroundColor(Theme.danger)).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-      }
-      TrustedAppsView()
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Terminal").font(.system(size: 13, weight: .medium))
-        Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Your AI tool does it for you.")
-          .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-      }
-      PhoneSettingsSection()
-      Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
-        .onChange(of: loginItem) { _, v in model.openAtLogin = v }
-      VStack(alignment: .leading, spacing: 8) {
-        Text(".env files").font(.system(size: 13, weight: .medium))
-        ViewThatFits(in: .horizontal) {
-          HStack { envButtons }
-          VStack(alignment: .leading, spacing: 8) { envButtons }
-        }
-      }
-      VStack(alignment: .leading, spacing: 8) {
-        Text("AI tools").font(.system(size: 13, weight: .medium))
-        ForEach(tools.filter(\.installed)) { t in
-          HStack {
-            Text(t.name).font(.system(size: 13)).frame(width: 96, alignment: .leading)
-            Button(t.status == .notConnected ? "Connect" : "Connect again") {
-              Task {
-                let err = await t.connect()
-                connectStatus[t.name] = err ?? t.afterConnect ?? "Connected."
-                tools = AgentTools.all
-              }
-            }.buttonStyle(SmallButtonStyle())
-            Text(connectStatus[t.name] ?? (t.status == .needsReconnecting ? "Needs connecting again" : t.status == .connected ? "Connected" : ""))
-              .font(.system(size: 12)).foregroundStyle(t.status == .needsReconnecting && connectStatus[t.name] == nil ? Theme.danger : Theme.secondary)
-              .fixedSize(horizontal: false, vertical: true)
+        .labelsHidden().fixedSize().disabled(askWorking)
+        Text(askNote).font(.system(size: 12)).foregroundStyle(model.askMode == .perProject ? Theme.danger : Theme.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        if model.askMode == .perApp && !model.trustedAgents.isEmpty {
+          ForEach(model.trustedAgents, id: \.self) { agent in
+            HStack(spacing: 10) {
+              Text(agent).font(.system(size: 13))
+              Text("trusted").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+              Spacer()
+              Button("Remove") { Task { askError = await model.setTrusted(agent, false) } }.buttonStyle(SmallButtonStyle()).fixedSize()
+            }
+            .padding(.horizontal, 12).frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
           }
         }
+        if let askError { Text(askError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       }
-      VStack(alignment: .leading, spacing: 8) {
-        Button("Uninstall keydillo…") { showUninstall = true }.buttonStyle(SmallButtonStyle(destructive: true))
-      }
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Proxy: localhost:\(String(model.port))").font(.system(size: 13))
-        Text("Storage: \(model.storageDescription)").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      PhoneSettingsSection()
+      Toggle("Keep keydillo running", isOn: $loginItem).toggleStyle(.checkbox)
+        .help("Starts at login and restarts if it stops.")
+        .onChange(of: loginItem) { _, v in model.openAtLogin = v }
+      Link("How to use keydillo ↗", destination: Self.docsURL).font(.system(size: 13))
+      Collapsible(title: "More", isOpen: $moreOpen) {
+        VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text(".env files").font(.system(size: 13, weight: .medium))
+            ViewThatFits(in: .horizontal) {
+              HStack { envButtons }
+              VStack(alignment: .leading, spacing: 8) { envButtons }
+            }
+          }
+          VStack(alignment: .leading, spacing: 8) {
+            Text("AI tools").font(.system(size: 13, weight: .medium))
+            ForEach(tools.filter(\.installed)) { t in
+              HStack {
+                Text(t.name).font(.system(size: 13)).frame(width: 96, alignment: .leading)
+                Button(t.status == .notConnected ? "Connect" : "Connect again") {
+                  Task {
+                    let err = await t.connect()
+                    connectStatus[t.name] = err ?? t.afterConnect ?? "Connected."
+                    tools = AgentTools.all
+                  }
+                }.buttonStyle(SmallButtonStyle()).fixedSize()
+                Text(connectStatus[t.name] ?? (t.status == .needsReconnecting ? "Needs connecting again" : t.status == .connected ? "Connected" : ""))
+                  .font(.system(size: 12)).foregroundStyle(t.status == .needsReconnecting && connectStatus[t.name] == nil ? Theme.danger : Theme.secondary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+          }
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Proxy: localhost:\(String(model.port))").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+            Text("Storage: \(model.storageDescription)").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          }
+          Button("Uninstall keydillo…") { showUninstall = true }.buttonStyle(SmallButtonStyle(destructive: true)).fixedSize()
+        }
       }
     }
     .padding(24).frame(minWidth: 340, idealWidth: 460, maxWidth: 640, alignment: .leading)
     }
     .background(Theme.background).foregroundStyle(Theme.text)
     .sheet(isPresented: $showUninstall) { UninstallView { showUninstall = false } }
+  }
+
+  var askNote: String {
+    switch model.askMode {
+    case .everyTime, .perSession: return "Projects can change this on their page."
+    case .perApp: return "Claude Code and Cursor ask once, then use your keys without asking, even while your Mac is locked. New keys, new sites and showing a key still ask. Other programs ask once per session."
+    case .perProject: return "Any program in a project's folder can use its keys until keydillo quits, even while your Mac is locked."
+    }
   }
 
   @ViewBuilder var envButtons: some View {

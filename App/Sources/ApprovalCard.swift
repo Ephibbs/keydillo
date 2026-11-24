@@ -96,6 +96,7 @@ struct ApprovalCard: View {
   }
 
   var span: String {
+    if let app = pending.trustApp { return "\(app) won't ask again" }
     switch model.access(for: pending.project) {
     case .everyTime: return "For this request"
     default: return "For this session"

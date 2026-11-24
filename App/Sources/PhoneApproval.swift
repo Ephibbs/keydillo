@@ -225,13 +225,13 @@ struct PhoneSettingsSection: View {
         Text(link.transportNote).font(.system(size: 12)).foregroundStyle(Theme.secondary)
       } else if let phone = link.phone {
         let _ = tick
-        Text("Requests also go to \(phone.name). Approve with Face ID there or Touch ID here, whichever comes first. \(link.copiedKeys.count) keys ready.")
+        Text("Requests also go to \(phone.name). Approve on either. \(link.copiedKeys.count) keys ready.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-        Button("Unpair") { link.unpair(); tick += 1 }.buttonStyle(SmallButtonStyle(destructive: true))
+        Button("Unpair") { link.unpair(); tick += 1 }.buttonStyle(SmallButtonStyle(destructive: true)).fixedSize()
       } else {
         Text("Approve requests from your iPhone with Face ID when you're away from this Mac.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
-        Button("Pair iPhone…") { pairing = true }.buttonStyle(SmallButtonStyle())
+        Button("Pair iPhone…") { pairing = true }.buttonStyle(SmallButtonStyle()).fixedSize()
       }
     }
     .sheet(isPresented: $pairing, onDismiss: { tick += 1 }) { PairPhoneView { pairing = false } }
