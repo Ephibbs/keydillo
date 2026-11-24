@@ -672,7 +672,6 @@ final class AppModel {
       // Another project's folder settings (or General's any-folder use) would apply to this key.
       guard await authenticate("move your \(config.displayName) key from \(old.project) to \(config.project)") != nil else { return false }
     }
-    var config = config
     if config.isGeneral { config.folder = nil; config.folderChosen = nil }
     try persist(services.map { $0.name == config.name ? config : $0 })
     Task { await engine.gate.revokeAll(service: config.name); await refreshGrants() }
