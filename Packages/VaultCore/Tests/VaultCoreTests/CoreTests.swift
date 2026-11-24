@@ -887,3 +887,28 @@ final class RelockTests: XCTestCase {
     XCTAssertEqual(try kc.relock(service: "keydillo.test.empty.\(UUID().uuidString)", presence: false, context: nil), [])
   }
 }
+
+final class TrustRuleTests: XCTestCase {
+  func client(agent: String?, verified: Bool, identified: Bool = true) -> ClientProcess {
+    var c = ClientProcess(pid: 42, name: "python3", agent: agent, agentPid: 7, startTime: identified ? 100 : 0)
+    c.agentVerified = verified
+    return c
+  }
+  func testVerifiedClaudeIsTrusted() {
+    XCTAssertTrue(TrustRule.allows(client(agent: "claude", verified: true), trusted: ["Claude Code"]))
+  }
+  func testUnverifiedNameIsNotTrusted() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: false), trusted: ["Claude Code"]))
+  }
+  func testOtherProgramsAndOtherAppsAsk() {
+    XCTAssertFalse(TrustRule.allows(client(agent: nil, verified: false), trusted: ["Claude Code"]))
+    XCTAssertFalse(TrustRule.allows(client(agent: "cursor", verified: true), trusted: ["Claude Code"]))
+    XCTAssertTrue(TrustRule.allows(client(agent: "cursor", verified: true), trusted: ["Claude Code", "Cursor"]))
+  }
+  func testUnidentifiedCallerNeverTrusted() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: true, identified: false), trusted: ["Claude Code"]))
+  }
+  func testNothingTrustedByDefault() {
+    XCTAssertFalse(TrustRule.allows(client(agent: "claude", verified: true), trusted: []))
+  }
+}

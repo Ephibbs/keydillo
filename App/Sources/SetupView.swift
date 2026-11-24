@@ -44,7 +44,7 @@ struct SetupView: View {
         neverChoice
       }
       if never {
-        Text(NeverAskCopy.warning)
+        Text(TrustCopy.onboarding)
           .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       }
       if let neverError { Text(neverError).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
@@ -53,11 +53,11 @@ struct SetupView: View {
         Button(never ? "Continue with Touch ID" : "Continue") {
           Task {
             if never {
-              neverError = await model.setNeverAsk(true)
-              guard model.neverAsk else { return }
+              neverError = await model.setTrusted("Claude Code", true)
+              guard model.trustedAgents.contains("Claude Code") else { return }
               await model.setDefaultAccess(.perKey)
             } else {
-              if model.neverAsk { _ = await model.setNeverAsk(false) }
+              if model.trustedAgents.contains("Claude Code") { _ = await model.setTrusted("Claude Code", false) }
               await model.setDefaultAccess(approval == .eachRequest ? .everyTime : .perKey)
             }
             step = 2
@@ -121,9 +121,9 @@ struct SetupView: View {
     Button { never = true } label: {
       HStack(spacing: 12) {
         Image(systemName: never ? "largecircle.fill.circle" : "circle").foregroundStyle(never ? Theme.primary : Theme.secondary)
-        Text(NeverAskCopy.short).font(.system(size: 14))
+        Text("Always allow Claude Code").font(.system(size: 14))
         Spacer()
-        Text("Least safe").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        Text("Fewest prompts").font(.system(size: 12)).foregroundStyle(Theme.secondary)
       }
       .padding(.horizontal, 14).frame(height: 44)
       .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))

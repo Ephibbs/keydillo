@@ -36,7 +36,7 @@ enum Preview {
     case "main": wm.showMain()
     case "setup2": wm.show("setup", title: "Setup") { SetupView(step: 1) }
     case "setup2never": wm.show("setup", title: "Setup") { SetupView(step: 1, never: true) }
-    case "settingsnever": AppModel.shared.previewNeverAsk(); wm.showSettings()
+    case "settingsnever": AppModel.shared.previewTrusted(); wm.showSettings()
     case "setup3": wm.show("setup", title: "Setup") { SetupView(step: 2) }
     case "setup4": wm.show("setup", title: "Setup") { SetupView(step: 3) }
     case "key":
