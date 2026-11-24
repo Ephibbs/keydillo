@@ -61,6 +61,9 @@ enum Preview {
       AppModel.shared.exposed = ["voiceover": [(file: "/Users/x/Desktop/voiceover/.env", name: "TOGETHER_API_KEY"), (file: "/Users/x/Desktop/voiceover/.env.local", name: "OPENAI_API_KEY")]]
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .selectProject, object: "voiceover") }
+    case "sidebar":
+      wm.showMain()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NotificationCenter.default.post(name: .showSidebar, object: nil) }
     case "access":
       wm.showMain()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NotificationCenter.default.post(name: .showAccess, object: nil) }
@@ -81,6 +84,32 @@ enum Preview {
       AppModel.shared.agentsSeen = ["Cursor": Date()]
       DispatchQueue.main.asyncAfter(deadline: .now() + 1) { StatusItem.shared?.open() }
     default: wm.showSetup()
+    }
+    snapshotIfAsked()
+  }
+
+  /// `-kdSize 640x440` resizes the preview window; `-kdShot /path.png` saves it as a PNG and quits.
+  /// For checking layouts at small sizes without screen-recording permission.
+  static func snapshotIfAsked() {
+    let d = UserDefaults.standard
+    let size = d.string(forKey: "kdSize").map { $0.split(separator: "x").compactMap { Double($0) } }
+    let shot = d.string(forKey: "kdShot")
+    guard size != nil || shot != nil else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+      let wins = { NSApp.windows.filter { $0.isVisible && ($0.styleMask.contains(.titled) || $0.className.contains("Popover")) } }
+      if let s = size, s.count == 2 {
+        for w in wins() where w.styleMask.contains(.titled) { w.setContentSize(CGSize(width: s[0], height: s[1])) }
+      }
+      guard let shot else { return }
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        for (i, v) in wins().compactMap({ $0.contentView?.superview ?? $0.contentView }).enumerated() {
+          guard v.bounds.width > 0, let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { continue }
+          v.cacheDisplay(in: v.bounds, to: rep)
+          let path = i == 0 ? shot : shot.replacingOccurrences(of: ".png", with: "-\(i).png")
+          try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
+        exit(0)
+      }
     }
   }
 }

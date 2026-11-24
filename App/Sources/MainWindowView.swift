@@ -13,6 +13,14 @@ struct MainWindowView: View {
   @State private var search = ""
   @AppStorage("listWidth") private var listWidth: Double = 330
   @State private var dragStart: Double?
+  @State private var width: CGFloat = 1080
+  @State private var sidebarOpen = false
+
+  static let sidebarWidth: CGFloat = 224, listMin: CGFloat = 220, detailMin: CGFloat = 320
+  /// Below this the sidebar folds away behind a button, so the key list and the key still fit side by side.
+  var compact: Bool { width < Self.sidebarWidth + 1 + 240 + 1 + 340 }
+  var listRoom: CGFloat { width - (compact ? 0 : Self.sidebarWidth + 1) - 1 - Self.detailMin }
+  var listWidthShown: CGFloat { max(Self.listMin, min(listWidth, listRoom)) }
 
   var keys: [ServiceConfig] {
     let q = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -31,19 +39,50 @@ struct MainWindowView: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      sidebar
-      Divider().overlay(Theme.hairline)
+      if !compact {
+        sidebar
+        Divider().overlay(Theme.hairline)
+      }
       if showAccess {
         AccessView().frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if showActivity {
         ActivityView().frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
-        keyList.frame(width: listWidth)
+        keyList.frame(width: listWidthShown)
         divider
         detail
       }
     }
-    .frame(minWidth: 860, minHeight: 560)
+    .overlay(alignment: .leading) {
+      if compact && sidebarOpen {
+        ZStack(alignment: .leading) {
+          Color.black.opacity(0.08).ignoresSafeArea().contentShape(Rectangle()).onTapGesture { sidebarOpen = false }
+          sidebar.overlay(alignment: .trailing) { Rectangle().fill(Theme.hairline).frame(width: 1).ignoresSafeArea() }
+            .compositingGroup().shadow(color: .black.opacity(0.12), radius: 14, x: 4)
+        }
+        .transition(.move(edge: .leading).combined(with: .opacity))
+      }
+    }
+    // In the title bar next to the window buttons, like Mail and Notes.
+    .overlay(alignment: .topLeading) {
+      if compact {
+        Button { withAnimation(.easeOut(duration: 0.18)) { sidebarOpen.toggle() } } label: {
+          Image(systemName: "sidebar.left").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+            .frame(width: 28, height: 22).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help(sidebarOpen ? "Hide sidebar" : "Show sidebar")
+        .accessibilityLabel(sidebarOpen ? "Hide sidebar" : "Show sidebar")
+        .padding(.leading, 76).padding(.top, 5)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea(.container, edges: .top)
+      }
+    }
+    .frame(minWidth: 560, minHeight: 420)
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+      width = w
+      if !compact { sidebarOpen = false }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .showSidebar)) { _ in if compact { sidebarOpen = true } }
     .onReceive(NotificationCenter.default.publisher(for: .showAccess)) { _ in showAccess = true; showActivity = false }
     .onReceive(NotificationCenter.default.publisher(for: .selectProject)) { n in project = n.object as? String; showAccess = false; showActivity = false }
     // Marks where the draggable title bar ends.
@@ -64,38 +103,43 @@ struct MainWindowView: View {
         Text("keydillo").font(.system(size: 17, weight: .semibold))
       }
       .padding(.horizontal, 8).padding(.top, 48)
-      sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
-      VStack(alignment: .leading, spacing: 2) {
-        sectionLabel("Projects")
-        ForEach(model.projects, id: \.self) { p in
-          sideRow((model.exposed[p]?.isEmpty == false ? "⚠︎ " : "") + (model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p), count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
-            project = p; showActivity = false; showAccess = false
+      ScrollView(.vertical) {
+        VStack(alignment: .leading, spacing: 18) {
+          sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
+          VStack(alignment: .leading, spacing: 2) {
+            sectionLabel("Projects")
+            ForEach(model.projects, id: \.self) { p in
+              sideRow((model.exposed[p]?.isEmpty == false ? "⚠︎ " : "") + (model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p), count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
+                project = p; showActivity = false; showAccess = false
+              }
+            }
+            if addingProject {
+              TextField("Project name", text: $newProject).textFieldStyle(.plain).font(.system(size: 14))
+                .padding(8).background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
+                .onSubmit { model.addProject(newProject); project = newProject; newProject = ""; addingProject = false }
+            } else {
+              Button { addingProject = true } label: {
+                Label("New project", systemImage: "plus").font(.system(size: 14)).padding(8)
+              }.buttonStyle(.plain)
+            }
+          }
+          VStack(alignment: .leading, spacing: 2) {
+            if !model.realKeys.files.isEmpty {
+              VStack(alignment: .leading, spacing: 6) {
+                Text("⚠︎ " + model.realKeysText).font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
+                Button("Secure all") { Task { _ = await model.secureAll() } }.buttonStyle(SmallButtonStyle())
+              }
+              .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 10)
+            }
+            sectionLabel("Monitor")
+            sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false }
+            sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false }
+            sideRow("Settings", count: "", isOn: false) { WindowManager.shared.showSettings() }
           }
         }
-        if addingProject {
-          TextField("Project name", text: $newProject).textFieldStyle(.plain).font(.system(size: 14))
-            .padding(8).background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
-            .onSubmit { model.addProject(newProject); project = newProject; newProject = ""; addingProject = false }
-        } else {
-          Button { addingProject = true } label: {
-            Label("New project", systemImage: "plus").font(.system(size: 14)).padding(8)
-          }.buttonStyle(.plain)
-        }
       }
-      VStack(alignment: .leading, spacing: 2) {
-        if !model.realKeys.files.isEmpty {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("⚠︎ " + model.realKeysText).font(.system(size: 12)).foregroundStyle(Theme.danger)
-            Button("Secure all") { Task { _ = await model.secureAll() } }.buttonStyle(SmallButtonStyle())
-          }
-          .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 10)
-        }
-        sectionLabel("Monitor")
-        sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false }
-        sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false }
-        sideRow("Settings", count: "", isOn: false) { WindowManager.shared.showSettings() }
-      }
-      Spacer()
+      .scrollBounceBehavior(.basedOnSize)
+      Spacer(minLength: 0)
       HStack(spacing: 7) {
         StatusDot(on: model.proxyRunning)
         Text(model.proxyRunning ? "localhost:\(String(model.port))" : "Proxy \(model.proxyState)")
@@ -104,7 +148,7 @@ struct MainWindowView: View {
       .padding(.horizontal, 8).padding(.bottom, 14)
     }
     .padding(.horizontal, 10)
-    .frame(width: 224)
+    .frame(width: Self.sidebarWidth)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Theme.sidebar)
   }
@@ -116,7 +160,7 @@ struct MainWindowView: View {
   }
 
   func sideRow(_ title: String, count: String, isOn: Bool, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
+    Button { action(); sidebarOpen = false } label: {
       HStack { Text(title).lineLimit(1); Spacer(); Text(count).foregroundStyle(Theme.secondary) }
         .font(.system(size: 14)).padding(8)
         .background(RoundedRectangle(cornerRadius: 10).fill(isOn ? Theme.selected : .clear))
@@ -132,8 +176,8 @@ struct MainWindowView: View {
         .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
         .gesture(DragGesture(minimumDistance: 1)
           .onChanged { v in
-            if dragStart == nil { dragStart = listWidth }
-            listWidth = min(520, max(240, (dragStart ?? listWidth) + v.translation.width))
+            if dragStart == nil { dragStart = listWidthShown }
+            listWidth = min(520, max(240, min(listRoom, (dragStart ?? listWidth) + v.translation.width)))
           }
           .onEnded { _ in dragStart = nil }))
   }
@@ -142,76 +186,95 @@ struct MainWindowView: View {
 
   var keyList: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 6) {
-        Text(project ?? "All keys").font(.system(size: 22, weight: .semibold))
-          .lineLimit(1).truncationMode(.tail).layoutPriority(1)
-        Spacer(minLength: 4)
-        if let project {
-          if let folder = model.folder(for: project) {
-            Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)]) } label: {
-              Image(systemName: "folder").font(.system(size: 13)).frame(width: 30, height: 30).overlay(Circle().strokeBorder(Theme.border))
-            }
-            .buttonStyle(.plain).help("Show \(project) in Finder").accessibilityLabel("Show \(project) in Finder")
-            .disabled(!FileManager.default.fileExists(atPath: folder))
-          }
-          Button("Readout") { Task { await openReadout(project) } }.buttonStyle(SmallButtonStyle())
+      // Title and buttons on one line when they fit, else the buttons go under the title.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 6) {
+          listTitle
+          Spacer(minLength: 4)
+          listButtons
         }
-        Button("Add key") { WindowManager.shared.showAddKey(project: project) }.buttonStyle(SmallPrimaryStyle())
+        VStack(alignment: .leading, spacing: 8) {
+          listTitle
+          HStack(spacing: 6) { listButtons }
+        }
       }
       .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 10)
 
-      if let project {
-        if let ex = model.exposed[project], !ex.isEmpty { exposedCard(project, ex).padding(.horizontal, 16).padding(.bottom, 10) }
-        if let fe = model.inFrontend[project], !fe.isEmpty { frontendCard(fe).padding(.horizontal, 16).padding(.bottom, 10) }
-        trustRow(project).padding(.horizontal, 16).padding(.bottom, 10)
-      }
-
-      HStack(spacing: 6) {
-        Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.secondary)
-        TextField("Search keys", text: $search).textFieldStyle(.plain).font(.system(size: 13))
-        if !search.isEmpty {
-          Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondary) }
-            .buttonStyle(.plain).accessibilityLabel("Clear search")
-        }
-      }
-      .padding(.horizontal, 10).frame(height: 30)
-      .background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
-      .padding(.horizontal, 16).padding(.bottom, 10)
-
-      if keys.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
-          Text(search.isEmpty ? "No keys yet" : "No matches").font(.system(size: 14, weight: .medium))
-          if search.isEmpty {
-            Text("Add one here, or let Claude ask for one when it needs it.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+      ScrollView(.vertical) {
+        VStack(alignment: .leading, spacing: 0) {
+          if let project {
+            if let ex = model.exposed[project], !ex.isEmpty { exposedCard(project, ex).padding(.horizontal, 16).padding(.bottom, 10) }
+            if let fe = model.inFrontend[project], !fe.isEmpty { frontendCard(fe).padding(.horizontal, 16).padding(.bottom, 10) }
+            trustRow(project).padding(.horizontal, 16).padding(.bottom, 10)
           }
-        }
-        .padding(.horizontal, 16)
-      }
-      ScrollView {
-        LazyVStack(spacing: 2) {
-          ForEach(keys) { s in
-            let isSel = selectedName == s.name
-            Button { selected = s.name } label: {
-              HStack(spacing: 12) {
-                ServiceBadge(service: s.name, name: s.displayName, size: 32)
-                VStack(alignment: .leading, spacing: 1) {
-                  Text(s.displayName).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                  if let sub = subtitle(s) {
-                    Text(sub).font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
-                  }
-                }
-                Spacer(minLength: 0)
-              }
-              .padding(.horizontal, 10).padding(.vertical, 7)
-              .background(RoundedRectangle(cornerRadius: 12).fill(isSel ? Theme.selected : .clear))
-              .contentShape(Rectangle())
+
+          HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+            TextField("Search keys", text: $search).textFieldStyle(.plain).font(.system(size: 13))
+            if !search.isEmpty {
+              Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.secondary) }
+                .buttonStyle(.plain).accessibilityLabel("Clear search")
             }
-            .buttonStyle(.plain)
           }
+          .padding(.horizontal, 10).frame(height: 30)
+          .background(RoundedRectangle(cornerRadius: 10).fill(Theme.fill))
+          .padding(.horizontal, 16).padding(.bottom, 10)
+
+          if keys.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+              Text(search.isEmpty ? "No keys yet" : "No matches").font(.system(size: 14, weight: .medium))
+              if search.isEmpty {
+                Text("Add one here, or let Claude ask for one when it needs it.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+            }
+            .padding(.horizontal, 16)
+          }
+          LazyVStack(spacing: 2) {
+            ForEach(keys) { s in
+              let isSel = selectedName == s.name
+              Button { selected = s.name } label: {
+                HStack(spacing: 12) {
+                  ServiceBadge(service: s.name, name: s.displayName, size: 32)
+                  VStack(alignment: .leading, spacing: 1) {
+                    Text(s.displayName).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                    if let sub = subtitle(s) {
+                      Text(sub).font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1)
+                    }
+                  }
+                  Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 12).fill(isSel ? Theme.selected : .clear))
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+            }
+          }
+          .padding(.horizontal, 8).padding(.bottom, 12)
         }
-        .padding(.horizontal, 8)
       }
+      .scrollBounceBehavior(.basedOnSize)
     }
+  }
+
+  var listTitle: some View {
+    Text(project ?? "All keys").font(.system(size: 22, weight: .semibold))
+      .lineLimit(1).truncationMode(.tail)
+  }
+
+  @ViewBuilder var listButtons: some View {
+    if let project {
+      if let folder = model.folder(for: project) {
+        Button { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder)]) } label: {
+          Image(systemName: "folder").font(.system(size: 13)).frame(width: 30, height: 30).overlay(Circle().strokeBorder(Theme.border))
+        }
+        .buttonStyle(.plain).help("Show \(project) in Finder").accessibilityLabel("Show \(project) in Finder")
+        .disabled(!FileManager.default.fileExists(atPath: folder))
+      }
+      Button("Readout") { Task { await openReadout(project) } }.buttonStyle(SmallButtonStyle()).fixedSize()
+    }
+    Button("Add key") { WindowManager.shared.showAddKey(project: project) }.buttonStyle(SmallPrimaryStyle()).fixedSize()
   }
 
   @State private var confirmAlways: String?
@@ -235,9 +298,9 @@ struct MainWindowView: View {
         .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       ForEach(ex.indices, id: \.self) { i in
         HStack(spacing: 8) {
-          Text(ex[i].name).font(.system(size: 12, design: .monospaced))
-          Text((ex[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-          Spacer()
+          Text(ex[i].name).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+          Text((ex[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1).fixedSize()
+          Spacer(minLength: 0)
         }
       }
       HStack {
@@ -246,7 +309,7 @@ struct MainWindowView: View {
           Task { secureStatus = await ImportModel.secure(model: model, files: Array(Set(ex.map(\.file)))); securing = false; await model.checkRealKeys() }
         }
         .buttonStyle(SmallPrimaryStyle()).disabled(securing)
-        if let secureStatus { Text(secureStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary) }
+        if let secureStatus { Text(secureStatus).font(.system(size: 11)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true) }
       }
     }
     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -260,9 +323,9 @@ struct MainWindowView: View {
         .font(.system(size: 12)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true)
       ForEach(fe.indices, id: \.self) { i in
         HStack(spacing: 8) {
-          Text(fe[i].name).font(.system(size: 12, design: .monospaced))
-          Text((fe[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary)
-          Spacer()
+          Text(fe[i].name).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+          Text((fe[i].file as NSString).lastPathComponent).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1).fixedSize()
+          Spacer(minLength: 0)
         }
       }
     }
@@ -270,33 +333,51 @@ struct MainWindowView: View {
     .background(RoundedRectangle(cornerRadius: 12).fill(Theme.fill))
   }
 
-  @ViewBuilder func trustRow(_ project: String) -> some View {
+  var trustLabel: some View { Text("Ask for Touch ID").font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize() }
+
+  func setFolderButton(_ project: String) -> some View {
+    Button("Set folder…") { chooseFolder(project) }.buttonStyle(.plain).font(.system(size: 12)).underline().fixedSize()
+  }
+
+  func trustMenu(_ project: String) -> some View {
     let folder = model.folder(for: project)
     let access = model.access(for: project)
     let override = model.accessOverride(for: project)
+    return Menu {
+      Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
+      Divider()
+      ForEach(ProjectAccess.allCases) { a in
+        Button(a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
+          if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } }
+        }
+        .disabled(a == .always && folder == nil)
+      }
+    } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
+      .menuStyle(.borderlessButton).fixedSize()
+  }
+
+  @ViewBuilder func trustRow(_ project: String) -> some View {
+    let folder = model.folder(for: project)
+    let access = model.access(for: project)
     VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 8) {
-        Text("Ask for Touch ID").font(.system(size: 12)).foregroundStyle(Theme.secondary)
-        Menu {
-          Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
-          Divider()
-          ForEach(ProjectAccess.allCases) { a in
-            Button(a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
-              if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } }
-            }
-            .disabled(a == .always && folder == nil)
-          }
-        } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
-          .menuStyle(.borderlessButton).fixedSize()
-        if folder == nil {
-          Button("Set folder…") { chooseFolder(project) }.buttonStyle(.plain).font(.system(size: 12)).underline()
+      // One line when it fits; on a narrow list the menu goes under its label.
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) { trustLabel; trustMenu(project); if folder == nil { setFolderButton(project) } }
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 8) { trustLabel; trustMenu(project) }
+          if folder == nil { setFolderButton(project) }
+        }
+        VStack(alignment: .leading, spacing: 4) {
+          trustLabel
+          trustMenu(project)
+          if folder == nil { setFolderButton(project) }
         }
       }
       Text(folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
            : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
-      if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger) }
+      if let folderError { Text(folderError).font(.system(size: 11)).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
       Button("Put keys back in files…") { Task { _ = await ImportModel.restoreRealValues(model: model, project: project); await model.checkRealKeys() } }
         .buttonStyle(SmallButtonStyle()).help("Writes this project's real keys back into its .env files (Touch ID). Programs can read them again.")
         .padding(.top, 2)
@@ -339,7 +420,7 @@ struct MainWindowView: View {
   @ViewBuilder var detail: some View {
     if let name = selectedName, let s = model.service(named: name) {
       ScrollView { KeyDetailView(config: s).id(s.name) }
-        .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: Self.detailMin, maxWidth: .infinity, maxHeight: .infinity)
     } else {
       Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -368,6 +449,9 @@ struct KeyDetailView: View {
   @State private var copiedNote: String?
   @State private var editing = false
   @State private var authenticating = false
+  @State private var width: CGFloat = 600
+  /// Narrow detail pane: secondary columns and labels make room for the values.
+  var narrow: Bool { width < 440 }
 
   init(config: ServiceConfig) {
     _config = State(initialValue: config)
@@ -407,7 +491,8 @@ struct KeyDetailView: View {
       recentUse
       if let error { Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger) }
     }
-    .padding(.horizontal, 26).padding(.top, 34).padding(.bottom, 22)
+    .padding(.horizontal, narrow ? 18 : 26).padding(.top, 34).padding(.bottom, 22)
+    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     .alert("Delete the \(config.displayName) key?", isPresented: $confirmDelete) {
       Button("Delete", role: .destructive) { model.delete(config.name) }
       Button("Cancel", role: .cancel) {}
@@ -428,16 +513,35 @@ struct KeyDetailView: View {
         } label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }
           .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("More")
       }
-      HStack(spacing: 8) {
-        Text(summary.baseURL).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.secondary)
-          .lineLimit(1).truncationMode(.middle).textSelection(.enabled).layoutPriority(1)
-        Button { copy(summary.baseURL, "Address copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: 11)) }
-          .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Copy address").accessibilityLabel("Copy address")
-        Spacer(minLength: 8)
-        if let copiedNote { Text(copiedNote).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1) }
-        Button("Copy .env lines") { copy(summary.placeholderEnvLines.joined(separator: "\n"), "Copied, no secret in them") }
-          .buttonStyle(SmallButtonStyle()).help(summary.placeholderEnvLines.joined(separator: "\n")).fixedSize()
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: 8) {
+          addressLine
+          Spacer(minLength: 8)
+          copyEnvButton
+        }
+        VStack(alignment: .leading, spacing: 8) {
+          addressLine
+          copyEnvButton
+        }
       }
+    }
+  }
+
+  var addressLine: some View {
+    HStack(spacing: 8) {
+      Text(summary.baseURL).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.secondary)
+        .lineLimit(1).truncationMode(.middle).textSelection(.enabled).layoutPriority(1)
+      Button { copy(summary.baseURL, "Address copied") } label: { Image(systemName: "doc.on.doc").font(.system(size: 11)) }
+        .buttonStyle(.plain).foregroundStyle(Theme.secondary).help("Copy address").accessibilityLabel("Copy address")
+    }
+    .frame(minWidth: 160, alignment: .leading)
+  }
+
+  var copyEnvButton: some View {
+    HStack(spacing: 8) {
+      if let copiedNote { Text(copiedNote).font(.system(size: 11)).foregroundStyle(Theme.secondary).lineLimit(1) }
+      Button("Copy .env lines") { copy(summary.placeholderEnvLines.joined(separator: "\n"), "Copied, no secret in them") }
+        .buttonStyle(SmallButtonStyle()).help(summary.placeholderEnvLines.joined(separator: "\n")).fixedSize()
     }
   }
 
@@ -524,6 +628,7 @@ struct KeyDetailView: View {
           Button("Cancel") { discard() }.buttonStyle(SmallButtonStyle())
           Button("Save") { Task { await saveChanges() } }.buttonStyle(SmallPrimaryStyle()).disabled(!dirty)
           Text("Changing where the key is sent needs Touch ID.").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         } else {
           Button("Edit") { editing = true }.buttonStyle(SmallButtonStyle())
           if dirty { Button("Save") { Task { await saveChanges() } }.buttonStyle(SmallPrimaryStyle()) }
@@ -560,13 +665,13 @@ struct KeyDetailView: View {
           ForEach(Array(recent)) { e in
             HStack {
               Text(e.date, format: .dateTime.hour().minute()).foregroundStyle(Theme.secondary).frame(width: 64, alignment: .leading)
-              Text(e.process).frame(width: 120, alignment: .leading).lineLimit(1)
+              if !narrow { Text(e.process).frame(width: 120, alignment: .leading).lineLimit(1) }
               Text(e.note ?? "\(e.method) \(e.path)").font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle)
               Spacer()
               Text(e.outcome == .sent ? (e.status == 0 ? "" : "\(e.status)") : e.outcome.rawValue.capitalized)
                 .foregroundStyle(e.outcome == .sent ? Theme.text : Theme.danger)
             }
-            .font(.system(size: 13)).padding(.horizontal, 14).frame(height: 38)
+            .font(.system(size: 13)).padding(.horizontal, narrow ? 10 : 14).frame(height: 38)
             if e.id != recent.last?.id { Divider().overlay(Theme.hairline) }
           }
         }
@@ -577,7 +682,8 @@ struct KeyDetailView: View {
 
   func row<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
     GridRow {
-      Text(label).foregroundStyle(Theme.secondary).lineLimit(1).frame(width: 100, alignment: .leading)
+      Text(label).foregroundStyle(Theme.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        .frame(width: narrow ? 84 : 100, alignment: .leading)
       content().frame(maxWidth: .infinity, alignment: .leading)
     }
   }
@@ -642,4 +748,5 @@ struct KeyDetailView: View {
 extension Notification.Name {
   static let showAccess = Notification.Name("keydillo.showAccess")
   static let selectProject = Notification.Name("keydillo.selectProject")
+  static let showSidebar = Notification.Name("keydillo.showSidebar")
 }

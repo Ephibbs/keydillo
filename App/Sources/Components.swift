@@ -150,8 +150,37 @@ struct ServiceBadge: View {
   }
 }
 
+/// Shows the content at its full height when it fits, and lets it scroll when it's taller than `maxHeight`
+/// (the screen, by default). The window or popover around it grows and shrinks with the content, as it did
+/// with fixed sizes, but never past the screen.
+struct FitOrScroll<Content: View>: View {
+  var maxHeight: CGFloat = ScreenRoom.height - 40
+  @ViewBuilder var content: () -> Content
+  @State private var height: CGFloat = 0
+
+  var body: some View {
+    ViewThatFits(in: .vertical) {
+      measured
+      ScrollView(.vertical) { measured }.scrollBounceBehavior(.basedOnSize)
+    }
+    .frame(minHeight: height > 0 ? min(height, maxHeight) : nil, maxHeight: height > 0 ? height : nil, alignment: .top)
+  }
+
+  var measured: some View {
+    content().onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+  }
+}
+
+/// The usable height of the main screen. Development previews can pretend it's shorter (`-kdScreenHeight 600`).
+enum ScreenRoom {
+  static var height: CGFloat {
+    let fake = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1" ? UserDefaults.standard.double(forKey: "kdScreenHeight") : 0
+    return fake > 0 ? fake : NSScreen.main?.visibleFrame.height ?? 800
+  }
+}
+
 extension View {
   func sheetCard() -> some View {
-    self.padding(24).frame(width: 460).background(Theme.background).foregroundStyle(Theme.text)
+    FitOrScroll { self.padding(24).frame(width: 460) }.background(Theme.background).foregroundStyle(Theme.text)
   }
 }

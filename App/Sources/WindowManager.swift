@@ -14,6 +14,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     if let w = windows[id] {
       w.makeKeyAndOrderFront(nil); NSApp.activate(); return
     }
+    // Layout snapshots (development only) show the window without taking focus from whatever you're typing in.
+    let snapshot = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1" && UserDefaults.standard.string(forKey: "kdShot") != nil
     let host = NSHostingController(rootView: view().environment(AppModel.shared))
     var style: NSWindow.StyleMask = [.titled, .closable, .fullSizeContentView]
     if resizable { style.insert(.resizable); style.insert(.miniaturizable) }
@@ -24,7 +26,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     w.titlebarAppearsTransparent = true
     w.isMovableByWindowBackground = true
     w.isReleasedWhenClosed = false
-    if let size { w.setContentSize(size) }
+    // Open at the content's natural size (the screen permitting); content that can scroll mustn't open at its minimum.
+    w.setContentSize(size ?? host.view.fittingSize)
     if floating { w.level = .floating }
     // Windows that can show a key value can't be screen-captured or recorded.
     let devPreview = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1" && UserDefaults.standard.string(forKey: "kdPreview") != nil
@@ -32,10 +35,23 @@ final class WindowManager: NSObject, NSWindowDelegate {
     w.delegate = self
     w.identifier = NSUserInterfaceItemIdentifier(id)
     w.center()
+    fitOnScreen(w)
     windows[id] = w
     if let onClose { self.onClose[id] = onClose }
+    if snapshot { w.orderFrontRegardless(); return }
     w.makeKeyAndOrderFront(nil)
     NSApp.activate()
+  }
+
+  /// Never open a window taller or wider than the screen: its content scrolls instead of running off the edge.
+  private func fitOnScreen(_ w: NSWindow) {
+    guard var visible = (w.screen ?? NSScreen.main)?.visibleFrame else { return }
+    visible.size.height = min(visible.height, ScreenRoom.height)
+    var f = w.frame
+    guard f.height > visible.height || f.width > visible.width else { return }
+    f.size = CGSize(width: min(f.width, visible.width), height: min(f.height, visible.height))
+    f.origin = CGPoint(x: visible.midX - f.width / 2, y: visible.maxY - f.height)
+    w.setFrame(f, display: false)
   }
 
   func close(_ id: String) { windows[id]?.close() }
@@ -98,6 +114,6 @@ final class WindowManager: NSObject, NSWindowDelegate {
   }
 
   func showSettings() {
-    show("settings", title: "Settings") { SettingsView() }
+    show("settings", title: "Settings", resizable: true) { SettingsView() }
   }
 }
