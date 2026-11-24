@@ -1,0 +1,16 @@
+# The Mac app with the iCloud (CloudKit) entitlement that iPhone approval needs.
+#   xcodegen --spec project.icloud.yml
+# Needs the container iCloud.com.studiokillswitch.keydillo on team 2JARAJYAYY (Xcode creates it the first
+# time it signs this with automatic signing; containers can't be deleted afterwards).
+include:
+  - project.yml
+targets:
+  Keydillo:
+    entitlements:
+      path: Sources/Keydillo.entitlements
+      properties:
+        keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.keydillo"]
+        com.apple.developer.icloud-container-identifiers: ["iCloud.com.studiokillswitch.keydillo"]
+        com.apple.developer.icloud-services: ["CloudKit"]
+        # The iPhone app ships through TestFlight, which always uses the Production CloudKit environment.
+        com.apple.developer.icloud-container-environment: Production

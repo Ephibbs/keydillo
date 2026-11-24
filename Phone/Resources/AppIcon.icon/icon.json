@@ -1,0 +1,31 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.21288,0.21288,0.21288,1.00000",
+      "srgb:0.05159,0.05159,0.05159,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": false,
+          "image-name": "glyph.png",
+          "name": "glyph"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

@@ -28,6 +28,7 @@ struct SettingsView: View {
         Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Your AI tool does it for you.")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       }
+      PhoneSettingsSection()
       Toggle("Keep keydillo running (start at login, restart if it stops)", isOn: $loginItem).toggleStyle(.switch)
         .onChange(of: loginItem) { _, v in model.openAtLogin = v }
       VStack(alignment: .leading, spacing: 8) {

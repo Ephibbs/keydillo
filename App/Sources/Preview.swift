@@ -59,6 +59,7 @@ enum Preview {
       let req = ApprovalRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs.io", method: "POST",
                                 path: "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM", client: c)
       wm.showApprovalCard(PendingApproval(request: req, context: LAContext(), project: "voiceover"), moreOpen: screen == "approvalmore")
+    case "pairphone": wm.show("pair", title: "Pair iPhone") { PairPhoneView {} }
     case "restore": wm.showRestore()
     case "sidebar":
       wm.showMain()
