@@ -898,12 +898,13 @@ final class GeneralKeysTests: XCTestCase {
       key("b", "base", folder: "/private/tmp/claude-501/x/scratchpad/base"),
       key("c", "old", folder: gone),
       key("d", "slouchly", folder: "/Users/u/Desktop/slouchly"),
-      key("e", "voiceover"),                                    // named by the user, no folder: kept
+      key("e", "voiceover"),                                    // made by the user in keydillo: kept
+      key("h", "nofolder"),                                     // no folder recorded, not made by the user: folded
       key("f", "picked", folder: "/private/tmp/picked", chosen: true), // folder chosen with Touch ID: kept
       key("g", "General"),
     ]
-    let (next, folded) = GeneralKeys.fold(list, exists: { $0 != gone })
-    XCTAssertEqual(folded, ["Personal", "base", "old"])
+    let (next, folded) = GeneralKeys.fold(list, userNamed: ["voiceover"], exists: { $0 != gone })
+    XCTAssertEqual(folded, ["Personal", "base", "nofolder", "old"])
     let byName = Dictionary(uniqueKeysWithValues: next.map { ($0.name, $0) })
     for n in ["a", "b", "c", "g"] { XCTAssertTrue(byName[n]!.isGeneral, n); XCTAssertNil(byName[n]!.folder, n) }
     XCTAssertEqual(byName["d"]!.project, "slouchly"); XCTAssertEqual(byName["d"]!.folder, "/Users/u/Desktop/slouchly")
