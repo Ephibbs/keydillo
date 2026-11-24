@@ -1,8 +1,18 @@
 import SwiftUI
 import VaultCore
+import LocalAuthentication
+import LocalAuthenticationEmbeddedUI
 
-/// Shown next to the Touch ID dialog for a key request, so the dialog itself can stay one short line.
-/// Approving happens in the Touch ID dialog; Deny here cancels it.
+/// macOS's own Touch ID control, drawn inside keydillo's window. While it's on screen, evaluating the request's
+/// LAContext shows the fingerprint prompt here instead of a separate system sheet. "Use Password…" still falls back
+/// to the system's password sheet.
+struct EmbeddedTouchID: NSViewRepresentable {
+  let context: LAContext
+  func makeNSView(context ctx: Context) -> LAAuthenticationView { LAAuthenticationView(context: context, controlSize: .regular) }
+  func updateNSView(_ v: LAAuthenticationView, context ctx: Context) {}
+}
+
+/// The one window for a key request: the details plus macOS's Touch ID control. Deny cancels it.
 struct ApprovalCard: View {
   @Environment(AppModel.self) private var model
   let pending: PendingApproval
@@ -36,9 +46,12 @@ struct ApprovalCard: View {
       if !r.client.agentVerified, r.client.agent != nil {
         Text("Unverified app.").font(.system(size: 12)).foregroundStyle(Theme.danger)
       }
-      HStack(spacing: 8) {
-        Image(systemName: "touchid").foregroundStyle(Theme.secondary)
-        Text(span).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+      HStack(spacing: 12) {
+        EmbeddedTouchID(context: pending.context).frame(width: 32, height: 32)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Touch ID to allow").font(.system(size: 13, weight: .medium))
+          Text(span).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        }
         Spacer()
         Button("Deny") { model.deny(pending) }.buttonStyle(SecondaryButtonStyle())
       }
@@ -48,8 +61,8 @@ struct ApprovalCard: View {
 
   var span: String {
     switch model.access(for: pending.project) {
-    case .everyTime: return "Touch ID for this request"
-    default: return "Touch ID for this session"
+    case .everyTime: return "For this request"
+    default: return "For this session"
     }
   }
 }
