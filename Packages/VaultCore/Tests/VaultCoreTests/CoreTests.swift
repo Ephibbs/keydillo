@@ -925,6 +925,9 @@ final class GeneralKeysTests: XCTestCase {
   func testMCPLabelsGeneral() {
     XCTAssertEqual(MCPServer.projectLabel("General"), "General: any folder")
     XCTAssertEqual(MCPServer.projectLabel("slouchly"), "project slouchly")
+  }
+}
+
 final class RelockTests: XCTestCase {
   // Login keychain (legacy mode) with a throwaway service: checks that saving keys again keeps every value and label.
   func testRelockKeepsValuesAndLabels() throws {
