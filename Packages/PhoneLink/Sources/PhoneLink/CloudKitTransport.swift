@@ -85,11 +85,20 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
     return asks.sorted { $0.created < $1.created }
   }
 
-  /// Phone only: a push notification for every new ask, with the Mac's title as the text.
-  /// Creates and deletes a placeholder record first, because the development environment only lets you
-  /// subscribe to a record type that already exists.
-  public func subscribeToAsks() async throws {
+  /// How the phone hears about new asks.
+  public enum PushMode: Sendable, Equatable {
+    /// iCloud shows the notification itself (query subscription with alert text).
+    case alerts
+    /// iCloud only wakes the app (zone subscription); the app shows the notification. `queryError` says why
+    /// the query subscription wasn't used.
+    case silent(queryError: String)
+  }
+
+  /// Phone only: makes sure iCloud tells the phone about every new ask. Tries a query subscription with the Mac's
+  /// title as the alert text first; if iCloud refuses it, falls back to a silent zone subscription.
+  public func subscribeToAsks() async throws -> PushMode {
     try await ensureZone()
+    // The development environment only lets you subscribe to a record type that already exists.
     let probe = "ask-schema-probe"
     try? await save("KDAsk", probe, Data(), extra: ["title": "" as CKRecordValue, "expires": Date() as CKRecordValue])
     try? await save("KDAnswer", "ans-schema-probe", Data())
@@ -100,15 +109,34 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
                                   options: [.firesOnRecordCreation])
     sub.zoneID = Self.zoneID
     let info = CKSubscription.NotificationInfo()
-    info.titleLocalizationKey = "KD_ASK_TITLE"
     info.alertLocalizationKey = "KD_ASK_BODY"
     info.alertLocalizationArgs = ["title"]
     info.soundName = "default"
     info.shouldSendContentAvailable = true
-    info.desiredKeys = ["title"]
-    info.category = "KD_ASK"
     sub.notificationInfo = info
-    _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
+    do {
+      _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
+      _ = try? await db.modifySubscriptions(saving: [], deleting: [Self.zoneSubscriptionID])
+      return .alerts
+    } catch {
+      let queryError = Self.describe(error)
+      let zoneSub = CKRecordZoneSubscription(zoneID: Self.zoneID, subscriptionID: Self.zoneSubscriptionID)
+      let silent = CKSubscription.NotificationInfo()
+      silent.shouldSendContentAvailable = true
+      zoneSub.notificationInfo = silent
+      _ = try await db.modifySubscriptions(saving: [zoneSub], deleting: [])
+      return .silent(queryError: queryError)
+    }
+  }
+
+  public static let zoneSubscriptionID = "kd-zone"
+
+  static func describe(_ error: Error) -> String {
+    guard let ck = error as? CKError else { return error.localizedDescription }
+    var parts = ["CKError \(ck.code.rawValue)", ck.localizedDescription]
+    if let partial = ck.partialErrorsByItemID?.values.first { parts.append(describe(partial)) }
+    if let server = (ck as NSError).userInfo["ServerErrorDescription"] as? String { parts.append(server) }
+    return parts.joined(separator: " · ")
   }
 }
 #endif

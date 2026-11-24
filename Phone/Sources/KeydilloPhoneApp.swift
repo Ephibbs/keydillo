@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
   // A new request arrived (CloudKit push).
   func application(_ app: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
     await PhoneStore.shared.refresh()
+    await PhoneStore.shared.ensureSubscription()
+    await PhoneStore.shared.notifyNewAsks()
     return .newData
   }
 
