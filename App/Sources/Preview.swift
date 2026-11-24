@@ -53,12 +53,12 @@ enum Preview {
     case "readout":
       wm.showReadout(project: "voiceover", values: [("ELEVENLABS_API_KEY", "sample-not-a-real-key-1"), ("ANTHROPIC_API_KEY", "sample-not-a-real-key-2")])
     case "settings": wm.showSettings()
-    case "approval":
+    case "approval", "approvalmore":
       var c = ClientProcess(pid: 1, name: "curl", agent: "claude", agentPid: 2, startTime: 1)
       c.agentVerified = true; c.purpose = "Generating a hello clip for Evan"; c.cwd = NSHomeDirectory() + "/Desktop/voiceover"
       let req = ApprovalRequest(service: "elevenlabs", displayName: "ElevenLabs", host: "api.elevenlabs.io", method: "POST",
                                 path: "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM", client: c)
-      wm.showApprovalCard(PendingApproval(request: req, context: LAContext(), project: "voiceover"))
+      wm.showApprovalCard(PendingApproval(request: req, context: LAContext(), project: "voiceover"), moreOpen: screen == "approvalmore")
     case "restore": wm.showRestore()
     case "project":
       wm.showMain()
