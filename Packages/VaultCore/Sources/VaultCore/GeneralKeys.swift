@@ -23,19 +23,18 @@ public enum GeneralKeys {
   }
 
   /// Moves keys into General when their project has no lasting folder: the old default name ("Personal"), or a
-  /// project whose recorded folders are all temporary or gone from disk and that nobody chose a folder for.
-  /// A project with no folder recorded at all (one you named yourself) is left alone.
+  /// project with no folder, or only temporary or deleted folders, that nobody chose a folder for.
+  /// Projects you made yourself in keydillo (`userNamed`) are left alone.
   /// Returns the new list and the project names that were folded in.
-  public static func fold(_ services: [ServiceConfig], exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
+  public static func fold(_ services: [ServiceConfig], userNamed: Set<String> = [],
+                           exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) })
     -> (services: [ServiceConfig], folded: [String]) {
     var folded = Set<String>()
     for name in Set(services.map(\.project)) where name != project {
       let keys = services.filter { $0.project == name }
       if legacyNames.contains(name) { folded.insert(name); continue }
-      if keys.contains(where: { $0.folderChosen == true }) { continue }
-      let folders = keys.compactMap(\.folder)
-      guard !folders.isEmpty else { continue }
-      if folders.allSatisfy({ isTemporary($0) || !exists($0) }) { folded.insert(name) }
+      if userNamed.contains(name) || keys.contains(where: { $0.folderChosen == true }) { continue }
+      if keys.compactMap(\.folder).allSatisfy({ isTemporary($0) || !exists($0) }) { folded.insert(name) }
     }
     guard !folded.isEmpty else { return (services, []) }
     let next = services.map { s -> ServiceConfig in

@@ -153,7 +153,7 @@ final class AppModel {
   /// Keys whose project has no lasting folder (the old "Personal" group, a scratch folder, a deleted folder) belong
   /// in General, where any folder can use them. Logged so the move is visible.
   func foldIntoGeneral() {
-    let (next, folded) = GeneralKeys.fold(services)
+    let (next, folded) = GeneralKeys.fold(services, userNamed: Set(extraProjects))
     guard !folded.isEmpty, (try? persist(next)) != nil else { return }
     // The folded projects' own Touch ID settings go with them; General keeps its own.
     if folded.contains(where: { projectAccessOverrides[$0] != nil }) {
