@@ -235,8 +235,9 @@ final class AppModel {
     try keychain.setSetting("neverAsk", JSONEncoder().encode(NeverAskSettings(on: on)))
   }
 
-  /// Only AI and kd key use stops asking (proxy requests, new sites, launch-time values). Everything that shows a
-  /// key's value or changes keydillo still needs Touch ID or the login password, enforced by keydillo itself.
+  /// AI tools and kd can use keys and make Claude's key changes without asking. Still Touch ID (or the login
+  /// password): a new key, a new site for a key, and anything that shows a value (Show, Readout, put back,
+  /// launch-time values that land in a program's environment). keydillo enforces it, since the Keychain no longer does.
   /// Turning it on takes one last Touch ID and saves every key again without the Keychain's Touch ID lock.
   /// Turning it off puts the lock back; that needs no Touch ID. Returns an error message, or nil when done or cancelled.
   func setNeverAsk(_ on: Bool) async -> String? {
@@ -271,6 +272,12 @@ final class AppModel {
 
   /// Previews only: shows the mode as on without touching the Keychain.
   func previewNeverAsk() { if Self.devHarness { neverAsk = true; Self.neverAskFlag.value = false } }
+
+  /// A change that would send a key to a site it hasn't been sent to. Always Touch ID, even in Never ask mode.
+  func addsSite(_ r: ChangeRequest) -> Bool {
+    guard r.kind == .auth, let h = r.host?.lowercased().trimmingCharacters(in: .whitespaces), !h.isEmpty else { return false }
+    return !(r.service.flatMap(service(named:))?.allHosts.contains(h) ?? false)
+  }
 
   func logNoPrompt(_ r: ApprovalRequest, note: String) {
     events.insert(ActivityEvent(date: Date(), service: r.service, method: r.method, path: r.path, process: r.client.displayName, pid: r.client.pid,
@@ -760,7 +767,7 @@ final class AppModel {
       // Always a fresh Touch ID that names the command: these values end up readable inside the program.
       if ModelApprover.screenLocked && !neverAsk { return .error("The Mac is locked; launch-time keys need Touch ID.") }
       let reason = "give \(keys.map(\.displayName).joined(separator: ", ")) to: \(command)\n\nAnything this command runs can read \(keys.count == 1 ? "it" : "them")."
-      guard let ctx = neverAsk ? LAContext() : await authenticate(reason) else { return .values([:]) }
+      guard let ctx = await authenticate(reason) else { return .values([:]) }
       var out: [String: String] = [:]
       for svc in keys {
         let name = svc.name
@@ -782,6 +789,14 @@ final class AppModel {
       }
       let proposal: ChangeProposal
       do { proposal = try changeProposal(r, requester: who) } catch { return .error(error.localizedDescription) }
+      if neverAsk && !addsSite(r) {
+        do {
+          let result = try await proposal.apply(LAContext())
+          events.insert(ActivityEvent(date: Date(), service: r.service ?? r.project ?? "", method: "", path: "", process: who, pid: caller.pid,
+                                      outcome: .sent, status: 0, note: "\(proposal.title) (no prompt: Never ask for Touch ID)"), at: 0)
+          return .changed(result)
+        } catch { return .error(error.localizedDescription) }
+      }
       return await withCheckedContinuation { cont in
         let wid = "change-\(proposal.id)"
         var done = false
@@ -960,10 +975,6 @@ final class ModelApprover: Approver, @unchecked Sendable {
   /// A key going to a host it hasn't been sent to: always an explicit Touch ID naming the host, whatever the
   /// project setting, earlier approvals or the locked-Mac mode.
   func approveNewHost(_ request: ApprovalRequest) async -> ApprovalResult {
-    if AppModel.neverAskFlag.value {
-      await MainActor.run { model?.logNoPrompt(request, note: "new site \(request.host) allowed without asking (Never ask for Touch ID)") }
-      return .approved(nil)
-    }
     if Self.screenLocked { return .unavailable("the Mac is locked") }
     let ctx = LAContext()
     ctx.localizedCancelTitle = "Don't allow"

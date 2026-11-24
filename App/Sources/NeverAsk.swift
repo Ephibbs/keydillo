@@ -5,7 +5,7 @@ import VaultCore
 /// Wording shared by onboarding and Settings, so both say the same thing.
 enum NeverAskCopy {
   static let title = "Never ask for Touch ID"
-  static let warning = "AI tools and kd use your keys without asking, including sending a key to a new site and while your Mac is locked. A program that's been misled can send your keys anywhere. Showing a key's value, the Readout and putting keys back in files still need Touch ID."
+  static let warning = "AI tools and kd can use and change your keys without asking, even while your Mac is locked. Touch ID is still needed to add a key, send a key to a new site, or reveal a key's value (including keys kd puts in a program's environment)."
 }
 
 
