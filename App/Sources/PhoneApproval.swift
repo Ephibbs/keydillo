@@ -140,7 +140,10 @@ final class PhoneApprovals: @unchecked Sendable {
                                    service: request.service, displayName: request.displayName, host: request.host, method: request.method,
                                    path: request.path, requester: request.client.friendlyName, folder: folder,
                                    purpose: request.client.purpose)
-    guard let pending = try? PendingAsk.make(fields, macID: me.id, signer: me.signer, wrapped: wrapped) else { return .timedOut }
+    // Unlocked: the card stays up as long as the Touch ID prompt; the day-long expiry only clears leftovers if the Mac quits mid-request.
+    // Locked: nobody is at the Mac, so the program gets an answer (or "didn't answer") within 10 minutes.
+    let ttl: TimeInterval = mac == nil ? 10 * 60 : 24 * 60 * 60
+    guard let pending = try? PendingAsk.make(fields, macID: me.id, signer: me.signer, wrapped: wrapped, ttl: ttl) else { return .timedOut }
     return await raceApproval(mac: mac, cancelMac: cancelMac, pending: pending, phone: phone, transport: transport,
                               log: { NSLog("keydillo: %@", $0) })
   }

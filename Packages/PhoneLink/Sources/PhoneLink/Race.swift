@@ -22,7 +22,9 @@ public func raceApproval(mac: (@Sendable () async -> Bool)?, cancelMac: @escapin
   let result: RaceResult = await withTaskGroup(of: RaceResult?.self) { group in
     if let mac { group.addTask { .mac(approved: await mac()) } }
     group.addTask {
-      while !Task.isCancelled && epoch() <= pending.ask.expires {
+      // With a Mac prompt open, the phone card stays as long as that prompt does: the race ends when either side answers.
+      // Without one (Mac locked), the ask's expiry is the limit.
+      while !Task.isCancelled && (hasMac || epoch() <= pending.ask.expires) {
         if let a = try? await transport.answer(for: pending.ask.requestID) {
           do { return .phone(try pending.accept(a, from: phone)) } catch LinkError.replayed { return nil }
           catch { log("phone link: ignored an answer (\(error))") }

@@ -181,9 +181,12 @@ struct RequestCard: View {
         Row(label: "Site", value: "\(ask.method) \(ask.host)")
         Row(label: "Path (from the program)", value: ask.path.isEmpty ? "/" : ask.path)
       }
-      TimelineView(.periodic(from: .now, by: 1)) { _ in
-        Text("Expires in \(ask.secondsLeft / 60):\(String(format: "%02d", ask.secondsLeft % 60))")
-          .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+      // Only locked-Mac requests have a short limit; others stay until answered here or on the Mac.
+      if ask.secondsLeft <= 15 * 60 {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+          Text("Expires in \(ask.secondsLeft / 60):\(String(format: "%02d", ask.secondsLeft % 60))")
+            .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
+        }
       }
       HStack(spacing: 10) {
         Button { Task { await store.answer(ask, .deny) } } label: { Text("Deny").frame(maxWidth: .infinity) }
