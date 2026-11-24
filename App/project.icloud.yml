@@ -12,3 +12,5 @@ targets:
         keychain-access-groups: ["$(AppIdentifierPrefix)com.studiokillswitch.keydillo"]
         com.apple.developer.icloud-container-identifiers: ["iCloud.com.studiokillswitch.keydillo"]
         com.apple.developer.icloud-services: ["CloudKit"]
+        # The iPhone app ships through TestFlight, which always uses the Production CloudKit environment.
+        com.apple.developer.icloud-container-environment: Production
