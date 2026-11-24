@@ -970,6 +970,23 @@ final class PurposeTests: XCTestCase {
     purposes = await gate.activeGrants().map { $0.client?.purpose }
     XCTAssertEqual(purposes, ["Second run"])
   }
+
+  func testRequestKinds() {
+    func k(_ m: String, _ p: String) -> String { ServiceConfig.requestKind(method: m, path: p) }
+    XCTAssertEqual(k("post", "/v1/refunds"), "POST /v1/refunds")
+    XCTAssertEqual(k("GET", "/v1/customers/cus_9s8d7fQ2w3"), "GET /v1/customers/*")
+    XCTAssertEqual(k("GET", "/v1/customers/cus_9s8d7fQ2w3?expand=x"), "GET /v1/customers/*")
+    XCTAssertEqual(k("DELETE", "/repos/me/app/issues/123"), "DELETE /repos/me/app/issues/*")
+    XCTAssertEqual(k("POST", "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM"), "POST /v1/text-to-speech/*")
+    XCTAssertEqual(k("POST", "/v1beta/models/gemini-2.0-flash:generateContent"), "POST /v1beta/models/*:generateContent")
+    XCTAssertEqual(k("GET", "/v2alpha1/things"), "GET /v2alpha1/things")
+    XCTAssertEqual(k("GET", "/users/550e8400-e29b-41d4-a716-446655440000/files"), "GET /users/*/files")
+    XCTAssertEqual(k("GET", "/"), "GET /")
+    var s = ServiceConfig(name: "s", displayName: "S", project: "p", upstreamHost: "h", authHeader: "a")
+    XCTAssertTrue(s.knowsKind("POST /x"))   // off by default: nothing is asked
+    s.askNewPaths = true; s.knownPaths = ["GET /x"]
+    XCTAssertTrue(s.knowsKind("GET /x")); XCTAssertFalse(s.knowsKind("POST /x"))
+  }
 }
 
 final class GeneralKeysTests: XCTestCase {

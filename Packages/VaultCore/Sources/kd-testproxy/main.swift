@@ -25,6 +25,20 @@ final class FileApprover: Approver, @unchecked Sendable {
   }
 }
 
+extension FileApprover {
+  /// New kinds of request are logged one per line in <decisionFile>.kinds, then decided like any approval.
+  func approveNewKind(_ request: ApprovalRequest, kind: String) async -> ApprovalResult {
+    let log = path + ".kinds"
+    let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
+    try? (old + kind + "\n").write(toFile: log, atomically: true, encoding: .utf8)
+    switch (try? String(contentsOfFile: path, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) {
+    case "deny": return .denied
+    case "locked": return .unavailable("the Mac is locked")
+    default: return .approved(nil)
+    }
+  }
+}
+
 final class Secrets: SecretProvider {
   let values: [String: String]
   init(_ v: [String: String]) { values = v }
@@ -35,7 +49,14 @@ final class Secrets: SecretProvider {
 }
 
 let cfg = try JSONDecoder().decode(Config.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
-let engine = ProxyEngine(services: { cfg.services }, secrets: Secrets(cfg.secrets), approver: FileApprover(path: cfg.decisionFile))
+nonisolated(unsafe) var services = cfg.services
+let servicesLock = NSLock()
+let engine = ProxyEngine(services: { servicesLock.lock(); defer { servicesLock.unlock() }; return services },
+                         secrets: Secrets(cfg.secrets), approver: FileApprover(path: cfg.decisionFile))
+engine.onKindAdded = { name, kind in
+  servicesLock.lock(); defer { servicesLock.unlock() }
+  if let i = services.firstIndex(where: { $0.name == name }) { services[i].knownPaths = (services[i].knownPaths ?? []) + [kind] }
+}
 engine.onEvent = { e in
   let line = "event \(e.outcome.rawValue) \(e.status) \(e.service) \(e.method) \(e.path) \(e.note ?? "")\n"
   FileHandle.standardError.write(Data(line.utf8))

@@ -72,6 +72,11 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   public var isLaunchTime: Bool { launchTime == true }
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?
+  /// Opt-in: ask with Touch ID the first time this key makes a new kind of request (method and path, with IDs
+  /// folded to `*`), then remember it. A key that has only made charges can't quietly start issuing refunds.
+  public var askNewPaths: Bool?
+  /// The kinds of request already approved for this key ("POST /v1/refunds", "GET /v1/customers/*").
+  public var knownPaths: [String]?
 
   public init(name: String, displayName: String? = nil, project: String = GeneralKeys.project, upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
@@ -125,6 +130,36 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
     let words = (name + "-" + envVarName).lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     return Array(Set(words.filter { $0.count >= 4 && !generic.contains($0) })).sorted()
   }
+
+  /// The kind of request a call is, for `askNewPaths`: the method and the path without its query, with each segment
+  /// that looks like an ID or a name replaced by `*`, so /v1/customers/cus_9s8d7f and /v1/customers/cus_1a2b are the
+  /// same kind. A segment counts as an ID when it has a digit and isn't a short version tag (v1, v2beta), or when it's
+  /// long (20+ characters). `name:action` segments keep the action (Gemini's models/…:generateContent).
+  public static func requestKind(method: String, path: String) -> String {
+    let bare = String(path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
+    let segments = bare.split(separator: "/", omittingEmptySubsequences: false).map { seg -> String in
+      var name = String(seg), action = ""
+      if let colon = name.lastIndex(of: ":"), colon != name.startIndex {
+        action = String(name[colon...]); name = String(name[..<colon])
+      }
+      return (isID(name) ? "*" : name) + action
+    }
+    return method.uppercased() + " " + (segments.joined(separator: "/").isEmpty ? "/" : segments.joined(separator: "/"))
+  }
+
+  static func isID(_ s: String) -> Bool {
+    guard !s.isEmpty else { return false }
+    if s.count >= 20 { return true }
+    guard s.contains(where: \.isNumber) else { return false }
+    // Version tags stay: v1, v2, v1beta, v2alpha1.
+    let l = s.lowercased()
+    if l.hasPrefix("v"), l.count <= 8, l.dropFirst().first?.isNumber == true,
+       l.allSatisfy({ $0.isLetter || $0.isNumber }) { return false }
+    return true
+  }
+
+  /// Whether this key has made this kind of request before (always true when the option is off).
+  public func knowsKind(_ kind: String) -> Bool { askNewPaths != true || (knownPaths ?? []).contains(kind) }
 
   public func permits(method: String, path: String) -> Bool {
     allowed.isEmpty || allowed.contains { $0.matches(method: method, path: path) }

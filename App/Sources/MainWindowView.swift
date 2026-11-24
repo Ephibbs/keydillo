@@ -644,6 +644,29 @@ struct KeyDetailView: View {
   var advanced: some View {
     Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
       row("Allowed paths") { FilledField(placeholder: "Any path. Example: POST /v1/text-to-speech/*", text: $pathsText, monospaced: true) }
+      row("New requests") {
+        VStack(alignment: .leading, spacing: 6) {
+          Toggle("Ask with Touch ID before each new kind of request", isOn: Binding(get: { config.askNewPaths == true }, set: { config.askNewPaths = $0 ? true : nil }))
+            .toggleStyle(.checkbox).font(.system(size: 12))
+            .help("The first time this key is used for something new, like POST /v1/refunds, keydillo names it and asks. IDs in paths count as the same kind. Suits APIs like Stripe and GitHub; LLM APIs make the same few requests.")
+          let kinds = model.service(named: config.name)?.knownPaths ?? []
+          if config.askNewPaths == true && !kinds.isEmpty {
+            DisclosureGroup("\(kinds.count) approved") {
+              VStack(alignment: .leading, spacing: 4) {
+                ForEach(kinds, id: \.self) { kind in
+                  HStack(spacing: 8) {
+                    Text(kind).font(.system(size: 12, design: .monospaced))
+                    Button("Remove") { model.removeKind(kind, from: config.name) }
+                      .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(Theme.danger)
+                  }
+                }
+              }
+              .padding(.top, 4)
+            }
+            .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+          }
+        }
+      }
       row("Rate limit") {
         HStack { FilledField(placeholder: "No limit", text: $rateText).frame(width: 110); Text("per hour").foregroundStyle(Theme.secondary) }
       }
