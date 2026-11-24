@@ -20,7 +20,8 @@ struct ApprovalCard: View {
   var r: ApprovalRequest { pending.request }
 
   var rows: [(String, String)] {
-    var out: [(String, String)] = [("Site", r.host)]
+    let path = r.path.count > 48 ? String(r.path.prefix(47)) + "…" : r.path
+    var out: [(String, String)] = [("Site", r.host), ("Request", "\(r.method) \(path)")]
     if let via = r.viaProgram { out.append(("Program", via)) }
     if let cwd = r.client.cwd { out.append(("Folder", (cwd as NSString).abbreviatingWithTildeInPath)) }
     return out
@@ -37,7 +38,7 @@ struct ApprovalCard: View {
         ForEach(rows.indices, id: \.self) { i in
           GridRow {
             Text(rows[i].0).font(.system(size: 12)).foregroundStyle(Theme.secondary)
-            Text(rows[i].1).font(.system(size: 12, design: i == 0 ? .monospaced : .default)).lineLimit(1).truncationMode(.middle)
+            Text(rows[i].1).font(.system(size: 12, design: i < 2 ? .monospaced : .default)).lineLimit(1).truncationMode(.middle)
           }
         }
       }
