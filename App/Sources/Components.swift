@@ -25,11 +25,12 @@ struct SecondaryButtonStyle: ButtonStyle {
 
 struct SmallButtonStyle: ButtonStyle {
   var destructive = false
+  var height: CGFloat = 28
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
-      .font(.system(size: 12))
+      .font(.system(size: height < 28 ? 11 : 12))
       .foregroundStyle(destructive ? Theme.danger : Theme.text)
-      .padding(.horizontal, 12).frame(height: 28)
+      .padding(.horizontal, height < 28 ? 10 : 12).frame(height: height)
       .background(Capsule().fill(configuration.isPressed ? Theme.fill : Theme.background))
       .overlay(Capsule().strokeBorder(Theme.border))
       .contentShape(Capsule())

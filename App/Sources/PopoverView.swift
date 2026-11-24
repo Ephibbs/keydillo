@@ -8,6 +8,8 @@ struct PopoverView: View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("keydillo").font(.system(size: 16, weight: .semibold))
+        Button("Open") { StatusItem.shared?.close(); WindowManager.shared.showMain() }
+          .buttonStyle(SmallButtonStyle(height: 22)).fixedSize().padding(.leading, 4)
         Spacer()
         HStack(spacing: 6) {
           StatusDot(on: model.proxyRunning)
@@ -106,7 +108,6 @@ struct PopoverView: View {
 
       Divider().overlay(Theme.hairline).padding(.top, 8)
       VStack(alignment: .leading, spacing: 0) {
-        menuRow("Open keydillo…") { StatusItem.shared?.close(); WindowManager.shared.showMain() }
         menuRow("Put my real keys back…") { StatusItem.shared?.close(); WindowManager.shared.showRestore() }
         menuRow("Quit") {
           // kd won't reopen keydillo after you quit it yourself; opening keydillo again clears this.
