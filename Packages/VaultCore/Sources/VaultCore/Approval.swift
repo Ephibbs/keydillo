@@ -16,12 +16,18 @@ public struct ApprovalRequest: Sendable {
   /// Shown in the Touch ID dialog. macOS prefixes it with "keydillo is trying to".
   public var reason: String {
     if method == "START" {
-      return "give \(client.friendlyName) your \(displayName) as it starts (\(path)). The program can see this value"
+      return "give \(client.friendlyName) your \(displayName) as it starts (\(path)). The program can see this value" + saysSuffix
     }
     let shortPath = path.count > 48 ? String(path.prefix(47)) + "…" : path
     // macOS shows this after '"keydillo" is trying to', so it reads: keydillo is trying to let Claude Code use your OpenAI key.
     let via = client.agent != nil && client.name.lowercased() != client.agent?.lowercased() && client.name != "keydillo" ? " (\(client.name))" : ""
-    return "let \(client.friendlyName) use your \(displayName) key\(via): \(method) \(host)\(shortPath)"
+    return "let \(client.friendlyName) use your \(displayName) key\(via): \(method) \(host)\(shortPath)" + saysSuffix
+  }
+
+  /// The AI's own reason, after the facts keydillo checked and labelled as its words: ` — Claude Code says: “Generating voiceover”`.
+  var saysSuffix: String {
+    guard let p = client.purpose, !p.isEmpty else { return "" }
+    return " — \(client.friendlyName) says: “\(p)”"
   }
 }
 
@@ -79,16 +85,20 @@ public final class TouchIDApprover: Approver {
 /// Decides whether a request needs a fresh approval, based on the service's mode, and remembers grants.
 /// One approval prompt at a time: concurrent requests wait instead of stacking dialogs.
 public actor ApprovalGate {
-  struct Grant { var context: LAContext?; var expires: Date? ; var client: ClientProcess? }
+  struct Grant { var context: LAContext?; var expires: Date? ; var client: ClientProcess?; var used = Date.distantPast }
   private var grants: [String: Grant] = [:]
   private let approver: Approver
   private let now: @Sendable () -> Date
+  /// Whether the program session a grant belongs to is still running. Grants of finished sessions are dropped.
+  private let isAlive: @Sendable (ClientProcess) -> Bool
   private var busy = false
   private var waiters: [CheckedContinuation<Void, Never>] = []
 
-  public init(approver: Approver, now: @escaping @Sendable () -> Date = { Date() }) {
+  public init(approver: Approver, now: @escaping @Sendable () -> Date = { Date() },
+              isAlive: @escaping @Sendable (ClientProcess) -> Bool = { _ in true }) {
     self.approver = approver
     self.now = now
+    self.isAlive = isAlive
   }
 
   func key(_ service: ServiceConfig, _ client: ClientProcess) -> String {
@@ -124,21 +134,29 @@ public actor ApprovalGate {
     return .some(ctx)
   }
 
+  /// A reused approval keeps the newest reason the AI gave, so the menu shows what the key is being used for now.
+  private func noteUse(_ service: ServiceConfig, _ client: ClientProcess) {
+    for k in [key(service, client), "\(service.name)|\(client.sessionKey)|override"] where grants[k] != nil {
+      grants[k]?.used = now()
+      if let p = client.purpose { grants[k]?.client?.purpose = p }
+    }
+  }
+
   public func authorize(_ service: ServiceConfig, _ request: ApprovalRequest) async -> ApprovalResult {
-    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { return .approved(g.context) }
-    if let ctx = burst(service, request.client) { return .approved(ctx) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { noteUse(service, request.client); return .approved(g.context) }
+    if let ctx = burst(service, request.client) { noteUse(service, request.client); return .approved(ctx) }
     await lock()
     defer { unlock() }
     // Another request may have been approved while we waited.
-    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { return .approved(g.context) }
-    if let ctx = burst(service, request.client) { return .approved(ctx) }
+    if let g = validGrant(service, request.client) ?? windowOverride(service, request.client) { noteUse(service, request.client); return .approved(g.context) }
+    if let ctx = burst(service, request.client) { noteUse(service, request.client); return .approved(ctx) }
     let result = await approver.approve(request)
     if case .approved(let ctx) = result, request.client.identified { bursts[service.name + "|" + request.client.sessionKey] = (now(), ctx) }
     if case .approved(let ctx) = result, request.client.identified {
       switch service.approval {
       case .eachRequest: break
-      case .perProcess: grants[key(service, request.client)] = Grant(context: ctx, expires: nil, client: request.client)
-      case .window(let m): grants[key(service, request.client)] = Grant(context: ctx, expires: now().addingTimeInterval(Double(m) * 60), client: request.client)
+      case .perProcess: grants[key(service, request.client)] = Grant(context: ctx, expires: nil, client: request.client, used: now())
+      case .window(let m): grants[key(service, request.client)] = Grant(context: ctx, expires: now().addingTimeInterval(Double(m) * 60), client: request.client, used: now())
       }
     }
     return result
@@ -147,7 +165,7 @@ public actor ApprovalGate {
   /// Extends an approval to a time window, e.g. when the user picks "15 min" in the popover.
   public func grantWindow(service: String, minutes: Int, context: LAContext?, client: ClientProcess? = nil) {
     guard let client, client.identified else { return }
-    grants["\(service)|\(client.sessionKey)|override"] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: client)
+    grants["\(service)|\(client.sessionKey)|override"] = Grant(context: context, expires: now().addingTimeInterval(Double(minutes) * 60), client: client, used: now())
   }
 
   /// Ends every approval held by one program session.
@@ -161,8 +179,11 @@ public actor ApprovalGate {
     else { grants.removeAll() }
   }
 
+  /// Most recently used first.
   public func activeGrants() -> [(service: String, expires: Date?, client: ClientProcess?)] {
-    grants.compactMap { k, g in
+    // A finished session can't use its grant again (a new caller gets a new key), so stop listing it.
+    grants = grants.filter { _, g in g.client.map(isAlive) ?? true }
+    return grants.sorted { $0.value.used > $1.value.used }.compactMap { k, g in
       if let e = g.expires, e <= now() { return nil }
       return (String(k.split(separator: "|").first ?? ""), g.expires, g.client)
     }

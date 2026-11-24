@@ -57,15 +57,20 @@ struct PopoverView: View {
       if !model.activeGrants.isEmpty {
         Text("Open right now").font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.horizontal, 16).padding(.bottom, 6)
         VStack(spacing: 0) {
-          ForEach(model.activeGrants, id: \.service) { g in
+          ForEach(grantRows.prefix(Self.maxGrantRows)) { r in
             HStack {
               VStack(alignment: .leading, spacing: 1) {
-                let s = model.service(named: g.service)
-                Text("\(s?.displayName ?? g.service)\(s.map { " · " + $0.project } ?? "")").font(.system(size: 13, weight: .medium))
-                Text(grantText(g)).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                let s = model.service(named: r.service)
+                Text("\(s?.displayName ?? r.service)\(s.map { " · " + $0.project } ?? "")").font(.system(size: 13, weight: .medium))
+                HStack(spacing: 0) {
+                  // Claude's own words for what the key is being used for, cut short before the lifetime is.
+                  if let why = r.purpose { Text("“\(why)” · ").lineLimit(1).truncationMode(.tail) }
+                  Text(r.purpose == nil ? r.detail : r.detail.prefix(1).lowercased() + r.detail.dropFirst()).lineLimit(1).fixedSize()
+                }
+                .font(.system(size: 12)).foregroundStyle(Theme.secondary)
               }
               Spacer()
-              Button("End") { model.endGrant(g.service) }.buttonStyle(SmallButtonStyle())
+              Button("End") { model.endGrant(r.service) }.buttonStyle(SmallButtonStyle())
             }
             .padding(10)
           }
@@ -84,8 +89,9 @@ struct PopoverView: View {
           NotificationCenter.default.post(name: .showAccess, object: nil)
         } label: {
           HStack(spacing: 4) {
-            Text("\(n) \(n == 1 ? "has" : "have") access ·").foregroundStyle(Theme.secondary)
-            Text("View").underline()
+            let more = grantRows.count - Self.maxGrantRows
+            Text(more > 0 ? "\(more) more key\(more == 1 ? "" : "s") ·" : "\(n) \(n == 1 ? "has" : "have") access ·").foregroundStyle(Theme.secondary)
+            Text(more > 0 ? "View all" : "View").underline()
           }.font(.system(size: 12))
         }
         .buttonStyle(.plain).padding(.horizontal, 16).padding(.top, 4)
@@ -198,6 +204,9 @@ struct PopoverView: View {
     VStack(alignment: .leading, spacing: 12) {
       VStack(alignment: .leading, spacing: 3) {
         Text("\(p.request.client.friendlyName) wants your \(p.request.displayName) key").font(.system(size: 14, weight: .semibold))
+        if let why = p.request.client.purpose {
+          Text("“\(why)”").font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.tail)
+        }
         Text("\(p.project.isEmpty ? "" : p.project + " · ")\(p.request.method) \(p.request.path) · pid \(String(p.request.client.pid))")
           .font(.system(size: 12)).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
       }
@@ -227,6 +236,31 @@ struct PopoverView: View {
     .padding(14)
     .background(RoundedRectangle(cornerRadius: 18).fill(Theme.fill))
     .padding(.horizontal, 12).padding(.bottom, 14)
+  }
+
+  /// The popover shows a few keys; the Access page lists everything.
+  static let maxGrantRows = 3
+
+  struct GrantRow: Identifiable {
+    let service: String
+    let detail: String
+    /// The latest reason the AI gave for using this key, if any.
+    var purpose: String? = nil
+    var id: String { service }
+  }
+
+  /// One row per key, however many programs or sessions hold it ("End" ends the key for all of them).
+  var grantRows: [GrantRow] {
+    let byService = Dictionary(grouping: model.activeGrants, by: \.service)
+    return byService.keys.sorted().map { service in
+      let gs = byService[service] ?? []
+      let sessions = Set(gs.map { $0.client?.sessionKey ?? "" }).count
+      let why = gs.lazy.compactMap { $0.client?.purpose }.first   // grants come most recently used first
+      if sessions <= 1, let g = gs.first { return GrantRow(service: service, detail: grantText(g), purpose: why) }
+      let agents = Set(gs.compactMap { $0.client?.agent })
+      let who = agents.count == 1 ? "\(agents.first!) sessions" : "programs"
+      return GrantRow(service: service, detail: "\(sessions) \(who) · until each exits", purpose: why)
+    }
   }
 
   func grantText(_ g: (service: String, expires: Date?, client: ClientProcess?)) -> String {

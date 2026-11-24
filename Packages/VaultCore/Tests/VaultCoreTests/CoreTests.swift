@@ -732,6 +732,38 @@ final class CallerScopeTests: XCTestCase {
     _ = await gate.authorize(s, req(s, other))
     XCTAssertEqual(a.calls, 2, "another process tree gets its own prompt")
   }
+  func testOneAgentSessionSharesOneApproval() async {
+    // Claude Code starts each command in its own Unix session; all of them belong to the same claude process.
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    func cmd(_ pid: Int32, sid: Int32, agent: Int32) -> ClientProcess {
+      var c = ClientProcess(pid: pid, name: "keydillo", agent: "claude", agentPid: agent, startTime: UInt64(pid))
+      c.agentStart = UInt64(agent) * 7; c.rootPid = sid; c.rootStart = UInt64(sid); return c
+    }
+    for i in 0..<9 { _ = await gate.authorize(s, req(s, cmd(300 + Int32(i), sid: 300 + Int32(i), agent: 50))) }
+    XCTAssertEqual(a.calls, 1, "every command of one claude session uses the first approval")
+    let grants = await gate.activeGrants()
+    XCTAssertEqual(grants.count, 1)
+    _ = await gate.authorize(s, req(s, cmd(400, sid: 400, agent: 60)))
+    XCTAssertEqual(a.calls, 2, "another claude session asks again")
+    var recycled = cmd(401, sid: 401, agent: 50); recycled.agentStart = 999
+    _ = await gate.authorize(s, req(s, recycled))
+    XCTAssertEqual(a.calls, 3, "a reused agent pid is a new session")
+  }
+  func testFinishedSessionsAreNotListed() async {
+    let a = StubApprover()
+    let alive = Locked(Set<Int32>([10, 20]))
+    let gate = ApprovalGate(approver: a, isAlive: { c in alive.value.contains(c.rootPid) })
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    var c1 = ClientProcess(pid: 100, name: "curl", startTime: 5); c1.rootPid = 10; c1.rootStart = 1
+    var c2 = ClientProcess(pid: 200, name: "curl", startTime: 6); c2.rootPid = 20; c2.rootStart = 2
+    _ = await gate.authorize(s, req(s, c1)); _ = await gate.authorize(s, req(s, c2))
+    var grants = await gate.activeGrants()
+    XCTAssertEqual(grants.count, 2)
+    alive.value = [20]
+    grants = await gate.activeGrants()
+    XCTAssertEqual(grants.compactMap { $0.client?.rootPid }, [20])
+  }
   func testUnidentifiedCallersAreNeverCached() async {
     let a = StubApprover(); let gate = ApprovalGate(approver: a)
     let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .window(minutes: 15))
@@ -764,5 +796,70 @@ final class ImportClassificationTests: XCTestCase {
     let out = ImportScanner.rewrite("OPENAI_API_KEY=sk-proj-abc", replacements: ["OPENAI_API_KEY": ("openai", nil, nil)], prefixes: ["OPENAI_API_KEY": "sk-proj-"])
     XCTAssertTrue(out.contains("OPENAI_API_KEY=sk-proj-keydillo:openai:start-with-keydillo-run"))
     XCTAssertEqual(PlaceholderSubstitution(service: "openai", value: "REAL").apply("Bearer sk-proj-keydillo:openai:start-with-keydillo-run", urlEncoded: false), "Bearer REAL")
+  }
+}
+
+/// A tiny thread-safe box for test state read from @Sendable closures.
+final class Locked<T>: @unchecked Sendable {
+  private var v: T; private let l = NSLock()
+  init(_ v: T) { self.v = v }
+  var value: T { get { l.lock(); defer { l.unlock() }; return v } set { l.lock(); v = newValue; l.unlock() } }
+}
+
+final class PurposeTests: XCTestCase {
+  func testWhyIsTakenOffTheFrontOnly() {
+    let a = ProcessLookup.splitWhy(["--why", "Generating voiceover", "npm", "run", "dev"])
+    XCTAssertEqual(a.why, "Generating voiceover"); XCTAssertEqual(a.rest, ["npm", "run", "dev"])
+    let b = ProcessLookup.splitWhy(["--why=Testing TTS", "--", "python", "tts.py"])
+    XCTAssertEqual(b.why, "Testing TTS"); XCTAssertEqual(b.rest, ["--", "python", "tts.py"])
+    let c = ProcessLookup.splitWhy(["npm", "run", "dev"])
+    XCTAssertNil(c.why); XCTAssertEqual(c.rest, ["npm", "run", "dev"])
+    // After `--` or the command, --why belongs to the command.
+    XCTAssertEqual(ProcessLookup.splitWhy(["--", "--why", "x"]).rest, ["--", "--why", "x"])
+    XCTAssertNil(ProcessLookup.splitWhy(["python", "--why", "x"]).why)
+    // A trailing --why with nothing after it is dropped.
+    XCTAssertEqual(ProcessLookup.splitWhy(["--why"]).rest, [])
+  }
+
+  func testWhyIsOneShortLine() {
+    XCTAssertEqual(ProcessLookup.cleanPurpose("Generating\nvoiceover\r\n\tnow"), "Generating voiceover now")
+    XCTAssertEqual(ProcessLookup.cleanPurpose("ok\u{1B}[31m red\u{202E}evil"), "ok [31m red evil")
+    XCTAssertNil(ProcessLookup.cleanPurpose(" \n\t "))
+    let long = ProcessLookup.cleanPurpose(String(repeating: "a", count: 100))!
+    XCTAssertEqual(long.count, 60); XCTAssertTrue(long.hasSuffix("…"))
+    XCTAssertEqual(ProcessLookup.cleanPurpose(String(repeating: "b", count: 60))!.count, 60)
+  }
+
+  func testPromptKeepsTheFactsFirstAndLabelsTheReason() {
+    var c = ClientProcess(pid: 1, name: "python3", agent: "claude", agentPid: 2, startTime: 1)
+    c.agentVerified = true
+    var r = ApprovalRequest(service: "voice", displayName: "Voice", host: "api.voice.test", method: "POST", path: "/v1/speech/abc", client: c)
+    XCTAssertFalse(r.reason.contains("says"))
+    r.client.purpose = "Generating voiceover for Slouchly"
+    XCTAssertEqual(r.reason, "let Claude Code use your Voice key (python3): POST api.voice.test/v1/speech/abc — Claude Code says: “Generating voiceover for Slouchly”")
+    r.method = "START"; r.path = "VOICE_API_KEY"
+    XCTAssertTrue(r.reason.hasPrefix("give Claude Code your Voice as it starts"))
+    XCTAssertTrue(r.reason.hasSuffix("— Claude Code says: “Generating voiceover for Slouchly”"))
+  }
+
+  func testReusedApprovalTakesTheNewReasonWithoutAsking() async {
+    let a = StubApprover(); let gate = ApprovalGate(approver: a)
+    let s = ServiceConfig(name: "x", upstreamHost: "h", authHeader: "k", approval: .perProcess)
+    var c = ClientProcess(pid: 42, name: "kd", agent: "claude", agentPid: 7, startTime: 1)
+    c.agentStart = 5; c.purpose = "First run"
+    var r = ApprovalRequest(service: "x", displayName: "X", host: "h", method: "GET", path: "/", client: c)
+    _ = await gate.authorize(s, r)
+    // A later command in the same Claude session: new process, new reason, same approval.
+    r.client.pid = 43; r.client.purpose = "Second run"
+    _ = await gate.authorize(s, r)
+    XCTAssertEqual(a.calls, 1)
+    var purposes = await gate.activeGrants().map { $0.client?.purpose }
+    XCTAssertEqual(purposes, ["Second run"])
+    // A run with no reason keeps the last one.
+    r.client.pid = 44; r.client.purpose = nil
+    _ = await gate.authorize(s, r)
+    XCTAssertEqual(a.calls, 1)
+    purposes = await gate.activeGrants().map { $0.client?.purpose }
+    XCTAssertEqual(purposes, ["Second run"])
   }
 }

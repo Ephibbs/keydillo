@@ -142,8 +142,8 @@ enum Hook {
     var out: [(seg: [String], project: String)] = []
     for raw in segments(command) {
       var seg = raw
-      if seg.first == "kd" { seg.removeFirst() }
-      if seg.first == "keydillo" && seg.dropFirst().first == "run" { seg.removeFirst(2); if seg.first == "--" { seg.removeFirst() } }
+      if seg.first == "kd" { seg.removeFirst(); seg = dropWhy(seg); if seg.first == "--" { seg.removeFirst() } }
+      if seg.first == "keydillo" && seg.dropFirst().first == "run" { seg.removeFirst(2); seg = dropWhy(seg); if seg.first == "--" { seg.removeFirst() } }
       if seg.first == "cd" || seg.first == "pushd" {
         here = seg.count > 1 ? resolve(seg[1], from: here) : NSHomeDirectory(); continue
       }
@@ -157,6 +157,19 @@ enum Hook {
       }
     }
     return out
+  }
+
+  /// Takes `--why "a few words"` off the front of a `kd` segment (the words were split on spaces, quotes and all).
+  static func dropWhy(_ seg: [String]) -> [String] {
+    var rest = ArraySlice(seg)
+    while let first = rest.first, first == "--why" || first.hasPrefix("--why=") {
+      rest = rest.dropFirst()
+      var value = first == "--why" ? (rest.popFirst() ?? "") : String(first.dropFirst(6))
+      guard let q = value.first, q == "\"" || q == "'" else { continue }
+      value.removeFirst()
+      while !value.hasSuffix(String(q)), let next = rest.popFirst() { value = next }
+    }
+    return Array(rest)
   }
 
   static func keydilloProject(command: String, cwd: String?) -> String? { programs(command, cwd: cwd).first?.project }

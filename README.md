@@ -13,23 +13,16 @@
 
 <p align="center"><a href="https://ephibbs.github.io/keydillo-site/">Website</a> · <a href="#install">Install</a> · <a href="SECURITY.md">Security</a> · <a href="docs/roadmap.md">Roadmap</a></p>
 
-keydillo is a free, open-source Mac menu-bar app. Your API keys stay in the Keychain, behind Touch ID. Claude Code and your programs only get placeholders, and keydillo adds the real key on the way out, only to that key's host.
+keydillo is a free, open-source Mac menu-bar app. Your API keys stay in the Keychain, behind Touch ID. Claude Code and your programs only get placeholders, and keydillo adds the real key at transport-time and only to that key's host.
 
 No account, no cloud, no telemetry. MIT licensed.
 
 ## How it works
 
-1. Install keydillo and connect Claude.
-2. Import your `.env`. Keys become placeholders.
-3. Ask Claude to run it. It adds `kd`.
-4. Approve with Touch ID.
-5. The real API key goes out. Claude never sees it.
-
-The rule: **put `kd` in front. Claude does it for you.**
-
-```sh
-kd npm run dev
-```
+1. **Your keys live in the Mac Keychain, not in .env files.** keydillo imports them, and your .env gets replaced with placeholders like `OPENAI_API_KEY=keydillo:openai:start-with-keydillo-run`. If Claude reads the file, the placeholder is all it sees.
+2. **Run your app with `kd`.** `kd npm run dev` sends your app's API calls through a small proxy that runs only on your Mac. Don't worry. Claude will run it without you asking.
+3. **The proxy swaps in the real key at the last moment.** When a request leaves for api.openai.com, keydillo replaces the placeholder with the real key, and only for the site that key belongs to. The key never shows up in your code, terminal, logs or Claude's context!
+4. **You approve with Touch ID.** The first time a key is used, you get a prompt naming the app and the site. Approve once per session, or turn on "don't ask again".
 
 ## What keydillo protects against, and what it doesn't
 

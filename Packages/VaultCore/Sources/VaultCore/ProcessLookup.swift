@@ -8,6 +8,8 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var agent: String?
   /// pid of that agent ancestor, used to scope "once per session" approvals.
   public var agentPid: Int32?
+  /// Start time of the agent ancestor, so a recycled pid is not mistaken for the same agent.
+  public var agentStart: UInt64 = 0
   /// Process start time, so a recycled pid is not mistaken for the same process.
   public var startTime: UInt64
   /// Full path of the calling executable.
@@ -19,6 +21,9 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var rootPath: String = ""
   /// Working directory of the caller, when readable (used for per-project rules).
   public var cwd: String?
+  /// What the AI says this run uses keys for (`kd --why "…"` or KEYDILLO_WHY), cleaned to one short line.
+  /// The AI's own words, never verified. Not part of `sessionKey`, so it never changes which approval applies.
+  public var purpose: String?
 
   public init(pid: Int32, name: String, agent: String? = nil, agentPid: Int32? = nil, startTime: UInt64 = 0) {
     self.pid = pid; self.name = name; self.agent = agent; self.agentPid = agentPid; self.startTime = startTime
@@ -28,10 +33,26 @@ public struct ClientProcess: Equatable, Hashable, Sendable {
   public var identified: Bool { pid > 0 && startTime > 0 }
 
   /// The process tree an approval belongs to. Another terminal, app or session gets its own prompt.
+  /// When an AI tool (claude, codex, cursor...) started the caller, that tool's whole tree is the session:
+  /// Claude Code runs each command in a fresh Unix session, so keying on that would ask again for every command.
   public var sessionKey: String {
     guard identified else { return "unidentified|\(UUID().uuidString)" }   // never matches a cached grant
-    if rootPid > 0 { return "\(rootPid)|\(rootStart)" }
+    if let s = sessionProcess { return "\(s.pid)|\(s.start)" }
     return "\(pid)|\(startTime)"
+  }
+
+  /// The process whose lifetime an approval follows: the AI tool, else the Unix session leader, else nil (the caller itself).
+  public var sessionProcess: (pid: Int32, start: UInt64)? {
+    if let a = agentPid, a > 0, agentStart > 0 { return (a, agentStart) }
+    if rootPid > 0 { return (rootPid, rootStart) }
+    return nil
+  }
+
+  /// False once the process an approval follows has exited (or its pid was reused).
+  public var sessionAlive: Bool {
+    guard identified else { return false }
+    let s = sessionProcess ?? (pid, startTime)
+    return ProcessLookup.startTime(of: s.pid) == s.start
   }
 
   /// True when the agent's code signature matches its maker (set by `describe`): Claude Code by Anthropic, Cursor by Anysphere.
@@ -104,9 +125,9 @@ public enum ProcessLookup {
     var cur = pid
     for _ in 0..<12 {
       let n = name(of: cur).lowercased()
-      if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur }
+      if p.agent == nil, agentNames.contains(where: { n == $0 || n.hasPrefix($0 + "-") || n.hasPrefix($0 + ".") }) { p.agent = name(of: cur); p.agentPid = cur; p.agentStart = startTime(of: cur) }
       // Claude Code's native installer names its binary after the version (…/claude/versions/2.1.319).
-      if p.agent == nil, path(of: cur).contains("/claude/versions/") { p.agent = "claude"; p.agentPid = cur }
+      if p.agent == nil, path(of: cur).contains("/claude/versions/") { p.agent = "claude"; p.agentPid = cur; p.agentStart = startTime(of: cur) }
       let parent = parentPid(of: cur)
       if parent <= 1 || parent == cur { break }
       cur = parent
@@ -120,12 +141,13 @@ public enum ProcessLookup {
     if p.agent == nil, let served = servedBy(pid) {
       if let owner = served.owner {
         let o = describe(owner)
-        p.agent = o.agent; p.agentPid = o.agentPid; p.agentVerified = o.agentVerified
+        p.agent = o.agent; p.agentPid = o.agentPid; p.agentStart = o.agentStart; p.agentVerified = o.agentVerified
         if p.agent == nil { p.name = o.name }
       } else if let command = served.command {
         p.name = command
       }
     }
+    p.purpose = purpose(of: pid)
     // The caller's Unix session (a terminal tab, an agent's shell, an app) is what an approval belongs to.
     let sid = getsid(pid)
     if sid > 1 {
@@ -211,12 +233,15 @@ public extension ProcessLookup {
   }
 
   /// The command line of `pid`.
-  static func arguments(of pid: Int32) -> [String] {
+  static func arguments(of pid: Int32) -> [String] { commandLine(of: pid).args }
+
+  /// The command line and starting environment of `pid`.
+  static func commandLine(of pid: Int32) -> (args: [String], env: [String: String]) {
     var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
     var size = 0
-    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return [] }
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return ([], [:]) }
     var buf = [UInt8](repeating: 0, count: size)
-    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return [] }
+    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return ([], [:]) }
     let argc = Int(buf.withUnsafeBytes { $0.load(as: Int32.self) })
     var i = 4
     while i < size && buf[i] != 0 { i += 1 }   // executable path
@@ -228,7 +253,15 @@ public extension ProcessLookup {
       args.append(String(decoding: buf[start..<i], as: UTF8.self))
       i += 1
     }
-    return args
+    var env: [String: String] = [:]
+    while i < size && buf[i] != 0 {
+      let start = i
+      while i < size && buf[i] != 0 { i += 1 }
+      let entry = String(decoding: buf[start..<i], as: UTF8.self)
+      if let eq = entry.firstIndex(of: "=") { env[String(entry[..<eq])] = String(entry[entry.index(after: eq)...]) }
+      i += 1
+    }
+    return (args, env)
   }
 
   /// Apple team that signed `pid` (nil for the current process when `pid` is nil), or nil if unsigned.
@@ -260,11 +293,62 @@ public extension ProcessLookup {
     guard path(of: pid).hasSuffix("/bin/keydillo") || name(of: pid) == "keydillo" || name(of: pid) == "kd" else { return nil }
     guard let mine = signingTeam(nil), signingTeam(pid) == mine else { return nil }
     let args = Array(arguments(of: pid).dropFirst())
-    // kd <command> / keydillo run [--] <command>
+    // kd [--why "…"] <command> / keydillo run [--why "…"] [--] <command>
     var rest = args
     if rest.first == "run" { rest.removeFirst() }
+    rest = splitWhy(rest).rest
     if rest.first == "--" { rest.removeFirst() }
     guard let cmd = rest.first, !cmd.hasPrefix("-") else { return nil }
     return (nil, (cmd as NSString).lastPathComponent)
+  }
+
+  /// The nearest `kd`/`keydillo run` at or above `pid` that was given a reason (`--why`, else KEYDILLO_WHY).
+  static func purpose(of pid: Int32) -> String? {
+    var cur = pid
+    for _ in 0..<12 {
+      let n = name(of: cur)
+      if n == "keydillo" || n == "kd" || path(of: cur).hasSuffix("/bin/keydillo") {
+        let cl = commandLine(of: cur)
+        var rest = Array(cl.args.dropFirst())
+        let viaKd = ((cl.args.first ?? "") as NSString).lastPathComponent == "kd"
+        if !viaKd, rest.first == "run" { rest.removeFirst() }
+        if let why = splitWhy(rest).why ?? cl.env["KEYDILLO_WHY"].flatMap(cleanPurpose) { return why }
+      }
+      let parent = parentPid(of: cur)
+      if parent <= 1 || parent == cur { break }
+      cur = parent
+    }
+    return nil
+  }
+}
+
+public extension ProcessLookup {
+  static let maxPurposeLength = 60
+
+  /// Takes a leading `--why "…"` (or `--why=…`) off `kd`'s arguments. Anything after the command, or after `--`, is left alone.
+  static func splitWhy(_ args: [String]) -> (why: String?, rest: [String]) {
+    var why: String?
+    var i = 0
+    while i < args.count {
+      if args[i] == "--why" {
+        if i + 1 < args.count { why = cleanPurpose(args[i + 1]) }
+        i += 2
+      } else if args[i].hasPrefix("--why=") {
+        why = cleanPurpose(String(args[i].dropFirst(6)))
+        i += 1
+      } else { break }
+    }
+    return (why, Array(args[min(i, args.count)...]))
+  }
+
+  /// One line, no control characters, at most 60 characters (cut with …). Nil when nothing is left.
+  static func cleanPurpose(_ raw: String) -> String? {
+    let scalars = raw.unicodeScalars.map { s -> Character in
+      CharacterSet.controlCharacters.contains(s) || CharacterSet.newlines.contains(s)
+        || s.properties.generalCategory == .format ? " " : Character(s)
+    }
+    let line = String(scalars).split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    guard !line.isEmpty else { return nil }
+    return line.count > maxPurposeLength ? String(line.prefix(maxPurposeLength - 1)) + "…" : line
   }
 }

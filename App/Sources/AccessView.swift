@@ -10,19 +10,22 @@ struct AccessView: View {
     let name: String
     let keys: [String]
     let expires: Date?
+    /// The latest reason the AI gave for using keys, if any.
+    let purpose: String?
   }
 
   var programs: [ProgramAccess] {
-    var byClient: [String: (name: String, keys: Set<String>, expires: Date?)] = [:]
-    for g in model.activeGrants {
+    var byClient: [String: (name: String, keys: Set<String>, expires: Date?, purpose: String?)] = [:]
+    for g in model.activeGrants {   // most recently used first
       let c = g.client
       let id = c?.sessionKey ?? "unknown"
-      var e = byClient[id] ?? (c.map { $0.friendlyName + ($0.agent != nil && $0.name != $0.agent && $0.name != "keydillo" ? " (\($0.name))" : "") } ?? "a program", [], g.expires)
+      var e = byClient[id] ?? (c.map { $0.friendlyName + ($0.agent != nil && $0.name != $0.agent && $0.name != "keydillo" ? " (\($0.name))" : "") } ?? "a program", [], g.expires, nil)
+      if e.purpose == nil { e.purpose = c?.purpose }
       e.keys.insert(model.service(named: g.service)?.displayName ?? g.service)
       if let x = g.expires { e.expires = max(e.expires ?? x, x) }
       byClient[id] = e
     }
-    return byClient.map { ProgramAccess(id: $0.key, name: $0.value.name, keys: $0.value.keys.sorted(), expires: $0.value.expires) }
+    return byClient.map { ProgramAccess(id: $0.key, name: $0.value.name, keys: $0.value.keys.sorted(), expires: $0.value.expires, purpose: $0.value.purpose) }
       .sorted { $0.name < $1.name }
   }
 
@@ -45,7 +48,7 @@ struct AccessView: View {
       if !programs.isEmpty {
         section("Programs") {
           ForEach(programs) { p in
-            row(title: p.name, detail: p.keys.joined(separator: ", ") + (p.expires.map { " · until \($0.formatted(date: .omitted, time: .shortened))" } ?? " · until it quits")) {
+            row(title: p.name, detail: (p.purpose.map { "“\($0)” · " } ?? "") + p.keys.joined(separator: ", ") + (p.expires.map { " · until \($0.formatted(date: .omitted, time: .shortened))" } ?? " · until it quits")) {
               Task { await model.endAccess(session: p.id) }
             }
           }

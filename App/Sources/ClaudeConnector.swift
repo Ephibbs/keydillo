@@ -217,7 +217,7 @@ enum ClaudeConnector {
 
   Never ask the user to paste an API key into the chat, and never read, print or log a key value.
 
-  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or put `kd` in front of the command (`kd python script.py`, `kd npm run dev`). Always use `kd` for commands in a project with keydillo placeholders that call an API, including dev servers and test runs.
+  `.env` values that start with `keydillo:` are placeholders, not keys. Don't ask the user for the "real" key and don't call the provider with a placeholder: call the matching `*_BASE_URL` (http://localhost:7787/<name>/...) with no key, or put `kd` in front of the command (`kd python script.py`, `kd npm run dev`). Always use `kd` for commands in a project with keydillo placeholders that call an API, including dev servers and test runs. Optionally add `--why` with 3–6 words on what this run uses keys for, shown to the user when keydillo asks for Touch ID and in its menu: `kd --why "Generating voiceover for Slouchly" python tts.py`.
 
   If there are no keydillo tools and `kd` isn't found, the keydillo app isn't installed. Tell the user once, in one line: install it with `brew install --cask ephibbs/keydillo/keydillo` (or from github.com/Ephibbs/keydillo), open it once, and choose Connect. Until then, don't work around it by asking for keys.
 
