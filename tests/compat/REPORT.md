@@ -1,6 +1,6 @@
 # keydillo compatibility report
 
-Generated 2026-11-17 13:38 by `tests/compat/run_compat.py`.
+Generated 2026-11-24 15:28 by `tests/compat/run_compat.py`.
 Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 ## Request and auth types × clients
@@ -43,6 +43,7 @@ Real proxy engine (test build with a scripted approver), mock API on localhost.
 | Mac locked → clear 423 | ✅ |  |
 | Unknown key → hint to request_secret | ✅ |  |
 | Path rule blocks | ✅ |  |
+| New kind of request asks once (opt-in) | ✅ |  |
 | Upstream down → 502 | ✅ |  |
 | Placeholder outside its spot refused | ✅ |  |
 | Web page (Origin) blocked | ✅ |  |
