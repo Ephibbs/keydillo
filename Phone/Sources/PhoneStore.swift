@@ -110,17 +110,19 @@ final class PhoneStore {
     }
   }
 
-  func answer(_ ask: ApprovalAsk, _ decision: Decision) async {
+  func answer(_ ask: ApprovalAsk, _ decision: Decision, scope: AnswerScope = .once) async {
     guard let mac else { return }
     busy = true; defer { busy = false }
     do {
       try ask.verify(from: mac)
       let verb = decision == .approve ? "Approve" : "Deny"
-      let keys = try await PhoneKeys.unlock(reason: "\(verb): \(ask.title)")
-      let a = try ApprovalAnswer.make(for: ask, decision: decision, phoneID: phoneID, signer: keys.signer, agreement: keys.agreement)
+      let wide = decision == .approve && scope == .session
+      let keys = try await PhoneKeys.unlock(reason: wide ? "Approve for this session: \(ask.title)" : "\(verb): \(ask.title)")
+      let a = try ApprovalAnswer.make(for: ask, decision: decision, scope: scope, phoneID: phoneID, signer: keys.signer, agreement: keys.agreement)
       try await transport.post(answer: a)
       answered.insert(ask.requestID)
-      message = decision == .approve ? "Approved. \(mac.name) is sending the request." : "Denied."
+      message = decision == .deny ? "Denied." : wide ? "Approved for this session. \(mac.name) won't ask again for this key until \(ask.requester) quits."
+        : "Approved. \(mac.name) is sending the request."
     } catch {
       message = "Couldn't answer: \(Self.describe(error))"
     }

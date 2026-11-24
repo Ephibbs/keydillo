@@ -183,6 +183,15 @@ public struct ApprovalAsk: Codable, Equatable, Sendable, Identifiable {
 
 public enum Decision: String, Codable, Sendable { case approve, deny }
 
+/// How far an approval from the phone reaches. Chosen on the phone and signed with the answer, so the Mac
+/// can't be talked into a wider grant than the user picked.
+public enum AnswerScope: String, Codable, Sendable {
+  /// This request only.
+  case once
+  /// This key, any path, for the rest of this AI session (the Mac caps it at 12 hours).
+  case session
+}
+
 /// The phone's signed answer. An approval carries the key's data key, opened inside the Secure Enclave
 /// and sealed again to the Mac's one-time response key.
 public struct ApprovalAnswer: Codable, Equatable, Sendable {
@@ -194,26 +203,28 @@ public struct ApprovalAnswer: Codable, Equatable, Sendable {
   public var answered: Epoch
   public var askDigest: Data
   public var release: SealedBox?
+  /// Nil means once. Only set for approvals.
+  public var scope: AnswerScope?
   public var signature = Data()
 
   static func releaseInfo(_ requestID: String) -> String { "kd-release-v1|" + requestID }
 
   var canonical: Data {
     Canon("kd-answer-v1").string(requestID).string(macID).string(phoneID).string(decision.rawValue).int(answered)
-      .data(askDigest).optional(release?.canonical).bytes
+      .data(askDigest).optional(release?.canonical).withScope(scope).bytes
   }
 
   /// Made on the phone after Face ID. `signer` and `agreement` should share one authenticated context so
   /// the user sees a single Face ID.
-  public static func make(for ask: ApprovalAsk, decision: Decision, phoneID: String, signer: LinkSigner, agreement: LinkAgreement,
-                          now: Date = Date()) throws -> ApprovalAnswer {
+  public static func make(for ask: ApprovalAsk, decision: Decision, scope: AnswerScope = .once, phoneID: String, signer: LinkSigner,
+                          agreement: LinkAgreement, now: Date = Date()) throws -> ApprovalAnswer {
     var release: SealedBox?
     if decision == .approve, let sealed = ask.sealedDataKey {
       let dataKey = try sealed.open(with: agreement, info: WrappedSecret.wrapInfo(ask.service))
       release = try SealedBox.seal(dataKey, to: ask.responseKey, info: releaseInfo(ask.requestID))
     }
     var a = ApprovalAnswer(requestID: ask.requestID, macID: ask.macID, phoneID: phoneID, decision: decision, answered: epoch(now),
-                           askDigest: ask.digest, release: release)
+                           askDigest: ask.digest, release: release, scope: decision == .approve && scope != .once ? scope : nil)
     a.signature = try signer.sign(a.canonical)
     return a
   }
@@ -257,7 +268,7 @@ public final class PendingAsk: @unchecked Sendable {
 
   public enum Outcome: Equatable {
     /// `secret` is the key's value, unwrapped with the released data key; nil when the ask carried no key.
-    case approved(secret: Data?)
+    case approved(secret: Data?, scope: AnswerScope = .once)
     case denied
   }
 
@@ -277,10 +288,11 @@ public final class PendingAsk: @unchecked Sendable {
     switch a.decision {
     case .deny: return .denied
     case .approve:
-      guard let wrapped else { return .approved(secret: nil) }
+      let scope = a.scope ?? .once
+      guard let wrapped else { return .approved(secret: nil, scope: scope) }
       guard let release = a.release else { throw LinkError.missingKey }
       let dataKey = try release.open(with: responseKey, info: ApprovalAnswer.releaseInfo(ask.requestID))
-      return .approved(secret: try wrapped.unwrap(dataKey: dataKey))
+      return .approved(secret: try wrapped.unwrap(dataKey: dataKey), scope: scope)
     }
   }
 }

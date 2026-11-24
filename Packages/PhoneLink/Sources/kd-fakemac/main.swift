@@ -35,11 +35,11 @@ case "ask":
   let wrapped = try WrappedSecret.wrap(secret, service: "example", for: phone)
   let pending = try PendingAsk.make(.init(title: "Claude Code wants to use your Example key", service: "example", displayName: "Example",
                                           host: "api.example.com", method: "POST", path: "/v1/messages", requester: "Claude Code",
-                                          folder: "~/Desktop/demo"), macID: state.macID, signer: signer, wrapped: wrapped)
+                                          folder: "~/Desktop/demo", purpose: "Generating voiceover for the demo video"), macID: state.macID, signer: signer, wrapped: wrapped)
   print("asked \(pending.ask.requestID), expecting \(String(decoding: secret, as: UTF8.self)) back on approval")
   let r = await raceApproval(mac: nil, cancelMac: {}, pending: pending, phone: phone, transport: transport, pollEvery: 0.5, log: { print($0) })
   switch r {
-  case .phone(.approved(let s)): print("APPROVED, released value: \(s.map { String(decoding: $0, as: UTF8.self) } ?? "none")")
+  case .phone(.approved(let s, let scope)): print("APPROVED (\(scope)), released value: \(s.map { String(decoding: $0, as: UTF8.self) } ?? "none")")
   case .phone(.denied): print("DENIED")
   default: print("no answer: \(r)")
   }

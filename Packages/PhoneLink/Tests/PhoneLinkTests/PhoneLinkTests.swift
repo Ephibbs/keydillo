@@ -105,6 +105,23 @@ final class PhoneLinkTests: XCTestCase {
     XCTAssertEqual(plain.notificationText, plain.title)
   }
 
+  func testSessionScopeIsSigned() throws {
+    let (_, phone, _) = try pair()
+    let wrap = { try WrappedSecret.wrap(self.secret, service: "openai", for: phone) }
+    let p1 = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: try wrap())
+    let a1 = try ApprovalAnswer.make(for: p1.ask, decision: .approve, scope: .session, phoneID: phone.phoneID, signer: phoneSign, agreement: phoneAgree)
+    XCTAssertEqual(try p1.accept(a1, from: phone), .approved(secret: secret, scope: .session))
+    // Widening a "once" answer in transit breaks the signature.
+    let p2 = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: try wrap())
+    var a2 = try ApprovalAnswer.make(for: p2.ask, decision: .approve, phoneID: phone.phoneID, signer: phoneSign, agreement: phoneAgree)
+    XCTAssertNil(a2.scope)
+    a2.scope = .session
+    XCTAssertThrowsError(try p2.accept(a2, from: phone)) { XCTAssertEqual($0 as? LinkError, .badSignature) }
+    // A deny never carries a scope.
+    let p3 = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: nil)
+    XCTAssertNil(try ApprovalAnswer.make(for: p3.ask, decision: .deny, scope: .session, phoneID: phone.phoneID, signer: phoneSign, agreement: phoneAgree).scope)
+  }
+
   func testExpiredAskRejectedOnPhoneAndMac() throws {
     let (_, phone, mac) = try pair()
     let pending = try PendingAsk.make(fields(), macID: "mac-1", signer: macKey, wrapped: nil, ttl: 30, now: Date().addingTimeInterval(-60))

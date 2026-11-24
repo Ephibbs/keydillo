@@ -167,6 +167,7 @@ struct RequestsView: View {
 struct RequestCard: View {
   @Environment(PhoneStore.self) private var store
   let ask: ApprovalAsk
+  @State private var forSession = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
@@ -188,10 +189,18 @@ struct RequestCard: View {
             .font(.footnote).foregroundStyle(.secondary).monospacedDigit()
         }
       }
+      Toggle(isOn: $forSession) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Don't ask again this session").font(.subheadline)
+          Text("Any path, until \(ask.requester) quits")
+            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .tint(.primary)
       HStack(spacing: 10) {
         Button { Task { await store.answer(ask, .deny) } } label: { Text("Deny").frame(maxWidth: .infinity) }
           .buttonStyle(PillButton(primary: false))
-        Button { Task { await store.answer(ask, .approve) } } label: { Text("Approve").frame(maxWidth: .infinity) }
+        Button { Task { await store.answer(ask, .approve, scope: forSession ? .session : .once) } } label: { Text("Approve").frame(maxWidth: .infinity) }
           .buttonStyle(PillButton(primary: true))
       }
       .disabled(store.busy)

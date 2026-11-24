@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import LocalAuthentication
 import ServiceManagement
+import PhoneLink
 import VaultCore
 
 enum DefaultApproval: String, CaseIterable {
@@ -465,6 +466,12 @@ final class AppModel {
   var windowUpgrades: Set<UUID> = []
   func allowWindow(_ p: PendingApproval) { windowUpgrades.insert(p.id) }
 
+  /// "For this session" picked on the phone: no more prompts for this key from this program session.
+  func grantFromPhone(service: String, minutes: Int, client: ClientProcess) async {
+    await engine.gate.grantWindow(service: service, minutes: minutes, context: nil, client: client)
+    await refreshGrants()
+  }
+
   func applyUpgradeIfNeeded(_ id: UUID, service: String, context: LAContext, client: ClientProcess) {
     guard windowUpgrades.remove(id) != nil else { return }
     Task { await engine.gate.grantWindow(service: service, minutes: 15, context: context, client: client); await refreshGrants() }
@@ -900,6 +907,19 @@ final class ModelApprover: Approver, @unchecked Sendable {
     catch { return .denied }
   }
 
+  /// Hours a "for this session" answer from the phone lasts at most (the AI session usually ends sooner).
+  static let phoneSessionHours = 12
+
+  /// Keeps the value the phone released for as long as the user chose on the phone: this request, or this key for
+  /// the rest of this program session (any path). The wider choice was signed by the phone after Face ID.
+  static func keepPhoneApproval(_ request: ApprovalRequest, _ value: Data, scope: AnswerScope, mode: ApprovalMode, model: AppModel?) async {
+    let phone = PhoneApprovals.shared
+    guard scope == .session, request.client.identified else { phone.hold(request.service, value, approval: mode); return }
+    let minutes = phoneSessionHours * 60
+    phone.hold(request.service, value, approval: .window(minutes: minutes))
+    await model?.grantFromPhone(service: request.service, minutes: minutes, client: request.client)
+  }
+
   func approve(_ request: ApprovalRequest) async -> ApprovalResult {
     // A project opened for its folder: callers working inside that folder don't get a prompt.
     let open = await MainActor.run { () -> (project: String, folder: String, access: ProjectAccess, names: String)? in
@@ -931,9 +951,9 @@ final class ModelApprover: Approver, @unchecked Sendable {
     if Self.screenLocked {
       guard let copy else { return .unavailable("the Mac is locked") }
       switch await phone.ask(request, wrapped: copy, mac: nil, cancelMac: {}) {
-      case .phone(.approved(let value)):
+      case .phone(.approved(let value, let scope)):
         guard let value else { return .denied }
-        phone.hold(request.service, value, approval: mode)
+        await Self.keepPhoneApproval(request, value, scope: scope, mode: mode, model: model)
         return .approved(nil)
       case .phone(.denied): return .denied
       default: return .unavailable("the Mac is locked and the paired iPhone didn't answer")
@@ -955,9 +975,9 @@ final class ModelApprover: Approver, @unchecked Sendable {
         await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }
         if let kc = model?.keychain { phone.refreshCopy(request.service, context: ctx, keychain: kc) }
         return .approved(ctx)
-      case .phone(.approved(let value)):
+      case .phone(.approved(let value, let scope)):
         guard let value else { return .denied }
-        phone.hold(request.service, value, approval: mode)
+        await Self.keepPhoneApproval(request, value, scope: scope, mode: mode, model: model)
         return .approved(nil)
       default:
         return .denied

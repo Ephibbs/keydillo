@@ -130,6 +130,8 @@ struct Canon {
   func int(_ i: Int64) -> Canon { string(String(i)) }
   /// Added after v1 shipped: absent purpose leaves the bytes exactly as before, so older asks still verify.
   func withPurpose(_ p: String?) -> Canon { p.map { string("purpose").string($0) } ?? self }
+  /// Same idea for an answer's scope: "once" leaves the bytes as before.
+  func withScope(_ s: AnswerScope?) -> Canon { s.map { string("scope").string($0.rawValue) } ?? self }
   func optional(_ d: Data?) -> Canon { d.map { string("1").data($0) } ?? string("0") }
 }
 
