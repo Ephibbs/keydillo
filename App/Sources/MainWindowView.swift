@@ -4,7 +4,7 @@ import VaultCore
 
 struct MainWindowView: View {
   @Environment(AppModel.self) private var model
-  @State private var project: String? = nil   // nil = all keys
+  @State private var project: String? = UserDefaults.standard.string(forKey: "kdProject")   // nil = all keys (kdProject: previews only)
   @State private var selected: String?
   @State private var showActivity = false
   @State private var showAccess = false
@@ -274,6 +274,7 @@ struct MainWindowView: View {
     let folder = model.folder(for: project)
     let access = model.access(for: project)
     let override = model.accessOverride(for: project)
+    let general = project == GeneralKeys.project
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
         Text("Ask for Touch ID").font(.system(size: 12)).foregroundStyle(Theme.secondary)
@@ -281,18 +282,19 @@ struct MainWindowView: View {
           Button("Default (\(model.projectAccessDefault.label))") { Task { await model.setAccess(project, nil) } }
           Divider()
           ForEach(ProjectAccess.allCases) { a in
-            Button(a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
+            Button(a == .always && general ? a.label + " (not for General keys)" : a == .always && folder == nil ? a.label + " (needs a project folder)" : a.label) {
               if a == .always { confirmAlways = project } else { Task { await model.setAccess(project, a) } }
             }
-            .disabled(a == .always && folder == nil)
+            .disabled(a == .always && (folder == nil || general))
           }
         } label: { Text(override == nil ? "Default (\(access.label))" : access.label).font(.system(size: 12, weight: .medium)) }
           .menuStyle(.borderlessButton).fixedSize()
-        if folder == nil {
+        if folder == nil && !general {
           Button("Set folder…") { chooseFolder(project) }.buttonStyle(.plain).font(.system(size: 12)).underline()
         }
       }
-      Text(folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
+      Text(general ? "Keys for any folder. Programs ask \(access.label.lowercased()) before using them, and each key only goes to its own sites."
+           : folder == nil ? (access == .always ? "Set a folder to use this." : "Programs ask \(access.label.lowercased()) before using these keys. \"Ask once per project\" needs a project folder.")
            : access != .always ? "Programs ask \(access.label.lowercased()) before using these keys."
            : "Note: Any program in \((folder! as NSString).abbreviatingWithTildeInPath) can use these keys until keydillo quits, even when your Mac is locked.")
         .font(.system(size: 11)).foregroundStyle(access == .always ? Theme.danger : Theme.secondary).fixedSize(horizontal: false, vertical: true)
@@ -502,7 +504,7 @@ struct KeyDetailView: View {
           else { Text(config.authHeader.isEmpty ? "Not set" : config.authPrefix + config.authHeader).font(.system(size: 13, design: .monospaced)) }
         }
         row("Project") {
-          if editing { FilledField(placeholder: "Personal", text: $config.project) } else { Text(config.project).font(.system(size: 13)) }
+          if editing { FilledField(placeholder: GeneralKeys.project, text: $config.project) } else { Text(config.project).font(.system(size: 13)) }
         }
         row("Env name") {
           if editing { FilledField(placeholder: "EXAMPLE_API_KEY", text: $config.envVarName, monospaced: true) }

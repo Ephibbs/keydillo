@@ -200,7 +200,7 @@ struct KeyWindowView: View {
       cfg.sdkBasePath = conv.path.isEmpty ? nil : conv.path
       cfg.baseURLEnvName = conv.env
     }
-    cfg.folder = request.cwd ?? model.service(named: name)?.folder
+    cfg.folder = cfg.isGeneral ? nil : (request.cwd ?? model.service(named: name)?.folder)
     do {
       if try await model.save(cfg, secret: secret) {
         secret = ""

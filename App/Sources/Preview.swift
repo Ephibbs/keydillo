@@ -16,6 +16,7 @@ enum Preview {
     ]
     m.proxyState = "ready"   // previews show the normal running state
     for i in m.services.indices { m.services[i].folder = "/Users/you/Desktop/" + m.services[i].project }
+    m.services.append(ServiceConfig(name: "openai", displayName: "OpenAI", upstreamHost: "api.openai.com", authHeader: "Authorization", authPrefix: "Bearer "))
     let now = Date()
     func ev(_ ago: Double, _ svc: String, _ m: String, _ p: String, _ proc: String, _ o: ActivityEvent.Outcome, _ st: Int, _ note: String? = nil) -> ActivityEvent {
       ActivityEvent(date: now.addingTimeInterval(-ago), service: svc, method: m, path: p, process: proc, pid: 48211, outcome: o, status: st, note: note)

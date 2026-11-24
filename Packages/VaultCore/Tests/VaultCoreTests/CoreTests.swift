@@ -863,3 +863,65 @@ final class PurposeTests: XCTestCase {
     XCTAssertEqual(purposes, ["Second run"])
   }
 }
+
+final class GeneralKeysTests: XCTestCase {
+  func key(_ name: String, _ project: String, folder: String? = nil, chosen: Bool? = nil) -> ServiceConfig {
+    var s = ServiceConfig(name: name, project: project, upstreamHost: "api.elevenlabs.io", authHeader: "xi-api-key")
+    s.folder = folder; s.folderChosen = chosen
+    return s
+  }
+
+  func testNewKeysDefaultToGeneral() {
+    XCTAssertTrue(ServiceConfig(name: "x", upstreamHost: "api.x.com", authHeader: "k").isGeneral)
+  }
+
+  func testTemporaryFolders() {
+    XCTAssertTrue(GeneralKeys.isTemporary("/private/tmp/claude-501/-Users-u-Desktop/abc/scratchpad/base"))
+    XCTAssertTrue(GeneralKeys.isTemporary("/tmp/x"))
+    XCTAssertTrue(GeneralKeys.isTemporary("/var/folders/ab/T/x"))
+    XCTAssertFalse(GeneralKeys.isTemporary("/Users/u/Desktop/app"))
+    XCTAssertFalse(GeneralKeys.isTemporary("/tmpfoo/app"))
+  }
+
+  func testDefaultProject() {
+    XCTAssertEqual(GeneralKeys.defaultProject(cwd: "/Users/u/Desktop/slouchly"), "slouchly")
+    XCTAssertEqual(GeneralKeys.defaultProject(cwd: "/private/tmp/claude-501/x/scratchpad/base"), "General")
+    XCTAssertEqual(GeneralKeys.defaultProject(cwd: nil), "General")
+  }
+
+  func testFoldsPersonalAndProjectsWithNoLastingFolder() {
+    let gone = "/Users/u/Desktop/deleted-app"
+    let list = [
+      key("a", "Personal"),
+      key("b", "base", folder: "/private/tmp/claude-501/x/scratchpad/base"),
+      key("c", "old", folder: gone),
+      key("d", "slouchly", folder: "/Users/u/Desktop/slouchly"),
+      key("e", "voiceover"),                                    // named by the user, no folder: kept
+      key("f", "picked", folder: "/private/tmp/picked", chosen: true), // folder chosen with Touch ID: kept
+      key("g", "General"),
+    ]
+    let (next, folded) = GeneralKeys.fold(list, exists: { $0 != gone })
+    XCTAssertEqual(folded, ["Personal", "base", "old"])
+    let byName = Dictionary(uniqueKeysWithValues: next.map { ($0.name, $0) })
+    for n in ["a", "b", "c", "g"] { XCTAssertTrue(byName[n]!.isGeneral, n); XCTAssertNil(byName[n]!.folder, n) }
+    XCTAssertEqual(byName["d"]!.project, "slouchly"); XCTAssertEqual(byName["d"]!.folder, "/Users/u/Desktop/slouchly")
+    XCTAssertEqual(byName["e"]!.project, "voiceover")
+    XCTAssertEqual(byName["f"]!.project, "picked")
+    // Hosts and everything else about the key are unchanged.
+    XCTAssertEqual(byName["b"]!.allHosts, ["api.elevenlabs.io"])
+    XCTAssertEqual(byName["b"]!.authHeader, "xi-api-key")
+  }
+
+  func testFoldIsStable() {
+    let list = [key("a", "Personal"), key("d", "slouchly", folder: "/Users/u/Desktop/slouchly")]
+    let once = GeneralKeys.fold(list, exists: { _ in true }).services
+    let twice = GeneralKeys.fold(once, exists: { _ in true })
+    XCTAssertEqual(twice.folded, [])
+    XCTAssertEqual(twice.services, once)
+  }
+
+  func testMCPLabelsGeneral() {
+    XCTAssertEqual(MCPServer.projectLabel("General"), "General: any folder")
+    XCTAssertEqual(MCPServer.projectLabel("slouchly"), "project slouchly")
+  }
+}

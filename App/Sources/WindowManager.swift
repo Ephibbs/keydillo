@@ -68,7 +68,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
   func showAddKey(project: String? = nil) {
     let defaults = AppModel.shared
     let kr = KeyRequest(service: "", displayName: "", host: "", header: "", prefix: "", envVarName: "",
-                        project: project ?? defaults.projects.first ?? "Personal", requester: nil, cwd: nil)
+                        project: project ?? defaults.projects.first ?? GeneralKeys.project, requester: nil, cwd: nil)
     showKeyWindow(kr, id: "key-\(kr.id)")
   }
 

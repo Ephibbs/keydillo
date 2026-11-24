@@ -67,7 +67,7 @@ public struct ServiceConfig: Codable, Equatable, Identifiable {
   /// More hosts this key may be sent to, each one approved by the user with Touch ID naming it.
   public var extraHosts: [String]?
 
-  public init(name: String, displayName: String? = nil, project: String = "Personal", upstreamHost: String,
+  public init(name: String, displayName: String? = nil, project: String = GeneralKeys.project, upstreamHost: String,
               upstreamScheme: String = "https", authHeader: String, authPrefix: String = "",
               envVarName: String? = nil, approval: ApprovalMode = .eachRequest, allowed: [PathRule] = [],
               maxRequestsPerHour: Int? = nil) {

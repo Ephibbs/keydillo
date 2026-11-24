@@ -142,11 +142,26 @@ final class AppModel {
           if let r { try? r.write(to: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("keydillo/repair-report.txt"), atomically: true, encoding: .utf8) }
         }
       }
+      foldIntoGeneral()
       ImportModel.migrateFileBackups(model: self)
       ImportModel.migrateBaseURLs(model: self)
       if !Self.devHarness { ImportModel.randomizeLaunchPlaceholders(model: self) }
     }
     return true
+  }
+
+  /// Keys whose project has no lasting folder (the old "Personal" group, a scratch folder, a deleted folder) belong
+  /// in General, where any folder can use them. Logged so the move is visible.
+  func foldIntoGeneral() {
+    let (next, folded) = GeneralKeys.fold(services)
+    guard !folded.isEmpty, (try? persist(next)) != nil else { return }
+    // The folded projects' own Touch ID settings go with them; General keeps its own.
+    if folded.contains(where: { projectAccessOverrides[$0] != nil }) {
+      for f in folded { projectAccessOverrides[f] = nil }
+      try? saveAccessSettings()
+    }
+    events.insert(ActivityEvent(date: Date(), service: GeneralKeys.project, method: "", path: "", process: "keydillo", pid: getpid(), outcome: .sent, status: 0,
+                                note: "moved \(folded.joined(separator: ", ")) to General: no lasting project folder"), at: 0)
   }
 
   static let devHarness = ProcessInfo.processInfo.environment["KEYDILLO_DEV"] == "1"
@@ -502,7 +517,12 @@ final class AppModel {
         || old.extraHeaders != config.extraHeaders || old.placeholderAnywhere != config.placeholderAnywhere || old.approval != config.approval
         || !Set(config.allHosts).isSubset(of: Set(old.allHosts)) {
       guard await authenticate("send your \(config.displayName) key to \(config.upstreamHost)") != nil else { return false }
+    } else if let old = service(named: config.name), old.project != config.project {
+      // Another project's folder settings (or General's any-folder use) would apply to this key.
+      guard await authenticate("move your \(config.displayName) key from \(old.project) to \(config.project)") != nil else { return false }
     }
+    var config = config
+    if config.isGeneral { config.folder = nil; config.folderChosen = nil }
     try persist(services.map { $0.name == config.name ? config : $0 })
     Task { await engine.gate.revokeAll(service: config.name); await refreshGrants() }
     return true
@@ -734,7 +754,7 @@ final class AppModel {
       let kr = KeyRequest(service: r.service, displayName: r.displayName ?? HostCheck.displayName(r.service), host: r.host,
                           header: r.header, prefix: r.prefix ?? "",
                           envVarName: r.envVarName ?? ServiceConfig(name: r.service, upstreamHost: r.host, authHeader: r.header).envVarName,
-                          project: r.project ?? "Personal",
+                          project: r.project ?? GeneralKeys.defaultProject(cwd: caller.cwd ?? r.cwd),
                           // Who's asking comes from the kernel's view of the caller, not from what the request says.
                           requester: r.requester == KeyRequest.cliRequester && caller.agent == nil ? nil : (caller.agent != nil ? caller.friendlyName : (caller.identified ? caller.name : "an unidentified program")),
                           cwd: caller.cwd ?? r.cwd,
@@ -776,6 +796,7 @@ final class AppModel {
       }
     case .share:
       guard let s = r.service.flatMap(service(named:)) else { throw fail("No key named \(r.service ?? "?"). Call list_services.") }
+      guard !s.isGeneral else { throw fail("\(s.name) is in General, so programs in any folder can already use it at \(summary(s).baseURL). Use it directly; no share needed.") }
       guard let target = r.project?.trimmingCharacters(in: .whitespaces), !target.isEmpty, target != s.project else { throw fail("Give the other project's name.") }
       let slug = target.lowercased().filter { $0.isLetter || $0.isNumber }
       var name = "\(s.name)-\(slug)"; var i = 2

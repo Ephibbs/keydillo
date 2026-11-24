@@ -7,6 +7,10 @@ public final class MCPServer {
   let cwd: String
   let requester: String
 
+  static func projectLabel(_ project: String) -> String {
+    project == GeneralKeys.project ? "General: any folder" : "project \(project)"
+  }
+
   public init(cwd: String = FileManager.default.currentDirectoryPath, requester: String = "claude",
               send: @escaping (ControlRequest) throws -> ControlResponse = { try ControlSocket.send($0) }) {
     self.send = send; self.cwd = cwd; self.requester = requester
@@ -30,7 +34,7 @@ public final class MCPServer {
     ],
     [
       "name": "request_key_change",
-      "description": "Ask the user to approve a change to a stored key. A window on their Mac shows exactly what changes and they approve with Touch ID; you never see the key. Use: kind=auth when calls fail because the key is sent the wrong way (header name, Bearer prefix, Basic auth, query parameter) or has no site yet (host); kind=share to use an existing key in another project instead of asking for a second copy; kind=rotate when the provider rejected the key or the user wants a new one (they paste it); kind=move_folder when a project's folder moved or was renamed. You can't ask to show a key, turn off Touch ID prompts or make them less frequent; the user does that in keydillo.",
+      "description": "Ask the user to approve a change to a stored key. A window on their Mac shows exactly what changes and they approve with Touch ID; you never see the key. Use: kind=auth when calls fail because the key is sent the wrong way (header name, Bearer prefix, Basic auth, query parameter) or has no site yet (host); kind=share to use another project's key in this project instead of asking for a second copy (not needed for keys in General, which work in any folder); kind=rotate when the provider rejected the key or the user wants a new one (they paste it); kind=move_folder when a project's folder moved or was renamed. You can't ask to show a key, turn off Touch ID prompts or make them less frequent; the user does that in keydillo.",
       "inputSchema": [
         "type": "object",
         "required": ["kind"],
@@ -61,7 +65,7 @@ public final class MCPServer {
           "header": ["type": "string", "description": "Header that carries the key, e.g. xi-api-key or Authorization"],
           "prefix": ["type": "string", "description": "Value prefix, e.g. 'Bearer ' for Authorization headers"],
           "env_var_name": ["type": "string", "description": "Env var name for the key, e.g. ELEVENLABS_API_KEY"],
-          "project": ["type": "string", "description": "Project to file the key under (defaults to the current folder name)"],
+          "project": ["type": "string", "description": "Project to file the key under (defaults to the current folder name; General for a key meant for any folder or a temporary folder)"],
           "is_public": ["type": "boolean", "description": "True for keys meant to ship to browsers (Stripe pk_, Supabase anon, Firebase web config, NEXT_PUBLIC_*). Those don't need keydillo."],
           "key_page_url": ["type": "string", "description": "The provider's page where the user creates or rotates this key, e.g. https://elevenlabs.io/app/settings/api-keys"],
         ],
@@ -112,8 +116,10 @@ public final class MCPServer {
       case "list_services":
         guard case .services(let list) = try send(.listServices) else { return text("Unexpected reply", error: true) }
         if list.isEmpty { return text("No services yet. Use request_secret to ask the user for a key.") }
-        let lines = list.map { "\($0.name) (\($0.displayName), project \($0.project)): \($0.baseURL)  env: \($0.placeholderEnvLines.joined(separator: ", "))" }
-        return text(lines.joined(separator: "\n"))
+        let lines = list.map { "\($0.name) (\($0.displayName), \(Self.projectLabel($0.project))): \($0.baseURL)  env: \($0.placeholderEnvLines.joined(separator: ", "))" }
+        let note = list.contains { $0.project == GeneralKeys.project }
+          ? "\n\nKeys in General work from any folder: use them directly, don't ask to share them." : ""
+        return text(lines.joined(separator: "\n") + note)
       case "open_project":
         switch try send(.openProject(OpenProjectRequest(project: args["project"] as? String))) {
         case .opened(let p, let names, let span):
@@ -142,7 +148,7 @@ public final class MCPServer {
         }
         let req = SecretRequest(service: service.lowercased(), displayName: args["display_name"] as? String, host: host,
                                 header: header, prefix: args["prefix"] as? String, envVarName: args["env_var_name"] as? String,
-                                project: args["project"] as? String ?? URL(fileURLWithPath: cwd).lastPathComponent,
+                                project: args["project"] as? String ?? GeneralKeys.defaultProject(cwd: cwd),
                                 cwd: cwd, requester: requester, keyPageURL: args["key_page_url"] as? String)
         switch try send(.requestSecret(req)) {
         case .saved(let s, let lines):
