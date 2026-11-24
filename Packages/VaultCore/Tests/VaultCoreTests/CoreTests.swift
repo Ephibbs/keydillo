@@ -863,3 +863,27 @@ final class PurposeTests: XCTestCase {
     XCTAssertEqual(purposes, ["Second run"])
   }
 }
+
+final class RelockTests: XCTestCase {
+  // Login keychain (legacy mode) with a throwaway service: checks that saving keys again keeps every value and label.
+  func testRelockKeepsValuesAndLabels() throws {
+    let kc = KeychainBackend(mode: .legacy)
+    let svc = "keydillo.test.relock.\(UUID().uuidString)"
+    defer { for a in kc.accounts(service: svc) { kc.deleteSecret(a, service: svc) } }
+    try kc.setSecret(Data("one".utf8), for: "a", label: "Alpha", service: svc)
+    try kc.setSecret(Data("two".utf8), for: "b", label: "Beta", service: svc)
+    let off = try kc.relock(service: svc, presence: false, context: nil)
+    XCTAssertEqual(Set(off), ["a", "b"])
+    XCTAssertTrue(kc.requirePresence, "relock leaves the backend's own setting alone")
+    let on = try kc.relock(service: svc, presence: true, context: nil)
+    XCTAssertEqual(Set(on), ["a", "b"])
+    XCTAssertEqual(try kc.secret(for: "a", context: nil, service: svc), Data("one".utf8))
+    XCTAssertEqual(try kc.secret(for: "b", context: nil, service: svc), Data("two".utf8))
+    XCTAssertEqual(kc.itemLabel("a", service: svc), "Alpha")
+  }
+
+  func testRelockEmptyServiceDoesNothing() throws {
+    let kc = KeychainBackend(mode: .legacy)
+    XCTAssertEqual(try kc.relock(service: "keydillo.test.empty.\(UUID().uuidString)", presence: false, context: nil), [])
+  }
+}

@@ -16,10 +16,15 @@ struct SettingsView: View {
         Picker("", selection: Binding(get: { model.projectAccessDefault }, set: { v in Task { await model.setDefaultAccess(v) } })) {
           ForEach(ProjectAccess.allCases) { Text($0.label).tag($0) }
         }
-        .labelsHidden().fixedSize()
+        .labelsHidden().fixedSize().disabled(model.neverAsk)
+        if model.neverAsk {
+          Text("Off while Never ask for Touch ID is on.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+        } else {
         (Text("Each project can change this on its page. ").foregroundColor(Theme.secondary)
          + Text("Note: With \"Ask once per project\", any program in the project's folder can use its keys until keydillo quits, even when your Mac is locked.").foregroundColor(Theme.danger)).font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+        }
       }
+      NeverAskSettingsView()
       VStack(alignment: .leading, spacing: 4) {
         Text("Terminal").font(.system(size: 13, weight: .medium))
         Text("Put kd in front of commands that use your keys, e.g. kd npm run dev. Claude does it for you.")
