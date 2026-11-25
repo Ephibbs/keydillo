@@ -20,6 +20,8 @@ final class PhoneStore {
   var notificationsDenied = false
   var pushRegistered = false
   private var subscribed = false
+  private var subscribing = false
+  private(set) var pushMode: CloudKitTransport.PushMode?
 
   let transport: LinkTransport
   let transportNote: String
@@ -77,17 +79,40 @@ final class PhoneStore {
       notificationProblem = "Notifications for keydillo are turned off. Turn them on in Settings to hear about requests when the app is closed."
       return
     }
-    guard !subscribed, let ck = transport as? CloudKitTransport else {
+    guard !subscribed, !subscribing, let ck = transport as? CloudKitTransport else {
       if subscribed { notificationProblem = nil }
       return
     }
+    subscribing = true; defer { subscribing = false }
     do {
-      try await ck.subscribeToAsks()
+      pushMode = try await ck.subscribeToAsks()
       subscribed = true
       notificationProblem = nil
     } catch {
       notificationProblem = "Couldn't set up request notifications with iCloud: \(Self.describe(error))"
     }
+  }
+
+  /// With a silent subscription iCloud only wakes the app, so the app shows the notification itself,
+  /// once per request. Not while the app is open: the card is already on screen.
+  func notifyNewAsks() async {
+    guard case .silent = pushMode, UIApplication.shared.applicationState != .active else { return }
+    let d = UserDefaults.standard
+    var seen = d.stringArray(forKey: "notifiedAsks") ?? []
+    for ask in waiting where !seen.contains(ask.requestID) {
+      let c = UNMutableNotificationContent()
+      c.title = "keydillo"
+      c.body = ask.notificationText
+      c.sound = .default
+      c.interruptionLevel = .timeSensitive
+      try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: ask.requestID, content: c, trigger: nil))
+      seen.append(ask.requestID)
+    }
+    d.set(Array(seen.suffix(200)), forKey: "notifiedAsks")
+    // Clear notifications for requests that were answered or closed on the Mac.
+    let live = Set(waiting.map(\.requestID))
+    let delivered = await UNUserNotificationCenter.current().deliveredNotifications().map(\.request.identifier)
+    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: delivered.filter { !live.contains($0) && $0.count == 36 })
   }
 
   func unpair() {

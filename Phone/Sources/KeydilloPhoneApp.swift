@@ -41,6 +41,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
   // A new request arrived (CloudKit push).
   func application(_ app: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
     await PhoneStore.shared.refresh()
+    await PhoneStore.shared.ensureSubscription()
+    await PhoneStore.shared.notifyNewAsks()
     return .newData
   }
 
@@ -118,6 +120,12 @@ struct RequestsView: View {
     List {
       if let m = store.message {
         Section { Text(m).font(.footnote).foregroundStyle(.secondary) }
+      }
+      if case .silent(let why) = store.pushMode {
+        Section {
+          Text("Notifications come through background refresh, so they stop if you swipe keydillo away. iCloud refused direct alerts: \(why)")
+            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
       }
       if let n = store.notificationProblem {
         Section {
