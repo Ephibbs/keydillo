@@ -1,6 +1,6 @@
 # keydillo compatibility report
 
-Generated 2026-11-24 15:28 by `tests/compat/run_compat.py`.
+Generated 2026-11-24 16:25 by `tests/compat/run_compat.py`.
 Real proxy engine (test build with a scripted approver), mock API on localhost.
 
 ## Request and auth types × clients
