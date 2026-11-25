@@ -1,4 +1,5 @@
 import SwiftUI
+import ServiceManagement
 
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
@@ -10,6 +11,7 @@ struct SettingsView: View {
   @State private var moreOpen = AppModel.devHarness && CommandLine.arguments.contains("-kdMoreOpen")
   @State private var askError: String?
   @State private var askWorking = false
+  @State private var loginApproval = AppModel.shared.loginItemNeedsApproval
 
   static let docsURL = URL(string: "https://ephibbs.github.io/keydillo-site/docs.html")!
 
@@ -45,7 +47,14 @@ struct SettingsView: View {
       PhoneSettingsSection()
       Toggle("Keep keydillo running", isOn: $loginItem).toggleStyle(.checkbox)
         .help("Starts at login and restarts if it stops.")
-        .onChange(of: loginItem) { _, v in model.openAtLogin = v }
+        .onChange(of: loginItem) { _, v in model.openAtLogin = v; loginApproval = model.loginItemNeedsApproval }
+      if loginApproval {
+        HStack(spacing: 8) {
+          Text("Turn on keydillo under Allow in the Background in Login Items.").font(.system(size: 12)).foregroundStyle(Theme.danger)
+            .fixedSize(horizontal: false, vertical: true)
+          Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }.buttonStyle(SmallButtonStyle()).fixedSize()
+        }
+      }
       Link("How to use keydillo ↗", destination: Self.docsURL).font(.system(size: 13))
       Collapsible(title: "More", isOpen: $moreOpen) {
         VStack(alignment: .leading, spacing: 16) {

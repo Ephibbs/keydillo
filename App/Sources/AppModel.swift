@@ -1118,8 +1118,16 @@ final class AppModel {
   static let agent = SMAppService.agent(plistName: "com.studiokillswitch.keydillo.agent.plist")
   var openAtLogin: Bool {
     get { Self.agent.status == .enabled }
-    set { if newValue { try? Self.agent.register() } else { try? Self.agent.unregister() } }
+    set {
+      if newValue {
+        try? Self.agent.register()
+        // Switched off under Login Items ("Allow in the Background"): register() can't turn it back on, only the user can.
+        if Self.agent.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+      } else { try? Self.agent.unregister() }
+    }
   }
+  /// The keep-running agent is registered but turned off in System Settings → Login Items.
+  var loginItemNeedsApproval: Bool { Self.agent.status == .requiresApproval }
 
   /// Logs a note if the last run ended without a normal quit.
   func noteUncleanExit() {
