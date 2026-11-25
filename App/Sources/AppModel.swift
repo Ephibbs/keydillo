@@ -1213,6 +1213,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
       let pending = PendingApproval(request: request, context: ctx, project: project, trustApp: app)
       await MainActor.run { model?.showPending(pending) }
       defer { Task { @MainActor in model?.clearPending(pending.id) } }
+      await EmbeddedAuthHost.waitUntilShown(pending.id)
       do {
         guard try await touchID(ctx, "let \(app) use your keys without asking from now on") else { return .denied }
         _ = await model?.setTrusted(app, true, context: ctx)
@@ -1265,8 +1266,10 @@ final class ModelApprover: Approver, @unchecked Sendable {
     defer { Task { @MainActor in model?.clearPending(pending.id) } }
     if let copy {
       let reason = request.reason
+      let cardID = pending.id
       let result = await phone.ask(request, wrapped: copy, mac: {
-        (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+        await EmbeddedAuthHost.waitUntilShown(cardID)
+        return (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
       }, cancelMac: { ctx.invalidate() })
       switch result {
       case .mac(approved: true):
@@ -1281,6 +1284,7 @@ final class ModelApprover: Approver, @unchecked Sendable {
         return .denied
       }
     }
+    await EmbeddedAuthHost.waitUntilShown(pending.id)
     do {
       guard try await touchID(ctx, request.reason) else { return .denied }
       await MainActor.run { model?.applyUpgradeIfNeeded(pending.id, service: request.service, context: ctx, client: request.client) }

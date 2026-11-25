@@ -8,8 +8,41 @@ import LocalAuthenticationEmbeddedUI
 /// to the system's password sheet.
 struct EmbeddedTouchID: NSViewRepresentable {
   let context: LAContext
-  func makeNSView(context ctx: Context) -> LAAuthenticationView { LAAuthenticationView(context: context, controlSize: .small) }
-  func updateNSView(_ v: LAAuthenticationView, context ctx: Context) {}
+  let id: UUID
+  func makeNSView(context ctx: Context) -> EmbeddedAuthHost { EmbeddedAuthHost(context: context, id: id) }
+  func updateNSView(_ v: EmbeddedAuthHost, context ctx: Context) {}
+}
+
+/// Holds macOS's Touch ID control and says when it's on screen. The request's LAContext must not be evaluated
+/// before then, or macOS shows its own separate Touch ID sheet instead of the control in the card.
+final class EmbeddedAuthHost: NSView {
+  /// Cards whose Touch ID control is in a window (read off the main thread by the approver).
+  static let ready = StringsBox()
+  let id: UUID
+  init(context: LAContext, id: UUID) {
+    self.id = id
+    super.init(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+    let v = LAAuthenticationView(context: context, controlSize: .small)
+    v.frame = bounds; v.autoresizingMask = [.width, .height]
+    addSubview(v)
+  }
+  required init?(coder: NSCoder) { nil }
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    var r = Self.ready.value.filter { $0 != id.uuidString }
+    if window != nil { r.append(id.uuidString) }
+    Self.ready.value = r
+  }
+  /// Waits (up to 2 s) until the card for this request shows its Touch ID control.
+  static func waitUntilShown(_ id: UUID) async {
+    for _ in 0..<40 {
+      if ready.value.contains(id.uuidString) {
+        try? await Task.sleep(nanoseconds: 50_000_000)   // one more beat for the control to attach to its context
+        return
+      }
+      try? await Task.sleep(nanoseconds: 50_000_000)
+    }
+  }
 }
 
 /// The one window for a key request: the details plus macOS's Touch ID control. Deny cancels it.
@@ -67,7 +100,7 @@ struct ApprovalCard: View {
         Text("Unverified app.").font(.system(size: 12)).foregroundStyle(Theme.danger)
       }
       HStack(spacing: 12) {
-        EmbeddedTouchID(context: pending.context).frame(width: 36, height: 36)
+        EmbeddedTouchID(context: pending.context, id: pending.id).frame(width: 36, height: 36)
         VStack(alignment: .leading, spacing: 2) {
           Text("Touch ID to allow").font(.system(size: 13, weight: .medium))
           Text(span).font(.system(size: 12)).foregroundStyle(Theme.secondary)
