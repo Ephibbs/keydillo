@@ -64,7 +64,10 @@ final class WindowManager: NSObject, NSWindowDelegate {
       // Closed by the user while still waiting: deny. Closed because Touch ID finished: leave the result alone.
       if AppModel.shared.pending.contains(where: { $0.id == p.id }) { AppModel.shared.deny(p) }
     }) {
-      ApprovalCard(pending: p, moreOpen: moreOpen).sheetCard()
+      // Not sheetCard(): its FitOrScroll builds the content twice (ViewThatFits), which made two Touch ID
+      // controls for one LAContext. macOS then drew the prompt in the hidden one and fell back to its own sheet.
+      ApprovalCard(pending: p, moreOpen: moreOpen).padding(24).frame(width: 460)
+        .background(Theme.background).foregroundStyle(Theme.text)
     }
     guard let w = windows[id] else { return }
     w.center()
