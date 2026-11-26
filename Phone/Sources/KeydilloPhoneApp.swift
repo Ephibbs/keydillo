@@ -14,7 +14,7 @@ struct KeydilloPhoneApp: App {
     WindowGroup {
       RootView().environment(store)
         .onChange(of: phase) { _, p in
-          if p == .active { Task { await store.refresh(); await store.ensureSubscription() } }
+          if p == .active { Task { await store.refresh(); await HandoffStore.shared.refresh(); await store.ensureSubscription() } }
         }
     }
   }
@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     await PhoneStore.shared.refresh()
     await PhoneStore.shared.ensureSubscription()
     await PhoneStore.shared.notifyNewAsks()
+    await HandoffStore.shared.refresh()
     return .newData
   }
 
@@ -53,6 +54,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
   func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse) async {
     await PhoneStore.shared.refresh()
+    await HandoffStore.shared.refresh()
   }
 }
 
@@ -139,7 +141,8 @@ struct RequestsView: View {
           }
         }
       }
-      if store.waiting.isEmpty {
+      HandoffSection()
+      if store.waiting.isEmpty && HandoffStore.shared.pending.isEmpty {
         Section {
           VStack(alignment: .leading, spacing: 6) {
             Text("No requests waiting").font(.headline)
@@ -154,7 +157,7 @@ struct RequestsView: View {
       }
     }
     .listStyle(.insetGrouped)
-    .refreshable { await store.refresh() }
+    .refreshable { await store.refresh(); await HandoffStore.shared.refresh() }
     .navigationTitle(store.mac?.name ?? "keydillo")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {

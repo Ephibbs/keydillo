@@ -60,6 +60,17 @@ enum Preview {
                                 path: "/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM", client: c)
       wm.showApprovalCard(PendingApproval(request: req, context: LAContext(), project: "voiceover"), moreOpen: screen == "approvalmore")
     case "pairphone": wm.show("pair", title: "Pair iPhone") { PairPhoneView {} }
+    case "logins":
+      LoginsView.previewLogins = [
+        LoginRecord(name: "github", site: "https://github.com", username: "evan@example.com", hasTotp: true,
+                    pages: [LoginPage(page: "https://github.com/login", action: "https://github.com/session")]),
+        LoginRecord(name: "stripe", site: "https://dashboard.stripe.com", username: "evan@example.com"),
+      ]
+      wm.show("logins", title: "Website logins", resizable: true, size: CGSize(width: 640, height: 420)) { LoginsView().background(Theme.background) }
+    case "addlogin": wm.showAddLogin(prefill: AddLoginRequest(name: "github", site: "https://github.com", requester: "Claude Code")) { _ in }
+    case "handoff":
+      BrowserHandoff.showWindow(BrowserHandoff.Session(reason: "Enter the code GitHub emailed you", url: "https://github.com/sessions/verified-device"),
+                                site: "github.com", phone: true)
     case "restore": wm.showRestore()
     case "sidebar":
       wm.showMain()

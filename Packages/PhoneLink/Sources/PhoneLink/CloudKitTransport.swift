@@ -85,6 +85,24 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
     return asks.sorted { $0.created < $1.created }
   }
 
+  /// Every record of one type in the zone (zone changes, so no CloudKit indexes are needed).
+  func all<T: Decodable>(_ type: String, _ t: T.Type, prefix: String = "") async throws -> [T] {
+    try await ensureZone()
+    var token: CKServerChangeToken?
+    var out: [T] = []
+    while true {
+      let r = try await db.recordZoneChanges(inZoneWith: Self.zoneID, since: token)
+      for (rid, result) in r.modificationResultsByID where rid.recordName.hasPrefix(prefix) {
+        guard let rec = try? result.get().record, rec.recordType == type, let d = rec["payload"] as? Data,
+              let v = try? JSONDecoder().decode(T.self, from: d) else { continue }
+        out.append(v)
+      }
+      token = r.changeToken
+      if !r.moreComing { break }
+    }
+    return out
+  }
+
   /// How the phone hears about new asks.
   public enum PushMode: Sendable, Equatable {
     /// iCloud shows the notification itself (query subscription with alert text).
@@ -114,12 +132,31 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
     info.soundName = "default"
     info.shouldSendContentAvailable = true
     sub.notificationInfo = info
+    // Hand-offs: "Claude needs you in the browser". Same rule: try alerts, else the zone subscription covers them too.
+    try? await save("KDHandoff", "handoff-schema-probe", Data(), extra: ["title": "" as CKRecordValue])
+    for (t, n) in [("KDHJoin", "hjoin-schema-probe"), ("KDHFrame", "hframe-schema-probe"), ("KDHInput", "hinput-schema-probe")] { try? await save(t, n, Data()) }
+    try? await delete(["handoff-schema-probe", "hjoin-schema-probe", "hframe-schema-probe", "hinput-schema-probe"])
+    let hsub = CKQuerySubscription(recordType: "KDHandoff", predicate: NSPredicate(value: true), subscriptionID: Self.handoffSubscriptionID,
+                                   options: [.firesOnRecordCreation])
+    hsub.zoneID = Self.zoneID
+    let hinfo = CKSubscription.NotificationInfo()
+    hinfo.titleLocalizationKey = "KD_HANDOFF_TITLE"
+    hinfo.alertLocalizationKey = "KD_ASK_BODY"
+    hinfo.alertLocalizationArgs = ["title"]
+    hinfo.soundName = "default"
+    hinfo.shouldSendContentAvailable = true
+    hinfo.desiredKeys = ["title"]
+    hinfo.category = "KD_HANDOFF"
+    hsub.notificationInfo = hinfo
     do {
       try await saveSubscription(sub)
+      try await saveSubscription(hsub)
       _ = try? await db.modifySubscriptions(saving: [], deleting: [Self.zoneSubscriptionID])
       return .alerts
     } catch {
       let queryError = Self.describe(error)
+      // All or nothing: a half-working pair would mean some notifications twice and some never.
+      _ = try? await db.modifySubscriptions(saving: [], deleting: [Self.askSubscriptionID, Self.handoffSubscriptionID])
       let zoneSub = CKRecordZoneSubscription(zoneID: Self.zoneID, subscriptionID: Self.zoneSubscriptionID)
       let silent = CKSubscription.NotificationInfo()
       silent.shouldSendContentAvailable = true
@@ -144,6 +181,25 @@ public final class CloudKitTransport: LinkTransport, @unchecked Sendable {
     if let partial = ck.partialErrorsByItemID?.values.first { parts.append(describe(partial)) }
     if let server = (ck as NSError).userInfo["ServerErrorDescription"] as? String { parts.append(server) }
     return parts.joined(separator: " · ")
+  }
+}
+
+extension CloudKitTransport: HandoffTransport {
+  public static let handoffSubscriptionID = "kd-handoffs"
+  public func post(handoff: HandoffStart) async throws {
+    try await save("KDHandoff", "handoff-\(handoff.sessionID)", try JSONEncoder().encode(handoff), extra: ["title": handoff.title as CKRecordValue])
+  }
+  public func pendingHandoffs() async throws -> [HandoffStart] { try await all("KDHandoff", HandoffStart.self, prefix: "handoff-").sorted { $0.created < $1.created } }
+  public func post(join: HandoffJoin) async throws { try await save("KDHJoin", "hjoin-\(join.sessionID)", try JSONEncoder().encode(join)) }
+  public func join(for sessionID: String) async throws -> HandoffJoin? { try await fetch(HandoffJoin.self, "hjoin-\(sessionID)") }
+  public func post(frame: HandoffFrame) async throws { try await save("KDHFrame", "hframe-\(frame.sessionID)", try JSONEncoder().encode(frame)) }
+  public func latestFrame(for sessionID: String) async throws -> HandoffFrame? { try await fetch(HandoffFrame.self, "hframe-\(sessionID)") }
+  public func post(input: HandoffInput) async throws { try await save("KDHInput", "hinput-\(input.sessionID)-\(input.seq)", try JSONEncoder().encode(input)) }
+  public func inputs(for sessionID: String) async throws -> [HandoffInput] { try await all("KDHInput", HandoffInput.self, prefix: "hinput-\(sessionID)-") }
+  public func removeHandoff(_ sessionID: String) async throws {
+    var names = ["handoff-\(sessionID)", "hjoin-\(sessionID)", "hframe-\(sessionID)"]
+    names += (try? await inputs(for: sessionID))?.map { "hinput-\(sessionID)-\($0.seq)" } ?? []
+    try await delete(names)
   }
 }
 #endif

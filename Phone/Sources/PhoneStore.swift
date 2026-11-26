@@ -26,6 +26,7 @@ final class PhoneStore {
   let transport: LinkTransport
   let transportNote: String
   private let phoneID: String
+  var phoneIdentifier: String { phoneID }
 
   private init() {
     let d = UserDefaults.standard

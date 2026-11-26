@@ -2,6 +2,7 @@
 //
 //   kd-fakemac <folder> pair      print a pairing code, wait for the phone, save it
 //   kd-fakemac <folder> ask       send one request for a dummy key and wait for the answer
+//   kd-fakemac <folder> handoff <image.jpg>   start a browser hand-off, stream the image, print taps and typing until done
 import Foundation
 import PhoneLink
 
@@ -16,6 +17,22 @@ let signer = try SoftwareSigner(raw: state.key)
 func save(_ s: State) { try? JSONEncoder().encode(s).write(to: stateURL) }
 
 switch args[2] {
+case "handoff":
+  guard let phone = state.phone, args.count >= 4, let jpeg = try? Data(contentsOf: URL(fileURLWithPath: args[3])) else { print("usage: kd-fakemac <folder> handoff <image.jpg> (after pair)"); exit(1) }
+  let host = try HandoffHost(title: "Claude needs you on github.com: Enter the code GitHub emailed you", url: "https://github.com/sessions/verified-device",
+                             macID: state.macID, phone: phone, signer: signer, transport: transport)
+  try await host.post()
+  print("started \(host.start.sessionID); waiting for the phone")
+  while !(await host.checkJoin()) { try await Task.sleep(nanoseconds: 500_000_000) }
+  print("phone joined")
+  while true {
+    try await host.send(jpeg: jpeg, width: 1280, height: 800, url: host.start.url)
+    for i in await host.newInputs() {
+      print("input \(i.seq): \(i.action.rawValue) \(i.x.map { String(format: "x=%.2f", $0) } ?? "") \(i.y.map { String(format: "y=%.2f", $0) } ?? "") \(i.text ?? "")")
+      if i.action == .done || i.action == .cancel { await host.end(); exit(0) }
+    }
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+  }
 case "pair":
   let offer = PairingOffer(macID: state.macID, macName: "Test Mac", macSigningKey: signer.publicKey)
   try offer.code.write(to: dir.appendingPathComponent("pairing-code.txt"), atomically: true, encoding: .utf8)

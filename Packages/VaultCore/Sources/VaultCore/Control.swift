@@ -19,6 +19,12 @@ public enum ControlRequest: Codable, Equatable {
   /// `kd` keeps serving programs its command left running in the background (pm2, nohup, tmux) after it returns,
   /// and tells the app so the Access page can list them and end their access. `ended` when they've all exited.
   case backgroundRun(BackgroundRun)
+  /// Starts keydillo's browser tool if needed and returns the socket `keydillo browser-mcp` relays to.
+  case startBrowser
+  /// Saved website logins (names, sites, usernames; never passwords).
+  case listLogins
+  /// Opens the window where the user types a website login. Fields are suggestions.
+  case addLogin(AddLoginRequest)
 }
 
 public struct BackgroundRun: Codable, Equatable, Sendable {
@@ -31,6 +37,24 @@ public struct BackgroundRun: Codable, Equatable, Sendable {
   public init(pid: Int32, startTime: UInt64, command: String, programs: [String], folder: String, ended: Bool = false) {
     self.pid = pid; self.startTime = startTime; self.command = command; self.programs = programs; self.folder = folder; self.ended = ended
   }
+}
+
+public struct AddLoginRequest: Codable, Equatable {
+  public var name: String?
+  public var site: String?
+  public var username: String?
+  public var requester: String?
+  public init(name: String? = nil, site: String? = nil, username: String? = nil, requester: String? = nil) {
+    self.name = name; self.site = site; self.username = username; self.requester = requester
+  }
+}
+
+public struct LoginSummary: Codable, Equatable {
+  public var name: String
+  public var site: String
+  public var username: String
+  public var hasTotp: Bool
+  public init(_ r: LoginRecord) { name = r.name; site = r.site; username = r.username; hasTotp = r.hasTotp }
 }
 
 public struct ChangeRequest: Codable, Equatable {
@@ -113,6 +137,8 @@ public enum ControlResponse: Codable, Equatable {
   case opened(project: String, services: [String], span: String)
   case values([String: String])
   case changed(String)
+  case browser(socket: String)
+  case logins([LoginSummary])
 }
 
 public extension ServiceConfig {

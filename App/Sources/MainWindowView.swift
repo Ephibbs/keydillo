@@ -8,6 +8,7 @@ struct MainWindowView: View {
   @State private var selected: String?
   @State private var showActivity = false
   @State private var showAccess = false
+  @State private var showLogins = false
   @State private var newProject = ""
   @State private var addingProject = false
   @State private var search = ""
@@ -43,7 +44,9 @@ struct MainWindowView: View {
         sidebar
         Divider().overlay(Theme.hairline)
       }
-      if showAccess {
+      if showLogins {
+        LoginsView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if showAccess {
         AccessView().frame(maxWidth: .infinity, maxHeight: .infinity)
       } else if showActivity {
         ActivityView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,8 +86,8 @@ struct MainWindowView: View {
       if !compact { sidebarOpen = false }
     }
     .onReceive(NotificationCenter.default.publisher(for: .showSidebar)) { _ in if compact { sidebarOpen = true } }
-    .onReceive(NotificationCenter.default.publisher(for: .showAccess)) { _ in showAccess = true; showActivity = false }
-    .onReceive(NotificationCenter.default.publisher(for: .selectProject)) { n in project = n.object as? String; showAccess = false; showActivity = false }
+    .onReceive(NotificationCenter.default.publisher(for: .showAccess)) { _ in showAccess = true; showActivity = false; showLogins = false }
+    .onReceive(NotificationCenter.default.publisher(for: .selectProject)) { n in project = n.object as? String; showAccess = false; showActivity = false; showLogins = false }
     // Marks where the draggable title bar ends.
     .overlay(alignment: .top) { Rectangle().fill(Theme.hairline).frame(height: 1).allowsHitTesting(false) }
     .background(Theme.background)
@@ -105,12 +108,12 @@ struct MainWindowView: View {
       .padding(.horizontal, 8).padding(.top, 48)
       ScrollView(.vertical) {
         VStack(alignment: .leading, spacing: 18) {
-          sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess) { project = nil; showActivity = false; showAccess = false }
+          sideRow("All keys", count: "\(model.services.count)", isOn: project == nil && !showActivity && !showAccess && !showLogins) { project = nil; showActivity = false; showAccess = false; showLogins = false }
           VStack(alignment: .leading, spacing: 2) {
             sectionLabel("Projects")
             ForEach(model.projects, id: \.self) { p in
-              sideRow((model.exposed[p]?.isEmpty == false ? "⚠︎ " : "") + (model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p), count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess) {
-                project = p; showActivity = false; showAccess = false
+              sideRow((model.exposed[p]?.isEmpty == false ? "⚠︎ " : "") + (model.unlocks.valid(p) != nil && model.openProjects.contains(where: { $0.project == p }) ? "\(p)  ·  open" : p), count: "\(model.services.filter { $0.project == p }.count)", isOn: project == p && !showActivity && !showAccess && !showLogins) {
+                project = p; showActivity = false; showAccess = false; showLogins = false
               }
             }
             if addingProject {
@@ -132,8 +135,9 @@ struct MainWindowView: View {
               .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 10)
             }
             sectionLabel("Monitor")
-            sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false }
-            sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false }
+            sideRow("Website logins", count: "", isOn: showLogins) { showLogins = true; showAccess = false; showActivity = false }
+            sideRow("Access", count: accessCount == 0 ? "" : "\(accessCount)", isOn: showAccess) { showAccess = true; showActivity = false; showLogins = false }
+            sideRow("Activity", count: "\(todayCount) today", isOn: showActivity) { showActivity = true; showAccess = false; showLogins = false }
             sideRow("Settings", count: "", isOn: false) { WindowManager.shared.showSettings() }
           }
         }

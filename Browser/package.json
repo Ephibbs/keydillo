@@ -1,0 +1,20 @@
+{
+  "name": "keydillo-login",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "mkdir -p bin && swiftc -O helper/kdlogin.swift -o bin/kdlogin",
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT",
+  "description": "Prototype: let Claude Code sign in to websites with saved logins it never sees",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@playwright/mcp": "0.0.85",
+    "playwright": "1.66.0-alpha-2026-11-09"
+  },
+  "type": "module",
+  "private": true,
+  "bin": {
+    "keydillo-login": "src/server.mjs"
+  }
+}

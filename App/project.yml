@@ -29,6 +29,23 @@ targets:
           mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents"
           cp -f "$SRCROOT/Resources/LaunchAgents/com.studiokillswitch.keydillo.agent.plist" "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/"
         basedOnDependencyAnalysis: false
+      - name: Bundle the browser tool
+        script: |
+          # keydillo's browser tool (Browser/): its JavaScript, its npm dependencies and the official Node runtime.
+          # Inside the bundle, the app's signature covers all of it. Skipped when Browser/ hasn't been set up
+          # (npm ci && scripts/fetch-node.sh), so the app still builds without it.
+          B="$SRCROOT/../Browser"
+          DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Resources/browser"
+          if [ ! -x "$B/runtime/node" ] || [ ! -d "$B/node_modules" ]; then echo "warning: browser tool not bundled (run npm ci and scripts/fetch-node.sh in Browser/)"; exit 0; fi
+          mkdir -p "$DEST/server"
+          rsync -a --delete "$B/src" "$B/package.json" "$B/node_modules" "$DEST/server/"
+          cp "$B/runtime/node" "$DEST/node.new" && mv -f "$DEST/node.new" "$DEST/node"
+          cp "$B/runtime/NODE-LICENSE" "$DEST/NODE-LICENSE"
+          if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            codesign --force --options runtime --timestamp=none --entitlements "$SRCROOT/Resources/browser-node.entitlements" \
+              --sign "$EXPANDED_CODE_SIGN_IDENTITY" --identifier com.studiokillswitch.keydillo.browser-node "$DEST/node"
+          fi
+        basedOnDependencyAnalysis: false
     info:
       path: Sources/Info.plist
       properties:

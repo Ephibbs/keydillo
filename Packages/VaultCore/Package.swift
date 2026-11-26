@@ -11,6 +11,8 @@ let package = Package(
     .executableTarget(name: "kd-testproxy", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
     // Test-only Postgres proxy that approves everything, used by tests/postgres. Never shipped.
     .executableTarget(name: "kd-pgproxy-test", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+    // Test-only browser host with in-memory logins and an approver that says yes, used by the browser tool's tests. Never shipped.
+    .executableTarget(name: "kd-testbrowser", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .testTarget(name: "VaultCoreTests", dependencies: ["VaultCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
   ]
 )
