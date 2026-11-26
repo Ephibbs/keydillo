@@ -1,4 +1,5 @@
 import SwiftUI
+import PhoneLink
 import VaultCore
 import LocalAuthentication
 
@@ -157,9 +158,23 @@ enum SelfTest {
     }
   }
 
+  /// Creates the phone's iCloud subscription from this Mac, in whichever CloudKit environment this build is signed for.
+  /// CloudKit only accepts a new kind of subscription in Development; deploying the schema then lets Production take it.
+  static func ckSubscribe() {
+    Task {
+      do {
+        let mode = try await CloudKitTransport().subscribeToAsks()
+        FileHandle.standardError.write(Data("cksub result: \(mode)\n".utf8)); exit(0)
+      } catch {
+        FileHandle.standardError.write(Data("cksub FAIL: \(error)\n".utf8)); exit(1)
+      }
+    }
+  }
+
   static func run(_ name: String) {
     FileHandle.standardError.write(Data("self-test \(name) starting\n".utf8))
     if name == "connect" { connect(); return }
+    if name == "cksub" { ckSubscribe(); return }
     guard name == "import" else { FileHandle.standardError.write(Data("FAIL unknown self-test\n".utf8)); exit(1) }
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kd-selftest-\(getpid())")
     let a = dir.appendingPathComponent("alpha"), b = dir.appendingPathComponent("beta")
