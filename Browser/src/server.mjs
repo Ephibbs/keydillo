@@ -224,8 +224,25 @@ export function labelFor(name, args = {}) {
     case 'fill_new_password': return 'Filling in a new password';
     case 'start_key_capture': return 'Getting ready to save a key';
     case 'save_new_key': return 'Saving the key in keydillo';
+    case 'hand_off_to_user': return null; // the pill says it instead
     default: return null;
   }
+}
+
+// Captchas, "are you human" pages and similar: Claude is told to hand them to the user instead of trying.
+const LOOKS = new Set(['browser_navigate', 'browser_click', 'browser_snapshot', 'browser_type', 'browser_press_key', 'browser_wait_for']);
+const CHECK_FRAME = /(google\.com|recaptcha\.net)\/recaptcha|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com|funcaptcha\.com|captcha-delivery\.com|geo\.captcha/i;
+const CHECK_TEXT = /verify (that )?you('| a)re (a )?human|i'?m not a robot|are you a robot|press (&|and) hold|complete the security check|unusual traffic from your|checking (if|that) (the site connection is secure|you are human)|solve (this|the) (puzzle|captcha)/i;
+export async function humanCheck() {
+  for (const page of context?.pages() ?? []) {
+    try {
+      if (page.frames().some((f) => CHECK_FRAME.test(f.url()))) return 'a captcha';
+      const t = await page.evaluate(() => (document.title + '\n' + (document.body?.innerText || '')).slice(0, 4000)).catch(() => '');
+      const m = t.match(CHECK_TEXT);
+      if (m) return `"${m[0]}"`;
+    } catch {}
+  }
+  return null;
 }
 
 const handleCall = (req) => serial(async () => {
@@ -242,7 +259,7 @@ const handleCall = (req) => serial(async () => {
     }
     if (name === 'hand_off_to_user') {
       await getContext();
-      const r = await handOff({ context, store, reason: String(args.reason || 'Finish this step in the browser') });
+      const r = await handOff({ context, store, reason: String(args.reason || 'Finish this step in the browser'), chrome: chromeMode ? relay : undefined });
       return guard.scrubResult(text(r.message, !r.ok));
     }
     if (name === 'request_login') {
@@ -292,6 +309,10 @@ const handleCall = (req) => serial(async () => {
     const result = await client.callTool({ name, arguments: args });
     await guard.scrubFiles(started);
     const out = await guard.scrubResult(result);
+    if (LOOKS.has(name) && !out.isError) {
+      const check = await humanCheck();
+      if (check) out.content = [...(out.content || []), { type: 'text', text: `\nThis page is asking for a person (${check}). Don't try to solve it yourself: call hand_off_to_user with what the user needs to do.` }];
+    }
     guard.recordSent(out);
     return out;
   } catch (e) {

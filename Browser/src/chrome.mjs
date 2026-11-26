@@ -108,6 +108,13 @@ export class ChromeRelay {
     return doors;
   }
 
+  /** The user's turn in Chrome: the pill says what to do and shows Done. Resolves when they press it. */
+  yourTurn(text) {
+    this.bridge.send('keydillo.turn', [text]).catch(() => {});
+    return new Promise((resolve) => { this.onUserDone = resolve; });
+  }
+  endTurn() { this.onUserDone = null; this.bridge.send('keydillo.turn', [null]).catch(() => {}); }
+
   /** Shows what Claude is doing next to its cursor in Chrome. */
   label(text) { if (text) this.bridge.send('keydillo.label', [text]).catch(() => {}); }
 
@@ -177,6 +184,7 @@ export class ChromeRelay {
       }
       case 'chrome.debugger.onDetach': { const [src] = e.params; this.detach(src.tabId); break; }
       case 'extension.initialized': this.markInitialized(); break;
+      case 'keydillo.userDone': { const f = this.onUserDone; this.onUserDone = null; f?.(); break; }
     }
   }
 

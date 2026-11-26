@@ -10,10 +10,11 @@ import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { startSite } from './site.mjs';
+import { startChrome, chromeMode } from './browser-target.mjs';
 
 const bin = process.env.KD_TESTBROWSER;
 const skip = !bin || !fs.existsSync(bin);
-let site, base, host, c, events = [], sock;
+let site, base, host, c, events = [], sock, chrome;
 
 const call = async (name, args = {}) => {
   const r = await c.callTool({ name, arguments: args });
@@ -32,7 +33,10 @@ before(async () => {
   base = `http://127.0.0.1:${site.port}`;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kda-'));
   sock = path.join(dir, 'b.sock');
-  host = spawn(bin, ['--node', process.env.KD_NODE || process.execPath, '--server', process.env.KD_SERVER || path.resolve('src/server.mjs'), '--socket', sock, '--data-dir', dir, '--site', base, '--deny-new-pages'],
+  // KD_CHROME=1: the app's browser tool drives a Chromium with the keydillo extension, as it drives the user's Chrome.
+  chrome = chromeMode ? await startChrome() : null;
+  const serverArgs = chrome ? ['--server-args', `--chrome --chrome-socket ${chrome.sock}`] : [];
+  host = spawn(bin, [...serverArgs, '--node', process.env.KD_NODE || process.execPath, '--server', process.env.KD_SERVER || path.resolve('src/server.mjs'), '--socket', sock, '--data-dir', dir, '--site', base, '--deny-new-pages'],
     { stdio: ['pipe', 'pipe', 'inherit'] });
   let buf = '';
   host.stdout.on('data', (d) => {
@@ -44,7 +48,7 @@ before(async () => {
   c = new Client({ name: 't', version: '1' });
   await c.connect(new StdioClientTransport({ command: '/usr/bin/nc', args: ['-U', sock] }));
 });
-after(async () => { if (skip) return; await c?.close(); host.stdin.end(); host.kill(); site.srv.close(); });
+after(async () => { if (skip) return; await c?.close(); host.stdin.end(); host.kill(); site.srv.close(); await chrome?.stop(); });
 
 test('app mode: list_logins comes from the app', { skip }, async () => {
   const r = await call('list_logins');
@@ -104,7 +108,8 @@ test('app mode: request_login opens the app window and the new login can be used
 });
 
 test('app mode: hand_off_to_user streams frames and applies the user\'s taps and typing', { skip }, async () => {
-  await call('browser_navigate', { url: `${base}/verify` });
+  const nav = await call('browser_navigate', { url: `${base}/verify` });
+  assert.match(nav.text, /asking for a person .*hand_off_to_user/s);
   const r = await call('hand_off_to_user', { reason: 'Enter the code GitHub emailed you' });
   assert.ok(!r.isError, r.text);
   assert.match(r.text, /finished on their iPhone/);

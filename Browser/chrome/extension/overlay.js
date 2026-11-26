@@ -28,6 +28,11 @@
     background: #111; color: #fff; border-radius: 999px; padding: 4px 10px; transition: opacity .2s ease-out;
     font: 500 11.5px/1.2 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
   .label.off { opacity: 0; }
+  .pill span { max-width: 460px; overflow: hidden; text-overflow: ellipsis; }
+  .pill.turn { background: #fff; color: #111; box-shadow: 0 0 0 1px #d6d6d6, 0 4px 14px rgba(0,0,0,.14); }
+  .pill.turn svg rect { fill: #111; }
+  .pill.turn button { background: #111; color: #fff; }
+  .pill.turn button:hover { background: #333; }
   .solo { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); }
 </style>
 <div class="pill" part="pill">
@@ -45,10 +50,23 @@
   const cur = root.querySelector('.cur');
   const curLabel = root.querySelector('.cur .label');
   const soloLabel = root.querySelector('.solo');
-  root.querySelector('button').addEventListener('click', (e) => {
+  const pillText = pill.querySelector('span');
+  const button = root.querySelector('button');
+  let turn = false;
+  button.addEventListener('click', (e) => {
     if (!e.isTrusted) return; // only a real click by the user
-    try { globalThis.kdStop?.('stop'); } catch {}
+    try { globalThis.kdStop?.(turn ? 'done' : 'stop'); } catch {}
   });
+
+  // The user's turn (a captcha, a code): the pill says what to do, and Done hands the tab back to Claude.
+  kd.turn = (text) => {
+    turn = !!text;
+    pill.classList.toggle('turn', turn);
+    pillText.textContent = turn ? `Your turn: ${text}` : 'Claude is using this tab';
+    button.textContent = turn ? 'Done' : 'Stop';
+    cur.style.visibility = turn ? 'hidden' : '';
+    if (turn) { curLabel.classList.add('off'); soloLabel.classList.add('off'); }
+  };
 
   // The pill lets clicks through, so it never gets in the way of Claude's clicks, except while your own mouse is on
   // it. Claude's mouse events count as real too, so the pill stays click-through while Claude is moving the mouse.

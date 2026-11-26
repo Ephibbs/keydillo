@@ -2,6 +2,7 @@
 // Touch ID reason), so the browser tool's app mode can be tested end to end. Never shipped.
 //
 //   kd-testbrowser --node <node> --server <server.mjs> --socket <path> --data-dir <dir> --site <origin> [--deny-new-pages]
+//                  [--server-args "--chrome --chrome-socket <path>"]   (instead of the default --headless)
 import Foundation
 import LocalAuthentication
 import VaultCore
@@ -63,7 +64,7 @@ enum HandoffScript {
   static func next() -> Int { n += 1; return n }
 }
 
-let host = BrowserHost(paths: .init(node: node, server: server, dataDir: dir, socket: socket), broker: broker, extraArgs: ["--headless"])
+let host = BrowserHost(paths: .init(node: node, server: server, dataDir: dir, socket: socket), broker: broker, extraArgs: opt("--server-args").map { $0.split(separator: " ").map(String.init) } ?? ["--headless"])
 do { try host.ensureRunning() } catch { log(["event": "error", "text": "\(error)"]); exit(1) }
 log(["event": "ready"])
 signal(SIGTERM) { _ in exit(0) }

@@ -9,7 +9,20 @@ import { fileURLToPath } from 'node:url';
 import { install } from '../chrome/install.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const CHROMIUM = process.env.KD_CHROMIUM || path.join(os.homedir(), 'Library/Caches/ms-playwright/chromium-1140/chrome-mac/Chromium.app/Contents/MacOS/Chromium');
+// Playwright's own Chromium (any installed version): it can load an unpacked extension from the command line.
+function findChromium() {
+  const cache = path.join(os.homedir(), 'Library/Caches/ms-playwright');
+  let dirs = [];
+  try { dirs = fs.readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort((a, b) => b.split('-')[1] - a.split('-')[1]); } catch {}
+  for (const d of dirs) {
+    for (const rel of ['chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', 'chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
+      const p = path.join(cache, d, rel);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return path.join(cache, 'chromium/missing');
+}
+export const CHROMIUM = process.env.KD_CHROMIUM || findChromium();
 export const chromeMode = process.env.KD_CHROME === '1';
 
 /** Starts Chromium with the keydillo extension (and any extra extensions). Returns the socket and a stop function. */
@@ -20,7 +33,7 @@ export async function startChrome({ extraArgs = [], extensions = [], prefs } = {
   if (prefs) { fs.mkdirSync(path.join(udd, 'Default'), { recursive: true }); fs.writeFileSync(path.join(udd, 'Default', 'Preferences'), JSON.stringify(prefs)); }
   const sock = path.join(dir, 'b.sock');
   const exts = [path.join(root, 'chrome/extension'), ...extensions].join(',');
-  const proc = spawn(CHROMIUM, [`--user-data-dir=${udd}`, `--load-extension=${exts}`, '--headless=new', '--no-first-run', '--no-default-browser-check', ...extraArgs, 'about:blank'], {
+  const proc = spawn(CHROMIUM, [`--user-data-dir=${udd}`, `--load-extension=${exts}`, '--headless=new', '--no-first-run', '--no-default-browser-check', '--use-mock-keychain', '--password-store=basic', ...extraArgs, 'about:blank'], {
     env: { ...process.env, KEYDILLO_CHROME_SOCKET: sock }, stdio: 'ignore',
   });
   for (let i = 0; i < 300 && !fs.existsSync(sock); i++) await new Promise((r) => setTimeout(r, 100));

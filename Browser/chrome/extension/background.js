@@ -21,6 +21,7 @@ const overlaySource = fetch(chrome.runtime.getURL('overlay.js')).then((r) => r.t
 const worlds = new Map();   // tabId -> execution context id of the overlay's world
 const cursors = new Map();  // tabId -> { x, y }
 const mainFrames = new Map(); // tabId -> its top frame's id
+const turns = new Map();      // tabId -> what the user is asked to do, while it's their turn
 let lastTab = null;         // the tab Claude last sent a command to
 let lastInput = 0;          // when Claude last moved or clicked the mouse
 
@@ -69,16 +70,18 @@ async function intoGroup(tabId) {
   save();
 }
 
+const grouping = new Set(); // tabs being moved into Claude's group right now (their group change isn't the user's)
 async function adopt(tab) {
   ours.add(tab.id);
   save();
-  try { await intoGroup(tab.id); } catch {}
+  grouping.add(tab.id);
+  try { await intoGroup(tab.id); } catch {} finally { grouping.delete(tab.id); }
 }
 
 function drop(tabId) {
   if (!ours.delete(tabId)) return false;
   save();
-  worlds.delete(tabId); cursors.delete(tabId);
+  worlds.delete(tabId); cursors.delete(tabId); turns.delete(tabId);
   chrome.debugger.detach({ tabId }).catch(() => {});
   return true;
 }
@@ -116,6 +119,12 @@ const handlers = {
     lastTab = target.tabId;
     if (method === 'Input.dispatchMouseEvent' && !target.sessionId && Number.isFinite(params?.x)) await showMouse(target.tabId, params);
     return await chrome.debugger.sendCommand(target, method, params);
+  },
+  async 'keydillo.turn'([text]) {
+    const tab = lastTab !== null && ours.has(lastTab) ? lastTab : [...ours].at(-1);
+    if (tab === undefined) return;
+    if (text) turns.set(tab, String(text).slice(0, 120)); else turns.delete(tab);
+    await inWorld(tab, `globalThis.__kd?.turn(${JSON.stringify(turns.get(tab) || null)})`);
   },
   async 'keydillo.label'([text]) {
     if (lastTab !== null && ours.has(lastTab)) await inWorld(lastTab, `globalThis.__kd?.label(${JSON.stringify(String(text).slice(0, 80))})`);
@@ -163,11 +172,20 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   if (!ours.has(source.tabId)) return;
   // The overlay's own world and its Stop button stay between the extension and the page.
   if (!source.sessionId && method === 'Runtime.executionContextCreated' && params?.context?.name === WORLD) {
-    if (params.context.auxData?.frameId === mainFrames.get(source.tabId)) worlds.set(source.tabId, params.context.id);
+    if (params.context.auxData?.frameId === mainFrames.get(source.tabId)) {
+      worlds.set(source.tabId, params.context.id);
+      // A new page in the middle of the user's turn keeps saying so.
+      if (turns.has(source.tabId)) inWorld(source.tabId, `globalThis.__kd?.turn(${JSON.stringify(turns.get(source.tabId))})`);
+    }
     return;
   }
   if (!source.sessionId && method === 'Runtime.bindingCalled' && params?.name === 'kdStop') {
-    if (Date.now() - lastInput > 400) stopTab(source.tabId); // a click Claude just made isn't the user pressing Stop
+    if (Date.now() - lastInput <= 400) return; // a click Claude just made isn't the user pressing the button
+    if (params.payload === 'done' && turns.has(source.tabId)) {
+      turns.delete(source.tabId);
+      inWorld(source.tabId, 'globalThis.__kd?.turn(null)');
+      event('keydillo.userDone', [source.tabId]);
+    } else if (params.payload === 'stop') stopTab(source.tabId);
     return;
   }
   event('chrome.debugger.onEvent', [source, method, params]);
@@ -186,7 +204,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => { if (drop(tabId)) event('chrome.tabs.onRemoved', [tabId]); });
 // Drag a tab out of Claude's group to take it back; drag one in to hand it to Claude.
 chrome.tabs.onUpdated.addListener(async (tabId, change, tab) => {
-  if (change.groupId === undefined) return;
+  if (change.groupId === undefined || grouping.has(tabId)) return;
   await restored;
   if (ours.has(tabId) && change.groupId !== groupId) { if (drop(tabId)) event('chrome.tabs.onRemoved', [tabId]); }
   else if (!ours.has(tabId) && groupId !== null && change.groupId === groupId && clientConnected) {
