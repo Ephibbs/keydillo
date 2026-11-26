@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { browserArgs, chromeMode } from './browser-target.mjs';
 import { startSite } from './site.mjs';
 
 const SECRET = 'Hunter2-correct';
@@ -28,7 +29,9 @@ const allOutputFiles = () => {
   return out.filter((p) => !p.endsWith('.png')).map((p) => fs.readFileSync(p, 'utf8')).join('\n');
 };
 
+let browser;
 before(async () => {
+  browser = await browserArgs();
   site = await startSite();
   base = `http://127.0.0.1:${site.port}`;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kdl-'));
@@ -36,12 +39,12 @@ before(async () => {
   c = new Client({ name: 't', version: '1' });
   await c.connect(new StdioClientTransport({
     command: process.execPath,
-    args: ['src/server.mjs', '--headless', '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
+    args: ['src/server.mjs', ...browser.args, '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
     env: { ...process.env, KDLOGIN_FAKE_SITE: base, KDLOGIN_FAKE_LOG: promptLog, KDLOGIN_FAKE_STATE: path.join(dataDir, 'pages.json') },
     stderr: 'inherit',
   }));
 });
-after(async () => { await c.close(); site.srv.close(); });
+after(async () => { await c.close(); await browser.stop(); site.srv.close(); });
 
 test('tool list: fill_login present, run_code_unsafe removed', async () => {
   const names = (await c.listTools()).tools.map((t) => t.name);
@@ -126,10 +129,10 @@ test('a page that keeps the password after a failed sign-in: field emptied, reve
 test('JS evaluation is blocked on password pages and signed-in sites', async () => {
   await call('browser_navigate', { url: `${base}/login` });
   const r = await call('browser_evaluate', { function: '() => document.querySelector("input[type=password]").value' });
-  assert.ok(r.isError); assert.match(r.text, /blocked/);
+  assert.ok(r.isError); assert.match(r.text, /blocked|turned off in your Chrome/);
   await call('browser_navigate', { url: `${base}/` });
   const r2 = await call('browser_evaluate', { function: '() => document.title' });
-  assert.ok(r2.isError); assert.match(r2.text, /signed in to/);
+  assert.ok(r2.isError); assert.match(r2.text, chromeMode ? /turned off in your Chrome/ : /signed in to/);
 });
 
 test('a page echoing the password: snapshot and files masked, screenshot refused', async () => {

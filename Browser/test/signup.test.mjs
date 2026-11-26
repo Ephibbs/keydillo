@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { browserArgs } from './browser-target.mjs';
 import { startSite } from './site.mjs';
 import { generatePassword } from '../src/signup.mjs';
 
@@ -17,7 +18,9 @@ const call = async (name, args = {}) => {
 const entries = () => fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 const refOf = (snap, re) => snap.match(re)[1];
 
+let browser;
 before(async () => {
+  browser = await browserArgs();
   site = await startSite();
   base = `http://127.0.0.1:${site.port}`;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kds-'));
@@ -25,12 +28,12 @@ before(async () => {
   c = new Client({ name: 't', version: '1' });
   await c.connect(new StdioClientTransport({
     command: process.execPath,
-    args: ['src/server.mjs', '--headless', '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
+    args: ['src/server.mjs', ...browser.args, '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
     env: { ...process.env, KDLOGIN_FAKE_SITE: base, KDLOGIN_FAKE_LOG: log, KDLOGIN_FAKE_STATE: path.join(dataDir, 'pages.json') },
     stderr: 'inherit',
   }));
 });
-after(async () => { await c.close(); site.srv.close(); });
+after(async () => { await c.close(); await browser.stop(); site.srv.close(); });
 
 test('generated passwords are strong and varied', () => {
   const a = generatePassword(), b = generatePassword();

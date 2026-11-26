@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "keydillo",
+  "description": "Lets Claude use Chrome through keydillo, which hides passwords and API keys from it.",
+  "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsHj7EyOViETPFfzJdXMLOZF74Xer1L8YcRmuoB7qfty9MKxNRa44pe5W+Bpb6rchBjRbqlLvEvckUNP0hxhAturoBkZZvsZ02F7kyRs21xzzO+0CCiIbPlI4P500ImwEIv1Tv1vI7Q5MS7Ad9PvpH525UHDQbSxGCendnvo4lepjGvRfgAxJD30/Fvcxc++4p/MoZV3pPAobH/scI/JaFo3S3Rk14hxCg1VQQnw1ONKsHrX82LWU8mBAgSsMLhnMEiFjmzMZl7wZLDaA0YbwWpeRQx/ByYTyu6xUUDuA234iSLyfYkG7U+EpcnTrV/JC8EOnU4qsgi8Mz8oQ2rehOQIDAQAB",
+  "minimum_chrome_version": "120",
+  "permissions": ["debugger", "tabs", "tabGroups", "nativeMessaging", "management", "storage"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "keydillo", "default_popup": "popup.html" }
+}

@@ -73,11 +73,52 @@ const CLIPBOARD_BLOCK = `(() => {
   for (const t of ['copy', 'cut']) window.addEventListener(t, (e) => { e.stopImmediatePropagation(); e.preventDefault(); }, true);
 })();`;
 
+// Draws every element showing a hidden key as dots. Runs in the page; known key formats are also caught as soon as
+// they appear (SCREEN_MASK below), before Claude's next step.
+function PAINT(keys) {
+  const hide = (el) => el && el.style && el.style.setProperty('-webkit-text-security', 'disc', 'important');
+  const has = (t) => t && keys.some((k) => t.includes(k));
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (has(n.data)) hide(n.parentElement);
+  for (const el of document.querySelectorAll('input, textarea')) if (has(el.value)) hide(el);
+}
+
+// Known key formats are drawn as dots the moment they appear on screen.
+function screenMask() {
+  const sources = KEY_PATTERNS.map((r) => r.source);
+  return `(() => {
+    const res = ${JSON.stringify(sources)}.map((s) => new RegExp(s));
+    const has = (t) => t && t.length >= 16 && res.some((r) => r.test(t));
+    const hide = (el) => el && el.style && el.style.setProperty('-webkit-text-security', 'disc', 'important');
+    const check = (node) => {
+      if (node.nodeType === 3) { if (has(node.data)) hide(node.parentElement); return; }
+      if (node.nodeType !== 1) return;
+      if ((node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') && has(node.value)) hide(node);
+      if (has(node.textContent)) {
+        const w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        for (let n = w.nextNode(); n; n = w.nextNode()) if (has(n.data)) hide(n.parentElement);
+        for (const el of node.querySelectorAll('input, textarea')) if (has(el.value)) hide(el);
+      }
+    };
+    const start = () => {
+      check(document.documentElement);
+      new MutationObserver((ms) => { for (const m of ms) { if (m.type === 'characterData') check(m.target); else m.addedNodes.forEach(check); if (m.type === 'attributes') check(m.target); } })
+        .observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['value'] });
+      // Input values set from script don't show up as DOM changes; check them each frame for a while after input.
+      let until = 0;
+      const tick = () => { for (const el of document.querySelectorAll('input, textarea')) if (has(el.value)) hide(el); if (performance.now() < until) requestAnimationFrame(tick); };
+      for (const t of ['click', 'keydown', 'input']) addEventListener(t, () => { const was = until; until = performance.now() + 5000; if (performance.now() >= was) requestAnimationFrame(tick); }, true);
+    };
+    if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
+  })();`;
+}
+
 const keyLabel = (k) => `[key hidden …${k.slice(-4)}]`;
 
 export class Guard {
-  constructor({ getContext, outputDir }) {
+  constructor({ getContext, outputDir, chromeMode = false }) {
     this.getContext = getContext;
+    this.chromeMode = chromeMode;       // the user's own Chrome, signed in to their accounts
     this.outputDir = outputDir;
     this.secrets = new Set();       // passwords and codes filled this session
     this.filledOrigins = new Set(); // origins fill_login has signed in to
@@ -187,6 +228,7 @@ export class Guard {
 
   async install(context) {
     await context.addInitScript(CLIPBOARD_BLOCK);
+    await context.addInitScript(screenMask());
     // WebSockets too: a page script could send the password over one instead of a request.
     await context.routeWebSocket(() => true, (ws) => {
       const server = ws.connectToServer();
@@ -228,7 +270,20 @@ export class Guard {
       }
     }
     this.track(frames);
+    if (this.keys.size) await this.paint(frames);
     return frames;
+  }
+
+  /**
+   * Hides keys on screen too, not just in what Claude is sent: an element showing one is drawn as dots, the way
+   * password fields are. The page's text is unchanged, so keydillo can still read and save the key.
+   */
+  async paint(frames) {
+    const keys = [...this.keys, ...this.keyPieces];
+    for (const f of frames) {
+      if (!f.tokens.some((t) => keys.some((k) => t.includes(k) || k.includes(t) && t.length >= 12))) continue;
+      try { await f.frame.evaluate(PAINT, keys); } catch {}
+    }
   }
 
   async allSecrets() {
@@ -308,6 +363,10 @@ export class Guard {
         }
       }
       if (CREATE_CLICK.test(label)) await this.strictAll();
+    }
+
+    if (name === 'browser_evaluate' && this.chromeMode) {
+      return 'browser_evaluate is turned off in your Chrome: page JavaScript could read sign-in tokens for your accounts. Use browser_snapshot, browser_click and browser_type instead.';
     }
 
     if (name === 'browser_evaluate') {

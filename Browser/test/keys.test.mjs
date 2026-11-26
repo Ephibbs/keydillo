@@ -1,6 +1,7 @@
 // API key capture against a fake provider: the key is shown after "Create", and Claude must never see it.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { browserArgs } from './browser-target.mjs';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -53,7 +54,9 @@ const noKey = (s, where, k = KEY) => {
 };
 const saved = () => fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.cmd === 'save-key');
 
+let browser;
 before(async () => {
+  browser = await browserArgs();
   srv = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(pages[req.url] || 'home'); });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${srv.address().port}`;
@@ -62,12 +65,12 @@ before(async () => {
   c = new Client({ name: 't', version: '1' });
   await c.connect(new StdioClientTransport({
     command: process.execPath,
-    args: ['src/server.mjs', '--headless', '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
+    args: ['src/server.mjs', ...browser.args, '--data-dir', dataDir, '--helper', 'test/fake-helper.mjs'],
     env: { ...process.env, KDLOGIN_FAKE_SITE: base, KDLOGIN_FAKE_LOG: log, KDLOGIN_FAKE_STATE: path.join(dataDir, 'pages.json') },
     stderr: 'inherit',
   }));
 });
-after(async () => { await c.close(); srv.close(); });
+after(async () => { await c.close(); await browser.stop(); srv.close(); });
 
 test('click "Create secret key": no-prefix key hidden everywhere, split text and iframe included', async () => {
   await call('browser_navigate', { url: `${base}/keys` });
