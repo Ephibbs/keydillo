@@ -129,7 +129,7 @@ struct UninstallView: View {
         .font(.system(size: 14)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       Toggle("Put the real keys back into my .env files first", isOn: $restore).toggleStyle(.checkbox)
       Toggle("Delete my keys from the Keychain", isOn: $deleteKeys).toggleStyle(.checkbox)
-      Text("Also removes keydillo from Claude Code, Cursor and Codex, and stops it starting at login. keydillo then moves to the Trash.")
+      Text("Also removes keydillo from Claude Code, Cursor, Codex and Pi, and stops it starting at login. keydillo then moves to the Trash.")
         .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
       if let status { Text(status).font(.system(size: 12)).foregroundStyle(Theme.danger) }
       HStack {
