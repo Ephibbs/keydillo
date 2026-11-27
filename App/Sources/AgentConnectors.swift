@@ -1,6 +1,6 @@
 import Foundation
 
-/// Connect for Cursor and Codex: the same three pieces as Claude Code (keydillo's tools, the skill, and the check
+/// Connect for Cursor, Codex and Pi: the same three pieces as Claude Code (keydillo's tools, the skill, and the check
 /// before each command that puts `kd` in front), written into each tool's own settings. Everything else in those
 /// files is kept, and each file is backed up next to itself before the first change.
 protocol AgentConnector {
@@ -244,7 +244,114 @@ enum CodexConnector: AgentConnector {
       try? AgentFiles.writeJSON(root, to: hooksURL)
     }
     // Only remove the skill if it's keydillo's own copy (another tool may have put a different one there).
-    if (try? String(contentsOf: skillDir.appendingPathComponent("SKILL.md"), encoding: .utf8))?.contains("name: keydillo") == true {
+    if PiConnector.status == .notConnected, (try? String(contentsOf: skillDir.appendingPathComponent("SKILL.md"), encoding: .utf8))?.contains("name: keydillo") == true {
+      try? FileManager.default.removeItem(at: skillDir)
+    }
+  }
+}
+
+// MARK: - Pi
+
+/// Pi has no hooks file: its checks are TypeScript extensions it loads from `extensions/`. keydillo's extension sends
+/// each bash call through the same `hook` and `hook post` commands Claude Code uses.
+enum PiConnector: AgentConnector {
+  static let name = "Pi"
+  static let changes = [
+    "Adds keydillo as a tool Pi can use (it can list your services and ask you for a key, never read one).",
+    "Adds the keydillo skill for Pi, telling it to use keydillo instead of asking for keys in chat.",
+    "Adds a Pi extension that checks each command, so programs in your keydillo projects start with kd.",
+  ]
+  static let afterConnect: String? = "Type /reload in open Pi sessions, or start a new one."
+
+  static var dir: URL {
+    ProcessInfo.processInfo.environment["PI_CODING_AGENT_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+      ?? home.appendingPathComponent(".pi/agent", isDirectory: true)
+  }
+  static var extensionURL: URL { dir.appendingPathComponent("extensions/keydillo.ts") }
+  /// Pi's built-in MCP support reads mcp.json. The pi-mcp-adapter extension replaces it and reads mcp-adapter.json.
+  static var mcpURLs: [URL] {
+    let adapter = dir.appendingPathComponent("mcp-adapter.json")
+    return [dir.appendingPathComponent("mcp.json")] + (FileManager.default.fileExists(atPath: adapter.path) ? [adapter] : [])
+  }
+  /// Pi reads user skills from ~/.agents/skills, like Codex.
+  static var skillDir: URL { CodexConnector.skillDir }
+
+  static var installed: Bool { FileManager.default.fileExists(atPath: dir.path) }
+
+  static var extensionSource: String {
+    #"""
+    import { spawnSync } from "node:child_process";
+    import { existsSync } from "node:fs";
+    import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+    const cli = "\#(cliPath)";
+
+    function hook(args: string[], payload: object) {
+      if (!existsSync(cli)) return undefined;
+      return spawnSync(cli, args, { input: JSON.stringify(payload), encoding: "utf8", timeout: 10_000 });
+    }
+
+    export default function (pi: ExtensionAPI) {
+      pi.on("tool_call", async (event, ctx) => {
+        if (event.toolName !== "bash") return;
+        const command = (event.input as { command?: string }).command ?? "";
+        const result = hook(["hook"], { tool_name: "Bash", tool_input: { command }, cwd: ctx.cwd });
+        if (result?.status === 2) return { block: true, reason: result.stderr.trim() };
+      });
+
+      pi.on("tool_result", async (event, ctx) => {
+        if (event.toolName !== "bash") return;
+        const command = (event.input as { command?: string }).command ?? "";
+        const output = event.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+        const result = hook(["hook", "post"], {
+          tool_name: "Bash",
+          tool_input: { command },
+          tool_response: { stdout: output, stderr: "" },
+          cwd: ctx.cwd,
+        });
+        if (!result?.stdout.trim()) return;
+        const advice = JSON.parse(result.stdout)?.hookSpecificOutput?.additionalContext;
+        if (typeof advice !== "string") return;
+        return { content: [...event.content, { type: "text", text: advice }] };
+      });
+    }
+
+    """#
+  }
+
+  static var status: ClaudeConnector.Status {
+    let source = try? String(contentsOf: extensionURL, encoding: .utf8)
+    let servers = mcpURLs.map { ((try? AgentFiles.readJSONQuiet($0))?["mcpServers"] as? [String: Any])?["keydillo"] as? [String: Any] }
+    if source == nil && servers.allSatisfy({ $0 == nil }) { return .notConnected }
+    let fine = source == extensionSource && servers.allSatisfy { $0?["command"] as? String == cliPath }
+      && FileManager.default.fileExists(atPath: skillDir.appendingPathComponent("SKILL.md").path)
+    return fine ? .connected : .needsReconnecting
+  }
+
+  static func connect() throws {
+    for url in mcpURLs {
+      var root = try AgentFiles.readJSON(url)
+      var servers = root["mcpServers"] as? [String: Any] ?? [:]
+      servers["keydillo"] = ["command": cliPath, "args": ["mcp"]]
+      root["mcpServers"] = servers
+      try AgentFiles.writeJSON(root, to: url)
+    }
+    try FileManager.default.createDirectory(at: extensionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    if (try? String(contentsOf: extensionURL, encoding: .utf8)) != extensionSource {
+      try extensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+    }
+    try AgentFiles.writeSkill(to: skillDir)
+  }
+
+  static func disconnect() {
+    for url in mcpURLs {
+      guard var root = try? AgentFiles.readJSONQuiet(url), var servers = root["mcpServers"] as? [String: Any], servers["keydillo"] != nil else { continue }
+      servers["keydillo"] = nil; root["mcpServers"] = servers
+      try? AgentFiles.writeJSON(root, to: url)
+    }
+    try? FileManager.default.removeItem(at: extensionURL)
+    if CodexConnector.status == .notConnected,
+       (try? String(contentsOf: skillDir.appendingPathComponent("SKILL.md"), encoding: .utf8))?.contains("name: keydillo") == true {
       try? FileManager.default.removeItem(at: skillDir)
     }
   }
@@ -279,7 +386,7 @@ enum AgentTools {
   static var all: [Tool] {
     [Tool(name: "Claude Code", installed: true, status: ClaudeConnector.status, changes: ClaudeConnector.changes, afterConnect: nil,
           connect: { await ClaudeConnector.connect() }),
-     tool(CursorConnector.self), tool(CodexConnector.self)]
+     tool(CursorConnector.self), tool(CodexConnector.self), tool(PiConnector.self)]
   }
 
   static func tool<C: AgentConnector>(_ c: C.Type) -> Tool {
@@ -290,11 +397,13 @@ enum AgentTools {
   static func refresh() {
     CursorConnector.refreshIfConnected()
     CodexConnector.refreshIfConnected()
+    PiConnector.refreshIfConnected()
   }
 
   static func disconnectAll() {
     ClaudeConnector.disconnect()
     CursorConnector.disconnect()
     CodexConnector.disconnect()
+    PiConnector.disconnect()
   }
 }
