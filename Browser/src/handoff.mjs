@@ -76,6 +76,14 @@ async function streamed({ page, store, reason, done, finished }) {
       for (const i of r.inputs || []) {
         via = 'their iPhone';
         if (i.action === 'tap' && size.width) await page.mouse.click(size.x + i.x * size.width, size.y + i.y * size.height);
+        else if (i.action === 'drag' && size.width && Array.isArray(i.points) && i.points.length >= 2) {
+          // Press, follow the finger's path in small steps (drag puzzles watch the movement), release.
+          const at = ([x, y]) => [size.x + x * size.width, size.y + y * size.height];
+          await page.mouse.move(...at(i.points[0]));
+          await page.mouse.down();
+          for (const p of i.points.slice(1)) await page.mouse.move(...at(p), { steps: 4 });
+          await page.mouse.up();
+        }
         else if (i.action === 'text' && i.text) await page.keyboard.type(i.text);
         else if (i.action === 'key' && i.text) await page.keyboard.press(i.text).catch(() => {});
       }

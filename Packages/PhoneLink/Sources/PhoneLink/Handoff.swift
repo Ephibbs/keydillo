@@ -84,7 +84,22 @@ public struct HandoffFrame: Codable, Equatable, Sendable {
   }
 }
 
-public enum HandoffAction: String, Codable, Sendable { case tap, text, key, done, cancel }
+public enum HandoffAction: String, Codable, Sendable {
+  case tap, text, key, done, cancel
+  /// A one-finger drag. `text` holds the path: "x,y;x,y;…", fractions of the frame, start first.
+  case drag
+}
+
+/// Parses a drag path ("x,y;x,y;…", fractions 0...1). Nil unless it has 2 to 64 valid points.
+public func handoffDragPoints(_ text: String?) -> [(Double, Double)]? {
+  guard let text else { return nil }
+  let pts = text.split(separator: ";").compactMap { pair -> (Double, Double)? in
+    let p = pair.split(separator: ",")
+    guard p.count == 2, let x = Double(p[0]), let y = Double(p[1]), (0...1).contains(x), (0...1).contains(y) else { return nil }
+    return (x, y)
+  }
+  return (2...64).contains(pts.count) && pts.count == text.split(separator: ";").count ? pts : nil
+}
 
 public struct HandoffInput: Codable, Equatable, Sendable {
   public var v = 1

@@ -96,3 +96,18 @@ final class HandoffTests: XCTestCase {
     XCTAssertThrowsError(try frame.open(from: mac, with: phoneAgree), "paired key shouldn't open a session frame")
   }
 }
+
+final class HandoffDragPathTests: XCTestCase {
+  func testParsesAValidPath() {
+    let p = handoffDragPoints("0.1,0.5;0.5,0.5;0.9,0.5")
+    XCTAssertEqual(p?.count, 3)
+    XCTAssertEqual(p?.last?.0, 0.9)
+  }
+  func testRejectsBadPaths() {
+    XCTAssertNil(handoffDragPoints(nil))
+    XCTAssertNil(handoffDragPoints("0.1,0.5"))                 // one point
+    XCTAssertNil(handoffDragPoints("0.1,0.5;1.2,0.5"))         // off the frame
+    XCTAssertNil(handoffDragPoints("0.1,0.5;x,0.5"))           // not a number
+    XCTAssertNil(handoffDragPoints(Array(repeating: "0.5,0.5", count: 65).joined(separator: ";")))
+  }
+}

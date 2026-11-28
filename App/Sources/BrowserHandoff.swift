@@ -64,6 +64,7 @@ final class BrowserHandoff: @unchecked Sendable {
           case .cancel: done = true; s.cancelled = true
           case .tap: if let x = i.x, let y = i.y, (0...1).contains(x), (0...1).contains(y) { inputs.append(["action": "tap", "x": x, "y": y]) }
           case .text, .key: if let t = i.text, t.count <= 200 { inputs.append(["action": i.action.rawValue, "text": t]) }
+          case .drag: if let pts = handoffDragPoints(i.text) { inputs.append(["action": "drag", "points": pts.map { [$0.0, $0.1] }]) }
           }
         }
       }

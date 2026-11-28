@@ -112,7 +112,9 @@ struct HandoffSessionView: View {
       VStack(spacing: 12) {
         if let img = handoffs.frame {
           // Pinch to zoom and drag to pan; double-tap zooms in or back out. A tap clicks the page there.
-          ZoomableFrame(image: img, pageSize: handoffs.frameSize) { x, y in handoffs.send(.tap, x: x, y: y) }
+          ZoomableFrame(image: img, pageSize: handoffs.frameSize,
+                        onTap: { x, y in handoffs.send(.tap, x: x, y: y) },
+                        onDrag: { path in handoffs.send(.drag, text: path) })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Spacer()
@@ -125,7 +127,7 @@ struct HandoffSessionView: View {
           Button("Send") { handoffs.send(.text, text: typed); typed = "" }.disabled(typed.isEmpty)
           Button("Enter") { handoffs.send(.key, text: "Enter") }
         }
-        Text("Tap the page to click. Pinch to zoom. Claude can't see what you type here.").font(.footnote).foregroundStyle(.secondary)
+        Text("Tap to click, drag with one finger. Two fingers to zoom and move around. Claude can't see what you type here.").font(.footnote).foregroundStyle(.secondary)
       }
       .padding()
       .navigationTitle(handoffs.open?.title ?? "")
@@ -139,12 +141,14 @@ struct HandoffSessionView: View {
 
 }
 
-/// The streamed page in a scroll view: fits the screen at first, pinch up to 6×, double-tap to zoom. Taps are
-/// reported as fractions of the page image, so zoom doesn't change where they land.
+/// The streamed page in a scroll view: fits the screen at first, pinch up to 6×, double-tap to zoom. One finger taps
+/// and drags on the page (drag puzzles); two fingers pan. Positions are fractions of the page image, so zoom doesn't
+/// change where they land.
 struct ZoomableFrame: UIViewRepresentable {
   let image: UIImage
   let pageSize: CGSize
   let onTap: (Double, Double) -> Void
+  let onDrag: (String) -> Void
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -156,6 +160,7 @@ struct ZoomableFrame: UIViewRepresentable {
     scroll.showsVerticalScrollIndicator = false
     scroll.backgroundColor = .clear
     scroll.contentInsetAdjustmentBehavior = .never
+    scroll.panGestureRecognizer.minimumNumberOfTouches = 2 // one finger is for the page
     let iv = context.coordinator.imageView
     iv.isUserInteractionEnabled = true
     scroll.addSubview(iv)
@@ -163,8 +168,16 @@ struct ZoomableFrame: UIViewRepresentable {
     double.numberOfTapsRequired = 2
     let single = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
     single.require(toFail: double)
+    let drag = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.drag(_:)))
+    drag.maximumNumberOfTouches = 1
     iv.addGestureRecognizer(double)
     iv.addGestureRecognizer(single)
+    iv.addGestureRecognizer(drag)
+    context.coordinator.trail.strokeColor = UIColor.systemBlue.withAlphaComponent(0.7).cgColor
+    context.coordinator.trail.fillColor = UIColor.clear.cgColor
+    context.coordinator.trail.lineWidth = 3
+    context.coordinator.trail.lineCap = .round
+    iv.layer.addSublayer(context.coordinator.trail)
     context.coordinator.scroll = scroll
     return scroll
   }
@@ -172,6 +185,7 @@ struct ZoomableFrame: UIViewRepresentable {
   func updateUIView(_ scroll: UIScrollView, context: Context) {
     let c = context.coordinator
     c.onTap = onTap
+    c.onDrag = onDrag
     c.imageView.image = image
     c.layout(page: pageSize, in: scroll)
   }
@@ -180,6 +194,9 @@ struct ZoomableFrame: UIViewRepresentable {
     let imageView = UIImageView()
     weak var scroll: UIScrollView?
     var onTap: (Double, Double) -> Void = { _, _ in }
+    var onDrag: (String) -> Void = { _ in }
+    let trail = CAShapeLayer()       // shows the finger's path until the page catches up
+    private var points: [CGPoint] = []
     private var laidOut: (CGSize, CGSize)?
 
     /// Sizes the image to fit the screen at zoom 1. Only when the page size or the screen changes, so a new frame
@@ -208,6 +225,34 @@ struct ZoomableFrame: UIViewRepresentable {
       let p = g.location(in: imageView), size = imageView.bounds.size
       guard size.width > 0, size.height > 0 else { return }
       onTap(min(max(p.x / size.width, 0), 1), min(max(p.y / size.height, 0), 1))
+    }
+
+    /// Records the path in the image's own space and sends it as one drag when the finger lifts.
+    @objc func drag(_ g: UIPanGestureRecognizer) {
+      let size = imageView.bounds.size
+      guard size.width > 0, size.height > 0 else { return }
+      let p = g.location(in: imageView)
+      switch g.state {
+      case .began:
+        points = [CGPoint(x: p.x - g.translation(in: imageView).x, y: p.y - g.translation(in: imageView).y), p]
+      case .changed:
+        if let last = points.last, hypot(last.x - p.x, last.y - p.y) > 3 { points.append(p) }
+      case .ended:
+        points.append(p)
+        // At most 64 points: keep the start, the end and an even spread between.
+        let step = max(1, Int(ceil(Double(points.count) / 60)))
+        var kept = stride(from: 0, to: points.count, by: step).map { points[$0] }
+        if kept.last != points.last { kept.append(points.last!) }
+        let path = kept.map { String(format: "%.4f,%.4f", min(max($0.x / size.width, 0), 1), min(max($0.y / size.height, 0), 1)) }.joined(separator: ";")
+        if kept.count >= 2 { onDrag(path) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.trail.path = nil }
+        return
+      default:
+        points = []; trail.path = nil; return
+      }
+      let line = UIBezierPath()
+      for (i, q) in points.enumerated() { i == 0 ? line.move(to: q) : line.addLine(to: q) }
+      trail.path = line.cgPath
     }
 
     @objc func doubleTap(_ g: UITapGestureRecognizer) {
