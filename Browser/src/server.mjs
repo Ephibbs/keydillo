@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { Guard } from './guard.mjs';
 import { fillLogin } from './fill.mjs';
 import { fillNewPassword } from './signup.mjs';
-import { handOff } from './handoff.mjs';
+import { handOff, CAPTCHA_FRAME } from './handoff.mjs';
 import { Store } from './store.mjs';
 import { AppStore } from './app-store.mjs';
 import net from 'node:net';
@@ -231,7 +231,7 @@ export function labelFor(name, args = {}) {
 
 // Captchas, "are you human" pages and similar: Claude is told to hand them to the user instead of trying.
 const LOOKS = new Set(['browser_navigate', 'browser_click', 'browser_snapshot', 'browser_type', 'browser_press_key', 'browser_wait_for']);
-const CHECK_FRAME = /(google\.com|recaptcha\.net)\/recaptcha|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com|funcaptcha\.com|captcha-delivery\.com|geo\.captcha/i;
+const CHECK_FRAME = CAPTCHA_FRAME;
 const CHECK_TEXT = /verify (that )?you('| a)re (a )?human|i'?m not a robot|are you a robot|press (&|and) hold|complete the security check|unusual traffic from your|checking (if|that) (the site connection is secure|you are human)|solve (this|the) (puzzle|captcha)/i;
 export async function humanCheck() {
   for (const page of context?.pages() ?? []) {

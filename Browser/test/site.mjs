@@ -28,6 +28,9 @@ export function startSite() {
       if (url.pathname === '/signup-elsewhere') return html(form(`http://localhost:${port}/register`, `<input type=email name=email><input type=password name=password autocomplete=new-password><input type=password name=confirm>`));
       if (url.pathname === '/login-ws') return html(`<script>const ws = new WebSocket('ws://' + location.host + '/ws'); ws.onopen = () => ws.send('hello');</script><form method=post action="/session" onsubmit="ws.send('pw=' + this.password.value)">${U}${P}<button type=submit>Sign in</button></form>`);
       if (url.pathname === '/verify') return html(`<form method=post action="/verify-code"><input name=code autofocus id=code><input type=hidden name=human id=human value=no></form><button style="position:fixed;bottom:0;left:0;width:100%;height:20vh" onclick="human.value='yes'; code.focus()">I'm not a robot</button>`);
+      // A captcha in a frame from a captcha provider's address, placed away from the top left.
+      if (url.pathname === '/captcha') return html(`<h1>Sign up</h1><iframe src="/hcaptcha.com/checkbox" style="position:absolute;left:300px;top:100px;width:300px;height:300px;border:0"></iframe>`);
+      if (url.pathname === '/hcaptcha.com/checkbox') return html(`<form method=post action="/verify-code"><input name=code autofocus id=code><input type=hidden name=human id=human value=no></form><button style="position:fixed;bottom:0;left:0;width:100%;height:20vh" onclick="human.value='yes'; code.focus()">I'm not a robot</button>`);
       if (url.pathname === '/two-step') return html(form('/step1', U));
       if (url.pathname === '/evil-form') return html(form(`http://localhost:${port}/steal`, U + P));
       if (url.pathname === '/echo') return html(`<p>Your password is Hunter2-correct</p>`);

@@ -122,3 +122,16 @@ test('app mode: hand_off_to_user streams frames and applies the user\'s taps and
   const post = site.posts.at(-1);
   assert.equal(post.path, '/verify-code'); assert.equal(post.f.code, '424242'); assert.equal(post.f.human, 'yes');
 });
+
+test('app mode: on a captcha the phone gets just the captcha, and taps land in it', { skip }, async () => {
+  const before = events.length;
+  const nav = await call('browser_navigate', { url: `${base}/captcha` });
+  assert.match(nav.text, /asking for a person/);
+  const r = await call('hand_off_to_user', { reason: 'Solve the captcha' });
+  assert.ok(!r.isError, r.text);
+  const frame = events.slice(before).find((e) => e.event === 'handoffFrame');
+  // The 300×300 frame plus padding (at least a 420-wide column), not the whole page.
+  assert.ok(frame.width === 420 && frame.height > 200 && frame.height <= 348, JSON.stringify(frame)); // shorter if the window is
+  const post = site.posts.at(-1);
+  assert.equal(post.path, '/verify-code'); assert.equal(post.f.human, 'yes'); assert.equal(post.f.code, '424242');
+});

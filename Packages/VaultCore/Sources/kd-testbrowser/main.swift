@@ -44,11 +44,12 @@ let broker = BrowserBroker(
   handoff: { op, args in
     switch op {
     case "handoffStart":
+      HandoffScript.n = 0 // each hand-off plays the same script
       log(["event": "handoffStart", "reason": args["reason"] as? String ?? "", "url": args["url"] as? String ?? ""])
       return ["session": "s1", "phone": true]
     case "handoffFrame":
       let n = HandoffScript.next()
-      log(["event": "handoffFrame", "n": n, "bytes": (args["jpeg"] as? String)?.count ?? 0, "width": args["width"] as? Int ?? 0])
+      log(["event": "handoffFrame", "n": n, "bytes": (args["jpeg"] as? String)?.count ?? 0, "width": args["width"] as? Int ?? 0, "height": args["height"] as? Int ?? 0])
       switch n {
       case 1: return ["inputs": [["action": "tap", "x": 0.5, "y": 0.9]], "done": false]
       case 2: return ["inputs": [["action": "text", "text": "424242"], ["action": "key", "text": "Enter"]], "done": false]
