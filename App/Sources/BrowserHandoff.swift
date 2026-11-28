@@ -44,6 +44,9 @@ final class BrowserHandoff: @unchecked Sendable {
         s.host = try? HandoffHost(title: "Claude needs you on \(site): \(reason)", url: url, macID: ctx.macID, phone: ctx.phone,
                                   signer: ctx.signer, transport: ctx.transport)
         try? await s.host?.post()
+        // The fast direct pipe, for when the phone is near this Mac. Frames and inputs over it are signed and sealed
+        // the same way as over iCloud.
+        if let h = s.host { h.useDirect(MultipeerDirect(role: .mac, sessionID: h.start.sessionID, name: Host.current().localizedName ?? "Mac")) }
       }
       let phone = s.host != nil
       await MainActor.run { Self.showWindow(s, site: site, phone: phone) }
@@ -65,10 +68,12 @@ final class BrowserHandoff: @unchecked Sendable {
           case .tap: if let x = i.x, let y = i.y, (0...1).contains(x), (0...1).contains(y) { inputs.append(["action": "tap", "x": x, "y": y]) }
           case .text, .key: if let t = i.text, t.count <= 200 { inputs.append(["action": i.action.rawValue, "text": t]) }
           case .drag: if let pts = handoffDragPoints(i.text) { inputs.append(["action": "drag", "points": pts.map { [$0.0, $0.1] }]) }
+          case .down, .move, .up: if let x = i.x, let y = i.y, (0...1).contains(x), (0...1).contains(y) { inputs.append(["action": i.action.rawValue, "x": x, "y": y]) }
           }
         }
       }
-      return ["inputs": inputs, "done": done, "cancelled": s.cancelled, "via": via]
+      // "fast": the phone is linked directly, so the browser tool sends frames many times a second.
+      return ["inputs": inputs, "done": done, "cancelled": s.cancelled, "via": via, "fast": s.host?.isDirect == true]
 
     case "handoffEnd":
       guard let s = session(args["session"] as? String) else { return [:] as [String: Any] }

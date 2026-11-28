@@ -22,10 +22,17 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_kd-handoff._tcp</string>
+		<string>_kd-handoff._udp</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>keydillo uses the camera to scan the pairing code your Mac shows.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID approves your Mac's key requests.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>keydillo connects straight to your Mac when it's nearby, so a browser step you're asked to do shows up live.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

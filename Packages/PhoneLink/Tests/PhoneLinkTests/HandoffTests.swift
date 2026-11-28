@@ -50,6 +50,43 @@ final class HandoffTests: XCTestCase {
     XCTAssertTrue(left.isEmpty)
   }
 
+  func testDirectLinkCarriesFramesAndInputsAndStillChecksThem() async throws {
+    let (phone, mac) = try pair()
+    let t = folder()
+    let host = try HandoffHost(title: "Drag the shapes", url: "https://accounts.hcaptcha.com/demo", macID: "mac-1", phone: phone, signer: macKey, transport: t)
+    try await host.post()
+    let viewer = try await HandoffViewer(start: try await t.pendingHandoffs()[0], mac: mac, phoneID: "phone-1", signer: phoneSign, transport: t)
+    _ = await host.checkJoin()
+    let (macEnd, phoneEnd) = LoopbackDirect.pair()
+    host.useDirect(macEnd); viewer.useDirect(phoneEnd)
+    XCTAssertTrue(host.isDirect)
+
+    try await host.send(jpeg: Data("fast-frame".utf8), width: 420, height: 300, url: "u")
+    let cloudFrame = try await t.latestFrame(for: host.start.sessionID)
+    XCTAssertNil(cloudFrame, "frame went over iCloud while linked")
+    let f = try await viewer.nextFrame()
+    XCTAssertEqual(f?.0, Data("fast-frame".utf8))
+
+    try await viewer.send(.down, x: 0.1, y: 0.5)
+    try await viewer.send(.move, x: 0.5, y: 0.5)
+    try await viewer.send(.up, x: 0.9, y: 0.5)
+    let got = await host.newInputs()
+    XCTAssertEqual(got.map(\.action), [.down, .move, .up])
+
+    // Something else on the network sends an input not signed by the phone's session key: dropped.
+    let forged = try HandoffInput.make(.tap, session: host.start.sessionID, seq: 99, x: 0.5, y: 0.5, signer: SoftwareSigner())
+    phoneEnd.send(try JSONEncoder().encode(DirectMessage.input(forged)))
+    let none = await host.newInputs()
+    XCTAssertTrue(none.isEmpty, "forged direct input accepted")
+
+    // Link drops: back to iCloud.
+    macEnd.stop()
+    XCTAssertFalse(host.isDirect)
+    try await host.send(jpeg: Data("slow-frame".utf8), width: 420, height: 300, url: "u")
+    let slow = try await viewer.nextFrame()
+    XCTAssertEqual(slow?.0, Data("slow-frame".utf8))
+  }
+
   func testForgedStartRejectedByPhone() async throws {
     let (_, mac) = try pair()
     let t = folder()

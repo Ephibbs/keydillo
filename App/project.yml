@@ -54,6 +54,9 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         NSHumanReadableCopyright: "Open source"
+        # Browser hand-offs stream straight to a paired iPhone nearby instead of through iCloud.
+        NSLocalNetworkUsageDescription: "keydillo shows a browser step to your paired iPhone directly when it's nearby, which is faster than iCloud."
+        NSBonjourServices: [_kd-handoff._tcp, _kd-handoff._udp]
     entitlements:
       path: Sources/Keydillo.entitlements
       properties:

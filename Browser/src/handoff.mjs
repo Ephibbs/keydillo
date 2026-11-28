@@ -1,9 +1,12 @@
+import crypto from 'node:crypto';
 // Hand-off to the user: keydillo shows the page on the Mac and streams it to the paired iPhone; taps and typing from
 // the phone are applied here. Claude only gets "the user is done" back.
 // In the user's own Chrome (`chrome`, the extension relay), the tab itself also says "Your turn: …" with a Done
 // button, so they can just do it there. That works without the keydillo app too.
 
-const FRAME_EVERY_MS = 1000;
+const FRAME_EVERY_MS = 1000;      // over iCloud
+const FAST_FRAME_EVERY_MS = 70;    // over the direct link to a nearby phone
+const KEEPALIVE_MS = 1500;         // resend an unchanged page this often
 
 /** Frames that hold a captcha (reCAPTCHA, hCaptcha, Turnstile, Arkose, DataDome). */
 export const CAPTCHA_FRAME = /(google\.com|recaptcha\.net)\/recaptcha|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com|funcaptcha\.com|captcha-delivery\.com|geo\.captcha/i;
@@ -61,6 +64,7 @@ async function streamed({ page, store, reason, done, finished }) {
   const session = start.session;
   const until = Date.now() + LIMIT_MS;
   let via = 'the Mac';
+  let fast = false, lastSum = '', lastSent = 0;
   try {
     while (Date.now() < until) {
       if (done()) return finished('Chrome');
@@ -69,9 +73,14 @@ async function streamed({ page, store, reason, done, finished }) {
       const shot = await page.screenshot({ type: 'jpeg', quality: area ? 70 : 55, scale: 'css', ...(area ? { clip: area } : {}) }).catch(() => null);
       const view = await page.evaluate(() => ({ width: innerWidth, height: innerHeight })).catch(() => ({ width: 0, height: 0 }));
       const size = area || { x: 0, y: 0, ...view };
+      // Unchanged page: don't resend it (except now and then), so a fast link only carries real changes.
+      const sum = shot ? crypto.createHash('sha1').update(shot).digest('hex') + JSON.stringify(size) : '';
+      const send = shot && (sum !== lastSum || Date.now() - lastSent > KEEPALIVE_MS);
+      if (send) { lastSum = sum; lastSent = Date.now(); }
       const r = await store.handoffFrame(session, {
-        jpeg: shot ? shot.toString('base64') : '', width: size.width, height: size.height, url: page.url(),
+        jpeg: send ? shot.toString('base64') : '', width: size.width, height: size.height, url: page.url(),
       });
+      fast = !!r.fast;
       // Taps are fractions of the image the user saw, which is this area of the page.
       for (const i of r.inputs || []) {
         via = 'their iPhone';
@@ -84,6 +93,10 @@ async function streamed({ page, store, reason, done, finished }) {
           for (const p of i.points.slice(1)) await page.mouse.move(...at(p), { steps: 4 });
           await page.mouse.up();
         }
+        // Live drag over the direct link: the finger's moves arrive as they happen.
+        else if (i.action === 'down' && size.width) { await page.mouse.move(size.x + i.x * size.width, size.y + i.y * size.height); await page.mouse.down(); }
+        else if (i.action === 'move' && size.width) await page.mouse.move(size.x + i.x * size.width, size.y + i.y * size.height, { steps: 2 });
+        else if (i.action === 'up' && size.width) { await page.mouse.move(size.x + i.x * size.width, size.y + i.y * size.height); await page.mouse.up(); }
         else if (i.action === 'text' && i.text) await page.keyboard.type(i.text);
         else if (i.action === 'key' && i.text) await page.keyboard.press(i.text).catch(() => {});
       }
@@ -91,7 +104,7 @@ async function streamed({ page, store, reason, done, finished }) {
         if (r.cancelled) return { ok: false, message: 'The user cancelled the hand-off.' };
         return finished(r.via || via);
       }
-      await new Promise((res) => setTimeout(res, FRAME_EVERY_MS));
+      await new Promise((res) => setTimeout(res, fast ? FAST_FRAME_EVERY_MS : FRAME_EVERY_MS));
     }
     return { ok: false, message: 'The user didn\'t finish within 10 minutes.' };
   } finally {

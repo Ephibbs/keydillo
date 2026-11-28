@@ -22,7 +22,14 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_kd-handoff._tcp</string>
+		<string>_kd-handoff._udp</string>
+	</array>
 	<key>NSHumanReadableCopyright</key>
 	<string>Open source</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>keydillo shows a browser step to your paired iPhone directly when it's nearby, which is faster than iCloud.</string>
 </dict>
 </plist>

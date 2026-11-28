@@ -16,6 +16,8 @@ final class HandoffStore {
   var open: HandoffStart?
   private(set) var frame: UIImage?
   private(set) var frameSize = CGSize(width: 1, height: 1)
+  /// Linked straight to the Mac (fast), rather than through iCloud.
+  private(set) var direct = false
   var message: String?
   private var viewer: HandoffViewer?
   private var polling: Task<Void, Never>?
@@ -51,14 +53,19 @@ final class HandoffStore {
     guard let mac = PhoneStore.shared.mac, let transport else { return }
     do {
       let keys = try await PhoneKeys.unlock(reason: "Open: \(start.title)")
-      viewer = try await HandoffViewer(start: start, mac: mac, phoneID: PhoneStore.shared.phoneIdentifier, signer: keys.signer, transport: transport)
+      let v = try await HandoffViewer(start: start, mac: mac, phoneID: PhoneStore.shared.phoneIdentifier, signer: keys.signer, transport: transport)
+      // Fast path when the Mac is nearby; iCloud otherwise.
+      v.useDirect(MultipeerDirect(role: .phone, sessionID: start.sessionID, name: UIDevice.current.name))
+      viewer = v
       frame = nil
       open = start
       polling?.cancel()
       polling = Task { [weak self] in
         while !Task.isCancelled {
           await self?.pull()
-          try? await Task.sleep(nanoseconds: 700_000_000)
+          let fast = await MainActor.run { self?.viewer?.isDirect == true }
+          await MainActor.run { self?.direct = fast }
+          try? await Task.sleep(nanoseconds: fast ? 33_000_000 : 700_000_000)
         }
       }
     } catch {
@@ -72,15 +79,20 @@ final class HandoffStore {
     frameSize = CGSize(width: max(f.1, 1), height: max(f.2, 1))
   }
 
+  private var sending: Task<Void, Never>?
+  /// One at a time, in order: a drag's press must reach the Mac before its moves.
   func send(_ action: HandoffAction, x: Double? = nil, y: Double? = nil, text: String? = nil) {
     guard let viewer else { return }
-    Task { try? await viewer.send(action, x: x, y: y, text: text) }
+    let previous = sending
+    sending = Task { _ = await previous?.value; try? await viewer.send(action, x: x, y: y, text: text) }
   }
 
   func close(_ action: HandoffAction) {
     send(action)
     polling?.cancel(); polling = nil
-    viewer = nil; open = nil; frame = nil
+    let v = viewer
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { v?.stopDirect() } // let Done reach the Mac first
+    viewer = nil; open = nil; frame = nil; direct = false
     pending.removeAll()
   }
 }
@@ -113,8 +125,10 @@ struct HandoffSessionView: View {
         if let img = handoffs.frame {
           // Pinch to zoom and drag to pan; double-tap zooms in or back out. A tap clicks the page there.
           ZoomableFrame(image: img, pageSize: handoffs.frameSize,
+                        live: { handoffs.direct },
                         onTap: { x, y in handoffs.send(.tap, x: x, y: y) },
-                        onDrag: { path in handoffs.send(.drag, text: path) })
+                        onDrag: { path in handoffs.send(.drag, text: path) },
+                        onLive: { action, x, y in handoffs.send(action, x: x, y: y) })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Spacer()
@@ -127,7 +141,7 @@ struct HandoffSessionView: View {
           Button("Send") { handoffs.send(.text, text: typed); typed = "" }.disabled(typed.isEmpty)
           Button("Enter") { handoffs.send(.key, text: "Enter") }
         }
-        Text("Tap to click, drag with one finger. Two fingers to zoom and move around. Claude can't see what you type here.").font(.footnote).foregroundStyle(.secondary)
+        Text((handoffs.direct ? "Live, straight from your Mac. " : "Through iCloud, so it updates slowly. ") + "Tap to click, drag with one finger. Two fingers to zoom and move around. Claude can't see what you type here.").font(.footnote).foregroundStyle(.secondary)
       }
       .padding()
       .navigationTitle(handoffs.open?.title ?? "")
@@ -147,8 +161,10 @@ struct HandoffSessionView: View {
 struct ZoomableFrame: UIViewRepresentable {
   let image: UIImage
   let pageSize: CGSize
+  let live: () -> Bool
   let onTap: (Double, Double) -> Void
   let onDrag: (String) -> Void
+  let onLive: (HandoffAction, Double, Double) -> Void
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -186,6 +202,8 @@ struct ZoomableFrame: UIViewRepresentable {
     let c = context.coordinator
     c.onTap = onTap
     c.onDrag = onDrag
+    c.onLive = onLive
+    c.live = live
     c.imageView.image = image
     c.layout(page: pageSize, in: scroll)
   }
@@ -195,6 +213,10 @@ struct ZoomableFrame: UIViewRepresentable {
     weak var scroll: UIScrollView?
     var onTap: (Double, Double) -> Void = { _, _ in }
     var onDrag: (String) -> Void = { _ in }
+    var onLive: (HandoffAction, Double, Double) -> Void = { _, _, _ in }
+    var live: () -> Bool = { false }
+    private var liveDrag = false
+    private var lastMove = Date.distantPast
     let trail = CAShapeLayer()       // shows the finger's path until the page catches up
     private var points: [CGPoint] = []
     private var laidOut: (CGSize, CGSize)?
@@ -232,6 +254,28 @@ struct ZoomableFrame: UIViewRepresentable {
       let size = imageView.bounds.size
       guard size.width > 0, size.height > 0 else { return }
       let p = g.location(in: imageView)
+      let fx = { (q: CGPoint) in min(max(q.x / size.width, 0), 1) }, fy = { (q: CGPoint) in min(max(q.y / size.height, 0), 1) }
+      // Linked directly: the Mac presses, follows and releases as the finger moves.
+      if g.state == .began { liveDrag = live() }
+      if liveDrag {
+        switch g.state {
+        case .began:
+          let s0 = CGPoint(x: p.x - g.translation(in: imageView).x, y: p.y - g.translation(in: imageView).y)
+          onLive(.down, fx(s0), fy(s0)); onLive(.move, fx(p), fy(p)); points = [s0, p]
+        case .changed:
+          if Date().timeIntervalSince(lastMove) > 0.03 { onLive(.move, fx(p), fy(p)); lastMove = Date() }
+          points.append(p)
+        case .ended, .cancelled, .failed:
+          onLive(.up, fx(p), fy(p)); points = []
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.trail.path = nil }
+          return
+        default: return
+        }
+        let line = UIBezierPath()
+        for (i, q) in points.enumerated() { i == 0 ? line.move(to: q) : line.addLine(to: q) }
+        trail.path = line.cgPath
+        return
+      }
       switch g.state {
       case .began:
         points = [CGPoint(x: p.x - g.translation(in: imageView).x, y: p.y - g.translation(in: imageView).y), p]

@@ -86,6 +86,8 @@ public struct HandoffFrame: Codable, Equatable, Sendable {
 
 public enum HandoffAction: String, Codable, Sendable {
   case tap, text, key, done, cancel
+  /// Live drag over the direct link: press, move (many), release, each at x, y.
+  case down, move, up
   /// A one-finger drag. `text` holds the path: "x,y;x,y;…", fractions of the frame, start first.
   case drag
 }
@@ -151,6 +153,20 @@ public final class HandoffHost: @unchecked Sendable {
   private var seq: Int64 = 0
   private var lastInput: Int64 = 0
   private let lock = NSLock()
+  private var direct: HandoffDirect?
+  private var directInputs: [HandoffInput] = []
+
+  /// Opens the fast direct pipe for this session (the phone connects to it once it has joined).
+  public func useDirect(_ d: HandoffDirect) {
+    direct = d
+    d.setReceiver { [weak self] data in
+      guard let self, case .input(let i)? = try? JSONDecoder().decode(DirectMessage.self, from: data) else { return }
+      self.lock.withLock { self.directInputs.append(i) }
+    }
+  }
+
+  /// True while the phone is connected over the direct pipe (frames can then go out many times a second).
+  public var isDirect: Bool { join != nil && direct?.isConnected == true }
 
   public init(title: String, url: String, macID: String, phone: PairedPhone, signer: LinkSigner, transport: HandoffTransport, now: Date = Date()) throws {
     self.phone = phone; self.signer = signer; self.transport = transport
@@ -173,14 +189,18 @@ public final class HandoffHost: @unchecked Sendable {
     var f = HandoffFrame(sessionID: start.sessionID, seq: n, created: epoch(now), width: width, height: height, url: url,
                          image: try SealedBox.seal(jpeg, to: j.sessionAgreementKey, info: HandoffFrame.info(start.sessionID, n)))
     f.signature = try signer.sign(f.canonical)
+    if isDirect, let d = direct, let data = try? JSONEncoder().encode(DirectMessage.frame(f)) { d.send(data); return }
     try await transport.post(frame: f)
   }
 
   /// Inputs not seen before, in order. Anything not signed by this session's key, or out of order, is dropped.
   public func newInputs() async -> [HandoffInput] {
-    guard let j = join, let all = try? await transport.inputs(for: start.sessionID) else { return [] }
+    guard let j = join else { return [] }
+    let fromDirect: [HandoffInput] = lock.withLock { let d = directInputs; directInputs = []; return d }
+    // While linked directly, iCloud isn't checked every few milliseconds; only when the direct pipe is quiet.
+    let fromCloud = (isDirect && !fromDirect.isEmpty) ? [] : ((try? await transport.inputs(for: start.sessionID)) ?? [])
     var out: [HandoffInput] = []
-    for i in all.sorted(by: { $0.seq < $1.seq }) where i.sessionID == start.sessionID && i.seq > lastInput {
+    for i in (fromDirect + fromCloud).sorted(by: { $0.seq < $1.seq }) where i.sessionID == start.sessionID && i.seq > lastInput {
       guard PhoneLink.verify(i.signature, over: i.canonical, by: j.sessionSigningKey) else { continue }
       lastInput = i.seq
       out.append(i)
@@ -188,7 +208,7 @@ public final class HandoffHost: @unchecked Sendable {
     return out
   }
 
-  public func end() async { try? await transport.removeHandoff(start.sessionID) }
+  public func end() async { direct?.stop(); try? await transport.removeHandoff(start.sessionID) }
 }
 
 // MARK: Phone side
@@ -202,6 +222,21 @@ public final class HandoffViewer: @unchecked Sendable {
   let sessionAgreement: SoftwareAgreement
   private var seq: Int64 = 0
   private var lastFrame: Int64 = 0
+  private let lock = NSLock()
+  private var direct: HandoffDirect?
+  private var directFrame: HandoffFrame?
+
+  /// Connects the fast direct pipe to the Mac, when it's nearby.
+  public func useDirect(_ d: HandoffDirect) {
+    direct = d
+    d.setReceiver { [weak self] data in
+      guard let self, case .frame(let f)? = try? JSONDecoder().decode(DirectMessage.self, from: data) else { return }
+      self.lock.withLock { if f.seq > (self.directFrame?.seq ?? 0) { self.directFrame = f } }
+    }
+  }
+
+  public var isDirect: Bool { direct?.isConnected == true }
+  public func stopDirect() { direct?.stop() }
 
   /// `signer` is the phone's paired (Secure Enclave) signing key: one Face ID here covers the whole session.
   public init(start: HandoffStart, mac: PairedMac, phoneID: String, signer: LinkSigner, transport: HandoffTransport, now: Date = Date()) async throws {
@@ -216,15 +251,20 @@ public final class HandoffViewer: @unchecked Sendable {
 
   /// The newest frame, if it is newer than the last one shown: (jpeg, width, height, url).
   public func nextFrame() async throws -> (Data, Int, Int, String)? {
-    guard let f = try await transport.latestFrame(for: start.sessionID), f.seq > lastFrame, f.sessionID == start.sessionID else { return nil }
+    let viaDirect: HandoffFrame? = lock.withLock { let f = directFrame; directFrame = nil; return f }
+    let found: HandoffFrame?
+    if let viaDirect { found = viaDirect } else if isDirect { return nil } else { found = try await transport.latestFrame(for: start.sessionID) }
+    guard let f = found, f.seq > lastFrame, f.sessionID == start.sessionID else { return nil }
     let jpeg = try f.open(from: mac, with: sessionAgreement)
     lastFrame = f.seq
     return (jpeg, f.width, f.height, f.url)
   }
 
   public func send(_ action: HandoffAction, x: Double? = nil, y: Double? = nil, text: String? = nil) async throws {
-    seq += 1
-    try await transport.post(input: try HandoffInput.make(action, session: start.sessionID, seq: seq, x: x, y: y, text: text, signer: sessionSigner))
+    let n: Int64 = lock.withLock { seq += 1; return seq }
+    let input = try HandoffInput.make(action, session: start.sessionID, seq: n, x: x, y: y, text: text, signer: sessionSigner)
+    if isDirect, let d = direct, let data = try? JSONEncoder().encode(DirectMessage.input(input)) { d.send(data); return }
+    try await transport.post(input: input)
   }
 }
 
